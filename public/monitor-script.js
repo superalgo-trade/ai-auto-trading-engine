@@ -39,7 +39,8 @@ class TradingMonitor {
                 this.loadAccountData(),
                 this.loadPositionsData(),
                 this.loadTradesData(),
-                this.loadLogsData()
+                this.loadLogsData(),
+                this.loadTickerPrices()
             ]);
         } catch (error) {
             console.error('加载初始数据失败:', error);
@@ -320,6 +321,29 @@ class TradingMonitor {
         }
     }
 
+    // 加载顶部 Ticker 价格（从 API 获取）
+    async loadTickerPrices() {
+        try {
+            const response = await fetch('/api/prices?symbols=BTC,ETH,SOL,BNB,DOGE,XRP');
+            const data = await response.json();
+            
+            if (data.error) {
+                console.error('获取价格失败:', data.error);
+                return;
+            }
+            
+            // 更新价格缓存
+            Object.entries(data.prices).forEach(([symbol, price]) => {
+                this.cryptoPrices.set(symbol, price);
+            });
+            
+            // 更新显示
+            this.updateTickerPrices();
+        } catch (error) {
+            console.error('加载 Ticker 价格失败:', error);
+        }
+    }
+
     // 更新价格滚动条
     updateTickerPrices() {
         this.cryptoPrices.forEach((price, symbol) => {
@@ -340,6 +364,11 @@ class TradingMonitor {
                 this.loadPositionsData()
             ]);
         }, 3000);
+
+        // 每10秒更新价格（实时价格）
+        setInterval(async () => {
+            await this.loadTickerPrices();
+        }, 10000);
 
         // 每30秒更新交易记录和日志
         setInterval(async () => {

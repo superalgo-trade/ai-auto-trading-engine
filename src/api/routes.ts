@@ -300,6 +300,37 @@ export function createApiRoutes() {
     }
   });
 
+  /**
+   * 获取多个币种的实时价格
+   */
+  app.get("/api/prices", async (c) => {
+    try {
+      const symbolsParam = c.req.query("symbols") || "BTC,ETH,SOL,BNB,DOGE,XRP";
+      const symbols = symbolsParam.split(",").map(s => s.trim());
+      
+      const gateClient = createGateClient();
+      const prices: Record<string, number> = {};
+      
+      // 并发获取所有币种价格
+      await Promise.all(
+        symbols.map(async (symbol) => {
+          try {
+            const contract = `${symbol}_USDT`;
+            const ticker = await gateClient.getFuturesTicker(contract);
+            prices[symbol] = Number.parseFloat(ticker.last || "0");
+          } catch (error: any) {
+            logger.error(`获取 ${symbol} 价格失败:`, error);
+            prices[symbol] = 0;
+          }
+        })
+      );
+      
+      return c.json({ prices });
+    } catch (error: any) {
+      return c.json({ error: error.message }, 500);
+    }
+  });
+
   return app;
 }
 
