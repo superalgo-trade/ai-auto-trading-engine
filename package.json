@@ -1,0 +1,91 @@
+{
+  "name": "open-nof1.ai",
+  "version": "0.1.0",
+  "description": "nof1.ai Agent 自动交易系统",
+  "type": "module",
+  "author": "195440",
+  "license": "AGPL-3.0",
+  "keywords": [
+    "bitcoin",
+    "trading",
+    "cryptocurrency",
+    "ai",
+    "voltagent",
+    "automated-trading",
+    "gate-io"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yourusername/open-nof1.ai.git"
+  },
+  "bugs": {
+    "url": "https://github.com/yourusername/open-nof1.ai/issues"
+  },
+  "homepage": "https://github.com/yourusername/open-nof1.ai#readme",
+  "scripts": {
+    "dev": "tsx watch --env-file=.env ./src",
+    "build": "tsdown",
+    "start": "node dist/index.js",
+    "lint": "biome check ./src",
+    "lint:fix": "biome check --write ./src",
+    "typecheck": "tsc --noEmit",
+    "volt": "volt",
+    "setup": "bash scripts/setup.sh",
+    "trading:start": "tsx --env-file=.env ./src",
+    "trading:stop": "sh scripts/kill-port.sh",
+    "trading:restart": "npm run trading:stop && npm run trading:start",
+    "db:init": "bash scripts/init-db.sh",
+    "db:reset": "tsx --env-file=.env ./src/database/reset.ts",
+    "db:status": "bash scripts/db-status.sh",
+    "db:sync": "bash scripts/sync-from-gate.sh",
+    "db:sync-positions": "bash scripts/sync-positions.sh",
+    "db:check-consistency": "tsx --env-file=.env ./scripts/check-consistency.ts",
+    "db:migrate:peak-pnl": "tsx --env-file=.env ./src/database/add-peak-pnl-column.ts",
+    "demo:calculate-pnl": "tsx ./scripts/calculate-pnl-demo.ts",
+    "pm2:start": "pm2 start ecosystem.config.cjs --only open-nof1.ai",
+    "pm2:start:dev": "pm2 start ecosystem.config.cjs --only open-nof1.ai-dev",
+    "pm2:stop": "pm2 stop open-nof1.ai",
+    "pm2:stop:dev": "pm2 stop open-nof1.ai-dev",
+    "pm2:restart": "pm2 restart open-nof1.ai",
+    "pm2:restart:dev": "pm2 restart open-nof1.ai-dev",
+    "pm2:delete": "pm2 delete open-nof1.ai",
+    "pm2:delete:dev": "pm2 delete open-nof1.ai-dev",
+    "pm2:logs": "pm2 logs open-nof1.ai",
+    "pm2:logs:dev": "pm2 logs open-nof1.ai-dev",
+    "pm2:monit": "pm2 monit",
+    "pm2:list": "pm2 list",
+    "pm2:status": "pm2 status open-nof1.ai",
+    "pm2:flush": "pm2 flush"
+  },
+  "dependencies": {
+    "@ai-sdk/openai": "^2.0.53",
+    "@anthropic-ai/sdk": "^0.67.0",
+    "@openrouter/ai-sdk-provider": "^1.2.0",
+    "@voltagent/cli": "^0.1.10",
+    "@voltagent/core": "^1.0.0",
+    "@voltagent/libsql": "^1.0.0",
+    "@voltagent/logger": "^1.0.0",
+    "@voltagent/server-hono": "^1.0.0",
+    "ai": "^5.0.76",
+    "ccxt": "^4.5.12",
+    "chart.js": "^4.4.1",
+    "dotenv": "^16.4.7",
+    "gate-api": "^6.61.0",
+    "node-cron": "^3.0.3",
+    "pino": "^10.1.0",
+    "pino-pretty": "^13.1.2",
+    "pm2": "^6.0.13",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^1.9.4",
+    "@types/node": "^22.10.5",
+    "@types/node-cron": "^3.0.11",
+    "tsdown": "^0.15.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3"
+  },
+  "engines": {
+    "node": ">=20.19.0"
+  }
+}

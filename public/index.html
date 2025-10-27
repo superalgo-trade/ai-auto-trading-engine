@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI Trading Monitor - open-nof1</title>
+  <link rel="stylesheet" href="monitor-styles.css">
+</head>
+
+<body>
+  <!-- Header -->
+  <header class="header">
+    <div class="nav-bar">
+      <div class="logo">open-nof1</div>
+      <nav class="nav-menu">
+        <a href="#" class="nav-link active">LIVE</a>
+      </nav>
+    </div>
+  </header>
+
+  <!-- Crypto Price Ticker -->
+  <div class="ticker-wrapper">
+    <div class="ticker-content" id="ticker">
+      <div class="ticker-item">
+        <span class="crypto-name">BTC</span>
+        <span class="crypto-price" data-symbol="BTC">$95,000.00</span>
+      </div>
+      <div class="ticker-item">
+        <span class="crypto-name">ETH</span>
+        <span class="crypto-price" data-symbol="ETH">$3,500.00</span>
+      </div>
+      <div class="ticker-item">
+        <span class="crypto-name">SOL</span>
+        <span class="crypto-price" data-symbol="SOL">$180.00</span>
+      </div>
+      <div class="ticker-item">
+        <span class="crypto-name">BNB</span>
+        <span class="crypto-price" data-symbol="BNB">$600.00</span>
+      </div>
+      <div class="ticker-item">
+        <span class="crypto-name">DOGE</span>
+        <span class="crypto-price" data-symbol="DOGE">$0.3500</span>
+      </div>
+      <div class="ticker-item">
+        <span class="crypto-name">XRP</span>
+        <span class="crypto-price" data-symbol="XRP">$0.50</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Main Content -->
+  <main class="main-content">
+    <!-- AI Decision Section -->
+    <section class="chart-section">
+      <div class="chart-header">
+        <h3 class="decision-title">最新 AI 决策</h3>
+        <div class="decision-meta" id="decision-meta">
+          <span class="decision-time">加载中...</span>
+          <span class="decision-iteration">#-</span>
+        </div>
+      </div>
+      <div class="decision-container">
+        <div class="decision-content" id="decision-content">
+          <p class="loading">加载 AI 决策中...</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Account Value Section -->
+    <section class="account-section">
+      <div class="account-header">
+        <h2>总资产</h2>
+      </div>
+      <div class="account-value">
+        <span class="currency-symbol">$</span>
+        <span class="value-amount" id="account-value">0.00</span>
+      </div>
+      <div class="value-change">
+        <span class="change-amount" id="value-change">+$0.00</span>
+        <span class="change-percent" id="value-percent">(+0.00%)</span>
+      </div>
+      <div class="account-details">
+        <div class="detail-item">
+          <span class="detail-label">可用余额</span>
+          <span class="detail-value" id="available-balance">0.00</span>
+        </div>
+        <div class="detail-item">
+          <span class="detail-label">未实现盈亏</span>
+          <span class="detail-value" id="unrealised-pnl">+0.00</span>
+        </div>
+      </div>
+    </section>
+
+        <!-- Trades Section -->
+        <section class="trades-section">
+            <h2 class="section-header">交易历史 <span id="tradesCount"></span></h2>
+            <div class="trades-container" id="tradesContainer">
+                <p class="loading">加载中...</p>
+            </div>
+        </section>
+  </main>
+
+  <!-- Scripts -->
+  <script src="monitor-script.js"></script>
+</body>
+
+</html>
