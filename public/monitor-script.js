@@ -143,10 +143,10 @@ class TradingMonitor {
                             <td>${pos.quantity}</td>
                             <td>$${pos.entryPrice.toFixed(4)}</td>
                             <td>$${pos.currentPrice.toFixed(4)}</td>
-                            <td class="${pos.unrealizedPnl >= 0 ? '' : 'negative'}">
+                            <td class="${pos.unrealizedPnl >= 0 ? 'positive' : 'negative'}">
                                 ${pos.unrealizedPnl >= 0 ? '+' : ''}$${pos.unrealizedPnl.toFixed(2)}
                             </td>
-                            <td class="${pos.unrealizedPnl >= 0 ? '' : 'negative'}">
+                            <td class="${pos.unrealizedPnl >= 0 ? 'positive' : 'negative'}">
                                 ${pos.unrealizedPnl >= 0 ? '+' : ''}${profitPercent}%
                             </td>
                         </tr>

@@ -98,6 +98,30 @@
       </div>
     </section>
 
+        <!-- Positions Section -->
+        <section class="positions-section">
+            <h2 class="section-header">当前持仓</h2>
+            <div class="positions-container">
+                <table class="positions-table">
+                    <thead>
+                        <tr>
+                            <th>币种</th>
+                            <th>数量</th>
+                            <th>开仓价格</th>
+                            <th>当前价格</th>
+                            <th>未实现盈亏</th>
+                            <th>收益率</th>
+                        </tr>
+                    </thead>
+                    <tbody id="positions-body">
+                        <tr>
+                            <td colspan="6" class="loading">加载中...</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
         <!-- Trades Section -->
         <section class="trades-section">
             <h2 class="section-header">交易历史 <span id="tradesCount"></span></h2>
