@@ -68,7 +68,7 @@ The system follows a **minimal intervention** approach:
 
 ### Real-Time Monitoring Interface
 
-- **Web Dashboard**: Accessible at `http://localhost:3141`
+- **Web Dashboard**: Accessible at `http://localhost:3100`
 - **Account Metrics**: Balance, equity, unrealized PnL
 - **Position Overview**: Current holdings, entry prices, leverage
 - **Trade History**: Complete transaction log with timestamps
@@ -153,7 +153,7 @@ Create `.env` file in project root:
 
 ```env
 # Server Configuration
-PORT=3141
+PORT=3100
 
 # Trading Parameters
 TRADING_INTERVAL_MINUTES=5      # Trading loop interval
@@ -195,7 +195,7 @@ npm run trading:start
 
 ### Access Web Dashboard
 
-Navigate to `http://localhost:3141` in your browser.
+Navigate to `http://localhost:3100` in your browser.
 
 ## Project Structure
 
@@ -321,6 +321,31 @@ npm run db:sync
 
 # Sync position data
 npm run db:sync-positions
+```
+
+### Docker Container Management
+
+```bash
+# Use quick start script (recommended)
+npm run docker:start
+
+# Stop container
+npm run docker:stop
+
+# View logs
+npm run docker:logs
+
+# Build image
+npm run docker:build
+
+# Using Docker Compose
+npm run docker:up          # Start development environment
+npm run docker:down        # Stop development environment
+npm run docker:restart     # Restart container
+
+# Production environment
+npm run docker:prod:up     # Start production environment
+npm run docker:prod:down   # Stop production environment
 ```
 
 ### PM2 Process Management

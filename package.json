@@ -55,7 +55,16 @@
     "pm2:monit": "pm2 monit",
     "pm2:list": "pm2 list",
     "pm2:status": "pm2 status open-nof1.ai",
-    "pm2:flush": "pm2 flush"
+    "pm2:flush": "pm2 flush",
+    "docker:build": "docker build -t open-nof1.ai:latest .",
+    "docker:start": "bash scripts/docker-start.sh",
+    "docker:stop": "bash scripts/docker-stop.sh",
+    "docker:logs": "bash scripts/docker-logs.sh",
+    "docker:up": "docker compose up -d",
+    "docker:down": "docker compose down",
+    "docker:restart": "docker compose restart",
+    "docker:prod:up": "docker compose -f docker-compose.prod.yml up -d",
+    "docker:prod:down": "docker compose -f docker-compose.prod.yml down"
   },
   "dependencies": {
     "@ai-sdk/openai": "^2.0.53",

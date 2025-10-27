@@ -1,0 +1,39 @@
+version: '3.8'
+
+services:
+  open-nof1-ai:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: open-nof1.ai
+    restart: unless-stopped
+    ports:
+      - "${PORT:-3100}:3100"
+    env_file:
+      - .env
+    environment:
+      - NODE_ENV=production
+      - TZ=Asia/Shanghai
+    volumes:
+      # 挂载数据库目录以持久化数据
+      - ./voltagent-data:/app/.voltagent
+      # 挂载日志目录（可选）
+      - ./logs:/app/logs
+    networks:
+      - trading-network
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3100/api/health', (r) => process.exit(r.statusCode === 200 ? 0 : 1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  trading-network:
+    driver: bridge
+

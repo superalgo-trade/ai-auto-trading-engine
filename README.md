@@ -152,7 +152,7 @@ npm install
 
 ```env
 # 服务器配置
-PORT=3141
+PORT=3100
 
 # 交易参数
 TRADING_INTERVAL_MINUTES=5      # 交易循环间隔
@@ -194,7 +194,7 @@ npm run trading:start
 
 ### 访问 Web 仪表板
 
-在浏览器中访问 `http://localhost:3141`
+在浏览器中访问 `http://localhost:3100`
 
 ## 项目结构
 
@@ -250,7 +250,7 @@ open-nof1.ai/
 
 | 变量 | 说明 | 默认值 | 是否必需 |
 |------|------|--------|---------|
-| `PORT` | HTTP 服务器端口 | 3141 | 否 |
+| `PORT` | HTTP 服务器端口 | 3100 | 否 |
 | `TRADING_INTERVAL_MINUTES` | 交易循环间隔(分钟) | 5 | 否 |
 | `MAX_LEVERAGE` | 最大杠杆倍数 | 10 | 否 |
 | `INITIAL_BALANCE` | 初始资金(USDT) | 2000 | 否 |
@@ -320,6 +320,31 @@ npm run db:sync
 
 # 同步持仓数据
 npm run db:sync-positions
+```
+
+### Docker 容器管理
+
+```bash
+# 使用快速启动脚本（推荐）
+npm run docker:start
+
+# 停止容器
+npm run docker:stop
+
+# 查看日志
+npm run docker:logs
+
+# 构建镜像
+npm run docker:build
+
+# 使用 Docker Compose
+npm run docker:up          # 启动开发环境
+npm run docker:down        # 停止开发环境
+npm run docker:restart     # 重启容器
+
+# 生产环境
+npm run docker:prod:up     # 启动生产环境
+npm run docker:prod:down   # 停止生产环境
 ```
 
 ### PM2 进程管理
@@ -416,9 +441,11 @@ docker build -t open-nof1.ai:latest .
 # 运行容器
 docker run -d \
   --name open-nof1.ai \
-  -p 3141:3141 \
+  -p 3100:3100 \
   --env-file .env \
   --restart unless-stopped \
+  -v ./voltagent-data:/app/.voltagent \
+  -v ./logs:/app/logs \
   open-nof1.ai:latest
 
 # 查看日志
@@ -431,22 +458,23 @@ docker stop open-nof1.ai
 docker rm open-nof1.ai
 ```
 
-**Docker Compose**(可选):
+**Docker Compose**(推荐):
 
-```yaml
-version: '3.8'
-services:
-  trading:
-    build: .
-    container_name: open-nof1.ai
-    ports:
-      - "3141:3141"
-    env_file:
-      - .env
-    restart: unless-stopped
-    volumes:
-      - ./.voltagent:/app/.voltagent
+```bash
+# 使用快速启动脚本
+./scripts/docker-start.sh
+
+# 或手动使用 Docker Compose
+docker compose up -d
+
+# 查看日志
+docker compose logs -f
+
+# 停止服务
+docker compose down
 ```
+
+详细的 Docker 部署文档请参考: [Docker 部署指南](./docs/DOCKER_DEPLOYMENT.md)
 
 ## 故障排查
 
@@ -486,7 +514,7 @@ nano .env
 
 #### 端口被占用
 
-**错误**: `EADDRINUSE: address already in use :::3141`
+**错误**: `EADDRINUSE: address already in use :::3100`
 
 **解决方案**:
 ```bash
@@ -494,10 +522,10 @@ nano .env
 npm run trading:stop
 
 # 方法 2: 手动终止进程
-lsof -ti:3141 | xargs kill -9
+lsof -ti:3100 | xargs kill -9
 
 # 方法 3: 在 .env 中更改端口
-# 设置 PORT=3142
+# 设置 PORT=3200
 ```
 
 #### 技术指标返回零
