@@ -122,7 +122,7 @@ class TradingMonitor {
             
             if (!data.positions || data.positions.length === 0) {
                 if (positionsBody) {
-                    positionsBody.innerHTML = '<tr><td colspan="6" class="empty-state">暂无持仓</td></tr>';
+                    positionsBody.innerHTML = '<tr><td colspan="7" class="empty-state">暂无持仓</td></tr>';
                 }
                 return;
             }
@@ -142,6 +142,7 @@ class TradingMonitor {
                             <td>${pos.symbol}</td>
                             <td>${pos.quantity}</td>
                             <td>$${pos.entryPrice.toFixed(4)}</td>
+                            <td>$${pos.openValue.toFixed(2)}</td>
                             <td>$${pos.currentPrice.toFixed(4)}</td>
                             <td class="${pos.unrealizedPnl >= 0 ? 'positive' : 'negative'}">
                                 ${pos.unrealizedPnl >= 0 ? '+' : ''}$${pos.unrealizedPnl.toFixed(2)}
