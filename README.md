@@ -2,15 +2,16 @@
 
 <div align="center">
 
-[![简体中文](https://img.shields.io/badge/语言-简体中文-red.svg)](./README.md)
-[![English](https://img.shields.io/badge/Language-English-blue.svg)](./README_EN.md)
-
 [![VoltAgent](https://img.shields.io/badge/Framework-VoltAgent-purple.svg)](https://voltagent.dev)
 [![OpenRouter](https://img.shields.io/badge/AI-OpenRouter-orange.svg)](https://openrouter.ai)
 [![Gate.io](https://img.shields.io/badge/Exchange-Gate.io-00D4AA.svg)](https://www.gate.io)
 [![TypeScript](https://img.shields.io/badge/Language-TypeScript-3178C6.svg?logo=typescript&logoColor=white)](https://www.typescriptlang.org)
 [![Node.js](https://img.shields.io/badge/Runtime-Node.js%2020+-339933.svg?logo=node.js&logoColor=white)](https://nodejs.org)
 [![License](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](./LICENSE)
+
+[![简体中文](https://img.shields.io/badge/语言-简体中文-red.svg)](./README.md)
+[![English](https://img.shields.io/badge/Language-English-blue.svg)](./README_EN.md)
+[![日本語](https://img.shields.io/badge/言語-日本語-yellow.svg)](./README_JA.md)
 
 </div>
 
@@ -77,7 +78,7 @@ open-nof1.ai 是一个 AI 驱动的加密货币自动交易系统，将大语言
 | 组件 | 技术 | 用途 |
 |------|------|------|
 | 框架 | [VoltAgent](https://voltagent.dev) | AI Agent 编排与管理 |
-| AI 提供商 | [OpenRouter](https://openrouter.ai) | 统一 LLM API 访问 (DeepSeek V3.2, GPT-4, Claude 等) |
+| AI 提供商 | [OpenRouter](https://openrouter.ai) | 统一 LLM API 访问 (DeepSeek V3.2, Grok4, Claude 等) |
 | 交易所 | [Gate.io](https://www.gate.io) | 加密货币交易(测试网 & 正式网) |
 | 数据库 | LibSQL (SQLite) | 本地数据持久化 |
 | Web 服务器 | Hono | 高性能 HTTP 框架 |
@@ -96,7 +97,7 @@ open-nof1.ai 是一个 AI 驱动的加密货币自动交易系统，将大语言
 
 ### AI 驱动决策
 
-- **模型支持**: DeepSeek V3.2、GPT-4、Claude 3.5、Gemini Pro 1.5
+- **模型支持**: DeepSeek V3.2、Grok4、Claude 4.5、Gemini Pro 2.5
 - **数据输入**: 实时价格、成交量、K线形态、技术指标
 - **自主分析**: 无预配置交易信号
 - **多时间框架**: 跨多个时间窗口聚合数据
@@ -243,9 +244,6 @@ open-nof1.ai/
 │   ├── init-db.sh                    # 数据库设置脚本
 │   ├── kill-port.sh                  # 服务关闭脚本
 │   └── sync-from-gate.sh             # 数据同步脚本
-├── docs/                             # 附加文档
-│   ├── DATABASE_SETUP.md
-│   └── NETWORK_CONFIG.md
 ├── .env                              # 环境配置
 ├── .voltagent/                       # 数据存储目录
 │   └── trading.db                    # SQLite 数据库文件
@@ -278,8 +276,8 @@ open-nof1.ai/
 可通过 OpenRouter 使用的替代模型:
 - `openai/gpt-4o-mini` - 性价比高
 - `openai/gpt-4o` - 高质量推理
-- `anthropic/claude-3.5-sonnet` - 强大的分析能力
-- `google/gemini-pro-1.5` - 多模态支持
+- `anthropic/claude-4.5-sonnet` - 强大的分析能力
+- `google/gemini-pro-2.5` - 多模态支持
 
 要更换模型,请修改 `src/agents/tradingAgent.ts` 中的配置。
 
@@ -485,8 +483,6 @@ docker compose logs -f
 docker compose down
 ```
 
-详细的 Docker 部署文档请参考: [Docker 部署指南](./docs/DOCKER_DEPLOYMENT.md)
-
 ## 故障排查
 
 ### 常见问题
@@ -691,11 +687,6 @@ npm run trading:start
 
 ## 资源
 
-### 文档
-
-- [数据库设置指南](./docs/DATABASE_SETUP.md)
-- [网络配置](./docs/NETWORK_CONFIG.md)
-
 ### 外部链接
 
 - [VoltAgent 文档](https://voltagent.dev/docs/)
@@ -785,3 +776,10 @@ npm run trading:start
 - `test`: 测试添加或修改
 - `chore`: 构建过程或辅助工具变更
 - `ci`: CI/CD 配置变更
+
+---
+<div align="center">
+
+[![Star History Chart](https://api.star-history.com/svg?repos=195440/open-nof1.ai&type=Date)](https://star-history.com/#195440/open-nof1.ai&Date)
+
+</div>

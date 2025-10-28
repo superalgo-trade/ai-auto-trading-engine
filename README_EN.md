@@ -2,15 +2,16 @@
 
 <div align="center">
 
-[![简体中文](https://img.shields.io/badge/语言-简体中文-red.svg)](./README.md)
-[![English](https://img.shields.io/badge/Language-English-blue.svg)](./README_EN.md)
-
 [![VoltAgent](https://img.shields.io/badge/Framework-VoltAgent-purple.svg)](https://voltagent.dev)
 [![OpenRouter](https://img.shields.io/badge/AI-OpenRouter-orange.svg)](https://openrouter.ai)
 [![Gate.io](https://img.shields.io/badge/Exchange-Gate.io-00D4AA.svg)](https://www.gate.io)
 [![TypeScript](https://img.shields.io/badge/Language-TypeScript-3178C6.svg?logo=typescript&logoColor=white)](https://www.typescriptlang.org)
 [![Node.js](https://img.shields.io/badge/Runtime-Node.js%2020+-339933.svg?logo=node.js&logoColor=white)](https://nodejs.org)
 [![License](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](./LICENSE)
+
+[![简体中文](https://img.shields.io/badge/语言-简体中文-red.svg)](./README.md)
+[![English](https://img.shields.io/badge/Language-English-blue.svg)](./README_EN.md)
+[![日本語](https://img.shields.io/badge/言語-日本語-yellow.svg)](./README_JA.md)
 
 </div>
 
@@ -77,7 +78,7 @@ The system follows a **minimal human intervention** design philosophy, abandonin
 | Component | Technology | Purpose |
 |-----------|-----------|---------|
 | Framework | [VoltAgent](https://voltagent.dev) | AI Agent orchestration and management |
-| AI Provider | [OpenRouter](https://openrouter.ai) | Unified LLM API access (DeepSeek V3.2, GPT-4, Claude, etc.) |
+| AI Provider | [OpenRouter](https://openrouter.ai) | Unified LLM API access (DeepSeek V3.2, Grok4, Claude, etc.) |
 | Exchange | [Gate.io](https://www.gate.io) | Cryptocurrency trading (testnet & mainnet) |
 | Database | LibSQL (SQLite) | Local data persistence |
 | Web Server | Hono | High-performance HTTP framework |
@@ -96,7 +97,7 @@ The system follows a **minimal human intervention** design philosophy, abandonin
 
 ### AI-Powered Decision Making
 
-- **Model Support**: DeepSeek V3.2, GPT-4, Claude 3.5, Gemini Pro 1.5
+- **Model Support**: DeepSeek V3.2, Grok4, Claude 4.5, Gemini Pro 2.5
 - **Data Inputs**: Real-time prices, volume, candlestick patterns, technical indicators
 - **Autonomous Analysis**: No pre-configured trading signals
 - **Multi-Timeframe**: Aggregates data across multiple time windows
@@ -244,9 +245,6 @@ open-nof1.ai/
 │   ├── init-db.sh                    # Database setup script
 │   ├── kill-port.sh                  # Service shutdown script
 │   └── sync-from-gate.sh             # Data sync script
-├── docs/                             # Additional documentation
-│   ├── DATABASE_SETUP.md
-│   └── NETWORK_CONFIG.md
 ├── .env                              # Environment configuration
 ├── .voltagent/                       # Data storage directory
 │   └── trading.db                    # SQLite database file
@@ -279,8 +277,8 @@ Default model: `deepseek/deepseek-v3.2-exp`
 Alternative models available through OpenRouter:
 - `openai/gpt-4o-mini` - Cost-effective option
 - `openai/gpt-4o` - High-quality reasoning
-- `anthropic/claude-3.5-sonnet` - Strong analytical capabilities
-- `google/gemini-pro-1.5` - Multimodal support
+- `anthropic/claude-4.5-sonnet` - Strong analytical capabilities
+- `google/gemini-pro-2.5` - Multimodal support
 
 To change models, modify the configuration in `src/agents/tradingAgent.ts`.
 
@@ -689,11 +687,6 @@ npm run trading:start
 
 ## Resources
 
-### Documentation
-
-- [Database Setup Guide](./docs/DATABASE_SETUP.md)
-- [Network Configuration](./docs/NETWORK_CONFIG.md)
-
 ### External Links
 
 - [VoltAgent Documentation](https://voltagent.dev/docs/)
@@ -784,3 +777,9 @@ Types:
 - `chore`: Build process or auxiliary tool changes
 - `ci`: CI/CD configuration changes
 
+---
+<div align="center">
+
+[![Star History Chart](https://api.star-history.com/svg?repos=195440/open-nof1.ai&type=Date)](https://star-history.com/#195440/open-nof1.ai&Date)
+
+</div>
