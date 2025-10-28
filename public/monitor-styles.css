@@ -34,6 +34,9 @@ body {
     position: sticky;
     top: 0;
     z-index: 1000;
+    width: 100%;
+    left: 0;
+    right: 0;
 }
 
 .nav-bar {
@@ -104,6 +107,7 @@ body {
     border-bottom: 1px solid var(--border-color);
     overflow: hidden;
     padding: 0.8rem 0;
+    width: 100%;
 }
 
 .ticker-content {
@@ -663,24 +667,172 @@ body {
 }
 
 @media (max-width: 768px) {
+    /* Header */
+    .header {
+        padding: 0.8rem 1rem;
+    }
+
+    .nav-bar {
+        max-width: 100%;
+    }
+
+    .logo {
+        font-size: 1.2rem;
+    }
+
     .nav-menu {
-        gap: 1rem;
+        gap: 0.8rem;
     }
 
     .nav-link {
-        font-size: 0.8rem;
+        font-size: 0.75rem;
+    }
+
+    .nav-link svg {
+        width: 16px;
+        height: 16px;
+        margin-right: 3px !important;
     }
 
     .btn-waitlist {
         display: none;
     }
 
-    .tabs-header {
-        flex-wrap: wrap;
+    /* Ticker */
+    .ticker-wrapper {
+        padding: 0.6rem 0;
+        width: 100%;
+    }
+
+    .ticker-content {
+        gap: 2rem;
+    }
+
+    .ticker-item {
+        font-size: 0.85rem;
+    }
+
+    /* Main Content */
+    .main-content {
+        padding: 1rem;
+        gap: 1rem;
+    }
+
+    /* Chart Section */
+    .chart-section {
+        padding: 1rem;
+        min-height: 350px;
+    }
+
+    .chart-container {
+        height: 300px;
+        padding: 0.5rem;
+    }
+
+    .chart-title,
+    .decision-title {
+        font-size: 0.9rem;
+    }
+
+    .timeframe-select {
+        font-size: 0.75rem;
+        padding: 0.3rem 0.6rem;
+    }
+
+    .decision-container {
+        height: 300px;
+        padding: 0.8rem;
+    }
+
+    .decision-text {
+        font-size: 0.8rem;
+    }
+
+    /* Account Section */
+    .account-section {
+        padding: 1rem;
     }
 
     .account-value {
         font-size: 2rem;
+    }
+
+    .currency-symbol {
+        font-size: 1.5rem;
+    }
+
+    /* Tables */
+    .positions-section,
+    .trades-section {
+        padding: 1rem;
+    }
+
+    .section-header {
+        font-size: 0.9rem;
+    }
+
+    .positions-table {
+        font-size: 0.75rem;
+    }
+
+    .positions-table th,
+    .positions-table td {
+        padding: 0.5rem 0.3rem;
+    }
+
+    .trade-item {
+        padding: 0.8rem;
+    }
+
+    .trade-symbol {
+        font-size: 0.9rem;
+    }
+
+    .trade-time {
+        font-size: 0.75rem;
+    }
+
+    .trade-info {
+        grid-template-columns: 1fr;
+        gap: 0.5rem;
+    }
+
+    .trade-field .label,
+    .trade-field .value {
+        font-size: 0.8rem;
+    }
+
+    .tabs-header {
+        flex-wrap: wrap;
+    }
+}
+
+@media (max-width: 480px) {
+    /* Extra small screens */
+    .logo {
+        font-size: 1rem;
+    }
+
+    .nav-link {
+        font-size: 0.7rem;
+    }
+
+    .account-value {
+        font-size: 1.5rem;
+    }
+
+    .currency-symbol {
+        font-size: 1.2rem;
+    }
+
+    .chart-container {
+        height: 250px;
+    }
+
+    .positions-table th,
+    .positions-table td {
+        font-size: 0.7rem;
+        padding: 0.4rem 0.2rem;
     }
 }
 

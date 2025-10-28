@@ -52,7 +52,7 @@ async function recordAccountAssets() {
     const unrealisedPnl = Number.parseFloat(account.unrealised_pnl || "0");
     
     // Total balance without unrealized PnL
-    const totalBalance = accountTotal - unrealisedPnl;
+    const totalBalance = accountTotal + unrealisedPnl;
     
     // Get initial balance from database
     const initialResult = await dbClient.execute(
