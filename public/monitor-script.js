@@ -137,7 +137,7 @@ class TradingMonitor {
             // 更新持仓表格
             if (positionsBody) {
                 positionsBody.innerHTML = data.positions.map(pos => {
-                    const profitPercent = ((pos.currentPrice - pos.entryPrice) / pos.entryPrice * 100).toFixed(2);
+                    const profitPercent = ((pos.unrealizedPnl / pos.openValue) * 100).toFixed(2);
                     return `
                         <tr>
                             <td>${pos.symbol}</td>
