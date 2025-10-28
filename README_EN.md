@@ -1,16 +1,20 @@
 # open-nof1.ai
 
-![open-nof1.ai](./public/image.png)
-
 [中文](./README.md) | [English](./README_EN.md)
 
-A production-ready, AI-powered cryptocurrency trading system built on VoltAgent framework. This system leverages advanced large language models for autonomous market analysis and trading decisions, integrated with Gate.io exchange API for perpetual contract trading across multiple cryptocurrencies.
+## Overview
+
+open-nof1.ai is an AI-powered cryptocurrency automated trading system that deeply integrates large language model intelligence with quantitative trading practices. Built on an Agent framework, the system achieves truly intelligent trading by granting AI complete autonomy in market analysis and trading decisions.
+
+The system follows a **minimal human intervention** design philosophy, abandoning traditional hardcoded trading rules and allowing AI models to autonomously learn and make decisions based on raw market data. It integrates with Gate.io exchange (supporting both testnet and mainnet), provides complete perpetual contract trading capabilities, covers mainstream cryptocurrencies such as BTC, ETH, SOL, and supports full automation from data collection, intelligent analysis, risk management to trade execution.
+
+![open-nof1.ai](./public/image.png)
 
 ## Table of Contents
 
 - [Overview](#overview)
-- [Key Features](#key-features)
 - [Architecture](#architecture)
+- [Key Features](#key-features)
 - [Quick Start](#quick-start)
 - [Project Structure](#project-structure)
 - [Configuration](#configuration)
@@ -22,9 +26,39 @@ A production-ready, AI-powered cryptocurrency trading system built on VoltAgent 
 - [Contributing](#contributing)
 - [License](#license)
 
-## Overview
+## Architecture
 
-This system represents a complete implementation of an AI-driven trading platform designed for cryptocurrency markets. It demonstrates the practical application of modern AI agents in financial trading scenarios.
+```
+┌─────────────────────────────────────────────────────────┐
+│                   Trading Agent (AI)                    │
+│              (DeepSeek V3.2 / GPT-4 / Claude)          │
+└─────────────────┬───────────────────────────────────────┘
+                  │
+                  ├─── Market Data Analysis
+                  ├─── Position Management
+                  └─── Trade Execution Decisions
+                  │
+┌─────────────────┴───────────────────────────────────────┐
+│                    VoltAgent Core                       │
+│              (Agent Orchestration & Tool Routing)       │
+└─────────┬──────────────────────────────────┬────────────┘
+          │                                  │
+┌─────────┴──────────┐            ┌──────────┴────────────┐
+│    Trading Tools   │            │   Gate.io API Client  │
+│                    │            │                       │
+│ - Market Data      │◄───────────┤ - Order Management    │
+│ - Account Info     │            │ - Position Query      │
+│ - Trade Execution  │            │ - Market Data Stream  │
+└─────────┬──────────┘            └───────────────────────┘
+          │
+┌─────────┴──────────┐
+│   LibSQL Database  │
+│                    │
+│ - Account History  │
+│ - Trade Signals    │
+│ - Agent Decisions  │
+└────────────────────┘
+```
 
 ### Technology Stack
 
@@ -38,14 +72,13 @@ This system represents a complete implementation of an AI-driven trading platfor
 | Language | TypeScript | Type-safe development |
 | Runtime | Node.js 20+ | JavaScript runtime |
 
-### Design Philosophy
+### Core Design Philosophy
 
-The system follows a **minimal intervention** approach:
-- Provides raw market data to AI models without pre-computed signals
-- Allows AI complete autonomy in analysis and decision-making
-- No hardcoded trading rules or strategies
-- Multi-timeframe data aggregation (5m, 15m, 1h, 4h)
-- Transparent decision logging for analysis and improvement
+- **Data-Driven**: Provides raw market data to AI without preprocessing or subjective judgments
+- **Autonomous Decision-Making**: AI has complete authority in analysis and trading decisions, without hardcoded strategy constraints
+- **Multi-Dimensional Analysis**: Aggregates multi-timeframe data (5m, 15m, 1h, 4h) for comprehensive market view
+- **Transparent and Traceable**: Records every decision process for backtesting analysis and strategy optimization
+- **Continuous Learning**: System automatically accumulates trading experience and continuously optimizes decision models
 
 ## Key Features
 
@@ -92,40 +125,6 @@ The system follows a **minimal intervention** approach:
 - **Auto-Recovery**: Automatic restart on failures
 - **Logging**: Comprehensive error and info logging
 - **Health Monitoring**: Built-in health check endpoints
-
-## Architecture
-
-```
-┌─────────────────────────────────────────────────────────┐
-│                   Trading Agent (AI)                    │
-│              (DeepSeek V3.2 / GPT-4 / Claude)          │
-└─────────────────┬───────────────────────────────────────┘
-                  │
-                  ├─── Market Data Analysis
-                  ├─── Position Management
-                  └─── Trade Execution Decisions
-                  │
-┌─────────────────┴───────────────────────────────────────┐
-│                    VoltAgent Core                       │
-│           (Agent Orchestration & Tool Router)           │
-└─────────┬──────────────────────────────────┬────────────┘
-          │                                  │
-┌─────────┴──────────┐            ┌──────────┴────────────┐
-│   Trading Tools    │            │   Gate.io API Client  │
-│                    │            │                       │
-│ - Market Data      │◄───────────┤ - Order Management    │
-│ - Account Info     │            │ - Position Query      │
-│ - Trade Execution  │            │ - Market Data Stream  │
-└─────────┬──────────┘            └───────────────────────┘
-          │
-┌─────────┴──────────┐
-│   LibSQL Database  │
-│                    │
-│ - Account History  │
-│ - Trading Signals  │
-│ - Agent Decisions  │
-└────────────────────┘
-```
 
 ## Quick Start
 
