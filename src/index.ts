@@ -21,6 +21,7 @@ import { createPinoLogger } from "@voltagent/logger";
 import { serve } from "@hono/node-server";
 import { createApiRoutes } from "./api/routes";
 import { startTradingLoop, initTradingSystem } from "./scheduler/tradingLoop";
+import { startAccountRecorder } from "./scheduler/accountRecorder";
 import { initDatabase } from "./database/init";
 import { RISK_PARAMS } from "./config/riskParams";
 
@@ -78,11 +79,16 @@ async function main() {
   logger.info("启动交易循环...");
   startTradingLoop();
   
+  // 5. 启动账户资产记录器
+  logger.info("启动账户资产记录器...");
+  startAccountRecorder();
+  
   logger.info("\n" + "=".repeat(80));
   logger.info("系统启动完成！");
   logger.info("=".repeat(80));
   logger.info(`\n监控界面: http://localhost:${port}/`);
   logger.info(`交易间隔: ${process.env.TRADING_INTERVAL_MINUTES || 5} 分钟`);
+  logger.info(`账户记录间隔: ${process.env.ACCOUNT_RECORD_INTERVAL_MINUTES || 10} 分钟`);
   logger.info(`支持币种: ${RISK_PARAMS.TRADING_SYMBOLS.join(', ')}`);
   logger.info(`最大杠杆: ${RISK_PARAMS.MAX_LEVERAGE}x`);
   logger.info(`最大持仓数: ${RISK_PARAMS.MAX_POSITIONS}`);

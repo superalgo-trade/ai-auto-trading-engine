@@ -21,11 +21,15 @@ class TradingMonitor {
     constructor() {
         this.cryptoPrices = new Map();
         this.accountData = null;
+        this.equityChart = null;
+        this.chartTimeframe = '168'; // 默认7天
         this.init();
     }
 
     async init() {
         await this.loadInitialData();
+        this.initEquityChart();
+        this.initTimeframeSelector();
         this.startDataUpdates();
         this.initTabs();
         this.initChat();
@@ -377,6 +381,11 @@ class TradingMonitor {
                 this.loadLogsData()
             ]);
         }, 30000);
+
+        // 每30秒更新资产曲线图表
+        setInterval(async () => {
+            await this.updateEquityChart();
+        }, 30000);
     }
 
     // 复制ticker内容实现无缝滚动
@@ -396,6 +405,222 @@ class TradingMonitor {
     // 初始化聊天功能（已移除）
     initChat() {
         // 聊天功能已移除
+    }
+
+    // 初始化资产曲线图表
+    async initEquityChart() {
+        const ctx = document.getElementById('equityChart');
+        if (!ctx) {
+            console.error('未找到图表canvas元素');
+            return;
+        }
+
+        // 加载历史数据
+        const historyData = await this.loadEquityHistory();
+        
+        console.log('资产历史数据:', historyData);
+        
+        if (!historyData || historyData.length === 0) {
+            console.log('暂无历史数据，图表将在有数据后显示');
+            // 显示提示信息
+            const container = ctx.parentElement;
+            if (container) {
+                const message = document.createElement('div');
+                message.className = 'no-data';
+                message.style.cssText = 'position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: #00cc88; text-align: center;';
+                message.innerHTML = '暂无历史数据<br><small style="color: #008866;">系统将每10分钟自动记录账户资产</small>';
+                container.appendChild(message);
+            }
+            return;
+        }
+
+        // 创建图表
+        this.equityChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: historyData.map(d => {
+                    const date = new Date(d.timestamp);
+                    return date.toLocaleString('zh-CN', {
+                        month: '2-digit',
+                        day: '2-digit',
+                        hour: '2-digit',
+                        minute: '2-digit'
+                    });
+                }),
+                datasets: [
+                    {
+                        label: '总资产 (USDT)',
+                        data: historyData.map(d => parseFloat((d.totalValue + d.unrealizedPnl).toFixed(2))),
+                        borderColor: 'rgb(0, 255, 170)',
+                        backgroundColor: 'rgba(0, 255, 170, 0.1)',
+                        borderWidth: 2,
+                        fill: true,
+                        tension: 0.4,
+                        pointRadius: historyData.length < 10 ? 4 : 2,
+                        pointHoverRadius: 6
+                    },
+                    {
+                        label: '已实现资产 (USDT)',
+                        data: historyData.map(d => parseFloat(d.totalValue.toFixed(2))),
+                        borderColor: 'rgb(0, 204, 136)',
+                        backgroundColor: 'rgba(0, 204, 136, 0.1)',
+                        borderWidth: 2,
+                        fill: false,
+                        tension: 0.4,
+                        pointRadius: historyData.length < 10 ? 4 : 0,
+                        pointHoverRadius: 6,
+                        borderDash: [5, 5]
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: {
+                    intersect: false,
+                    mode: 'index'
+                },
+                plugins: {
+                    legend: {
+                        display: true,
+                        position: 'top',
+                        labels: {
+                            color: '#fff',
+                            usePointStyle: true,
+                            padding: 15
+                        }
+                    },
+                    tooltip: {
+                        backgroundColor: 'rgba(17, 24, 39, 0.95)',
+                        titleColor: '#fff',
+                        bodyColor: '#fff',
+                        borderColor: 'rgb(59, 130, 246)',
+                        borderWidth: 1,
+                        padding: 12,
+                        displayColors: true,
+                        callbacks: {
+                            label: function(context) {
+                                let label = context.dataset.label || '';
+                                if (label) {
+                                    label += ': ';
+                                }
+                                if (context.parsed.y !== null) {
+                                    label += '$' + context.parsed.y;
+                                }
+                                return label;
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        display: true,
+                        grid: {
+                            color: 'rgba(255, 255, 255, 0.1)',
+                            drawBorder: false
+                        },
+                        ticks: {
+                            color: '#9ca3af',
+                            maxRotation: 45,
+                            minRotation: 0,
+                            maxTicksLimit: 10
+                        }
+                    },
+                    y: {
+                        display: true,
+                        position: 'left',
+                        grid: {
+                            color: 'rgba(255, 255, 255, 0.1)',
+                            drawBorder: false
+                        },
+                        ticks: {
+                            color: '#9ca3af',
+                            callback: function(value) {
+                                return '$' + value.toFixed(2);
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    // 加载资产历史数据
+    async loadEquityHistory() {
+        try {
+            let limit = 1000; // 默认获取所有数据
+            
+            // 根据时间范围计算需要的数据点数
+            if (this.chartTimeframe !== 'all') {
+                const hours = parseInt(this.chartTimeframe);
+                // 假设每10分钟一个数据点
+                limit = Math.ceil(hours * 6);
+            }
+            
+            const response = await fetch(`/api/history?limit=${limit}`);
+            const data = await response.json();
+            
+            if (data.error) {
+                console.error('API错误:', data.error);
+                return [];
+            }
+            
+            return data.history || [];
+        } catch (error) {
+            console.error('加载资产历史数据失败:', error);
+            return [];
+        }
+    }
+
+    // 更新资产曲线图表
+    async updateEquityChart() {
+        if (!this.equityChart) {
+            await this.initEquityChart();
+            return;
+        }
+
+        const historyData = await this.loadEquityHistory();
+        
+        if (!historyData || historyData.length === 0) {
+            return;
+        }
+
+        // 更新图表数据
+        this.equityChart.data.labels = historyData.map(d => {
+            const date = new Date(d.timestamp);
+            return date.toLocaleString('zh-CN', {
+                month: '2-digit',
+                day: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit'
+            });
+        });
+        
+        this.equityChart.data.datasets[0].data = historyData.map(d => 
+            parseFloat((d.totalValue + d.unrealizedPnl).toFixed(2))
+        );
+        this.equityChart.data.datasets[1].data = historyData.map(d => 
+            parseFloat(d.totalValue.toFixed(2))
+        );
+        
+        // 调整点的大小
+        this.equityChart.data.datasets[0].pointRadius = historyData.length < 10 ? 4 : 2;
+        this.equityChart.data.datasets[1].pointRadius = historyData.length < 10 ? 4 : 0;
+        
+        this.equityChart.update('none'); // 无动画更新
+    }
+
+    // 初始化时间范围选择器
+    initTimeframeSelector() {
+        const selector = document.getElementById('chart-timeframe');
+        if (!selector) return;
+
+        selector.value = this.chartTimeframe;
+        
+        selector.addEventListener('change', async (e) => {
+            this.chartTimeframe = e.target.value;
+            await this.updateEquityChart();
+        });
     }
 }
 

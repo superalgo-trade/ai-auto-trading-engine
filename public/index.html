@@ -57,6 +57,25 @@
 
   <!-- Main Content -->
   <main class="main-content">
+    <!-- Account Equity Curve Section -->
+    <section class="chart-section">
+      <div class="chart-header">
+        <h3 class="chart-title">资产曲线</h3>
+        <div class="chart-controls">
+          <select id="chart-timeframe" class="timeframe-select">
+            <option value="24">最近24小时</option>
+            <option value="72">最近3天</option>
+            <option value="168" selected>最近7天</option>
+            <option value="720">最近30天</option>
+            <option value="all">全部</option>
+          </select>
+        </div>
+      </div>
+      <div class="chart-container">
+        <canvas id="equityChart"></canvas>
+      </div>
+    </section>
+
     <!-- AI Decision Section -->
     <section class="chart-section">
       <div class="chart-header">
@@ -133,6 +152,7 @@
   </main>
 
   <!-- Scripts -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
   <script src="monitor-script.js"></script>
 </body>
 

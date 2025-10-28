@@ -157,9 +157,9 @@ export function createApiRoutes() {
       
       const history = result.rows.map((row: any) => ({
         timestamp: row.timestamp,
-        totalValue: row.total_value,
-        unrealizedPnl: row.unrealized_pnl,
-        returnPercent: row.return_percent,
+        totalValue: Number.parseFloat(row.total_value as string) || 0,
+        unrealizedPnl: Number.parseFloat(row.unrealized_pnl as string) || 0,
+        returnPercent: Number.parseFloat(row.return_percent as string) || 0,
       })).reverse(); // 反转，使时间从旧到新
       
       return c.json({ history });
