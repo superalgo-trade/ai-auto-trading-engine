@@ -845,40 +845,6 @@ async function getRecentDecisions(limit: number = 3) {
 }
 
 /**
- * 保存账户历史
- * 
- * accountInfo.totalBalance 不包含未实现盈亏（已在 getAccountInfo 中扣除）
- * 因此资金曲线反映的是已实现收益
- */
-async function saveAccountHistory(accountInfo: any) {
-  try {
-    // 从数据库获取初始资金
-    const initialResult = await dbClient.execute(
-      "SELECT total_value FROM account_history ORDER BY timestamp ASC LIMIT 1"
-    );
-    const initialBalance = initialResult.rows[0]
-      ? Number.parseFloat(initialResult.rows[0].total_value as string)
-      : 100;
-    
-    await dbClient.execute({
-      sql: `INSERT INTO account_history 
-            (timestamp, total_value, available_cash, unrealized_pnl, realized_pnl, return_percent)
-            VALUES (?, ?, ?, ?, ?, ?)`,
-      args: [
-        new Date().toISOString(),
-        accountInfo.totalBalance,  // 总资产（不包含未实现盈亏）
-        accountInfo.availableBalance,
-        accountInfo.unrealisedPnl,
-        accountInfo.totalBalance - initialBalance,  // 已实现盈亏
-        accountInfo.returnPercent,  // 收益率（不包含未实现盈亏）
-      ],
-    });
-  } catch (error) {
-    logger.error("保存账户历史失败:", error as any);
-  }
-}
-
-/**
  * 同步风险配置到数据库
  */
 async function syncConfigToDatabase() {
