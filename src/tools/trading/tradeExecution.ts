@@ -86,7 +86,7 @@ export const openPositionTool = createTool({
       
       // 2. 获取账户信息
       const account = await client.getFuturesAccount();
-      const unrealisedPnl = Number.parseFloat(account.unrealised_pnl || "0");
+      const unrealisedPnl = Number.parseFloat(account.unrealisedPnl || "0");
       const totalBalance = Number.parseFloat(account.total || "0") - unrealisedPnl;
       const availableBalance = Number.parseFloat(account.available || "0");
       

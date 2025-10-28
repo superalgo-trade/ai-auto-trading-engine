@@ -468,59 +468,69 @@ body {
 
 /* Trade Item Styles (from index.html) */
 .trade-item {
-    background: linear-gradient(135deg, #1a1a1a 0%, #111111 100%);
-    border-radius: 5px;
-    padding: 1rem;
-    border-left: 3px solid var(--accent-green);
+    background: var(--bg-tertiary);
+    border-radius: 6px;
+    padding: 1.2rem;
+    border: 1px solid var(--border-color);
+    border-left: 4px solid var(--accent-green);
     transition: all 0.2s ease;
     cursor: pointer;
 }
 
 .trade-item:hover {
     transform: translateX(2px);
-    box-shadow: 0 2px 4px rgba(0, 255, 0, 0.2);
+    border-left-color: var(--accent-green);
+    box-shadow: 0 4px 8px rgba(0, 255, 170, 0.15);
+    background: var(--bg-secondary);
 }
 
 .trade-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 0.8rem;
+    margin-bottom: 1rem;
+    padding-bottom: 0.8rem;
+    border-bottom: 1px solid rgba(0, 255, 170, 0.1);
 }
 
 .trade-symbol {
     color: var(--accent-green);
-    font-weight: 600;
-    font-size: 1rem;
+    font-weight: 700;
+    font-size: 1.1rem;
+    letter-spacing: 1px;
+    text-shadow: 0 0 8px rgba(0, 255, 170, 0.3);
 }
 
 .trade-time {
     color: var(--text-dim);
-    font-size: 0.85rem;
+    font-size: 0.8rem;
+    font-family: 'Courier New', monospace;
 }
 
 .trade-info {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-    gap: 0.6rem;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 0.8rem 1rem;
+    align-items: start;
 }
 
 .trade-field {
     display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: 0.5rem;
+    flex-direction: column;
+    gap: 0.3rem;
 }
 
 .trade-field .label {
     color: var(--text-dim);
-    font-size: 0.85rem;
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
 }
 
 .trade-field .value {
-    color: var(--text-secondary);
-    font-weight: 600;
-    font-size: 0.9rem;
+    color: var(--text-primary);
+    font-weight: 700;
+    font-size: 0.95rem;
 }
 
 .trade-field .value.long {
@@ -793,13 +803,16 @@ body {
     }
 
     .trade-info {
-        grid-template-columns: 1fr;
-        gap: 0.5rem;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 0.6rem 0.8rem;
     }
 
-    .trade-field .label,
+    .trade-field .label {
+        font-size: 0.75rem;
+    }
+    
     .trade-field .value {
-        font-size: 0.8rem;
+        font-size: 0.85rem;
     }
 
     .tabs-header {
@@ -833,6 +846,23 @@ body {
     .positions-table td {
         font-size: 0.7rem;
         padding: 0.4rem 0.2rem;
+    }
+    
+    .trade-item {
+        padding: 1rem;
+    }
+    
+    .trade-info {
+        grid-template-columns: 1fr;
+        gap: 0.5rem;
+    }
+    
+    .trade-field .label {
+        font-size: 0.7rem;
+    }
+    
+    .trade-field .value {
+        font-size: 0.8rem;
     }
 }
 

@@ -594,7 +594,7 @@ async function getAccountInfo() {
     // 从 Gate.io API 返回的数据中提取字段
     const accountTotal = Number.parseFloat(account.total || "0");
     const availableBalance = Number.parseFloat(account.available || "0");
-    const unrealisedPnl = Number.parseFloat(account.unrealised_pnl || "0");
+    const unrealisedPnl = Number.parseFloat(account.unrealisedPnl || "0");
     
     // Gate.io 的 account.total 包含了未实现盈亏
     // totalBalance 应该不包含未实现盈亏

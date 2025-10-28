@@ -49,10 +49,10 @@ async function recordAccountAssets() {
     // Extract account data
     const accountTotal = Number.parseFloat(account.total || "0");
     const availableBalance = Number.parseFloat(account.available || "0");
-    const unrealisedPnl = Number.parseFloat(account.unrealised_pnl || "0");
+    const unrealisedPnl = Number.parseFloat(account.unrealisedPnl || "0");
     
-    // Total balance without unrealized PnL
-    const totalBalance = accountTotal + unrealisedPnl;
+    // Total balance
+    const totalBalance = accountTotal;
     
     // Get initial balance from database
     const initialResult = await dbClient.execute(

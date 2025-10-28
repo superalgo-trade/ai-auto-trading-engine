@@ -458,18 +458,6 @@ class TradingMonitor {
                         tension: 0.4,
                         pointRadius: historyData.length < 10 ? 4 : 2,
                         pointHoverRadius: 6
-                    },
-                    {
-                        label: '已实现资产 (USDT)',
-                        data: historyData.map(d => parseFloat(d.totalValue.toFixed(2))),
-                        borderColor: 'rgb(0, 204, 136)',
-                        backgroundColor: 'rgba(0, 204, 136, 0.1)',
-                        borderWidth: 2,
-                        fill: false,
-                        tension: 0.4,
-                        pointRadius: historyData.length < 10 ? 4 : 0,
-                        pointHoverRadius: 6,
-                        borderDash: [5, 5]
                     }
                 ]
             },
@@ -599,13 +587,9 @@ class TradingMonitor {
         this.equityChart.data.datasets[0].data = historyData.map(d => 
             parseFloat((d.totalValue + d.unrealizedPnl).toFixed(2))
         );
-        this.equityChart.data.datasets[1].data = historyData.map(d => 
-            parseFloat(d.totalValue.toFixed(2))
-        );
         
         // 调整点的大小
         this.equityChart.data.datasets[0].pointRadius = historyData.length < 10 ? 4 : 2;
-        this.equityChart.data.datasets[1].pointRadius = historyData.length < 10 ? 4 : 0;
         
         this.equityChart.update('none'); // 无动画更新
     }
