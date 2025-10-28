@@ -46,7 +46,7 @@ export class GateClient {
       logger.info("使用 GATE 测试网");
     } else {
       // 正式网地址（默认）
-      this.client.basePath = "https://api.gateapi.io/api/v4";
+      this.client.basePath = "https://api.gateio.ws/api/v4";
       logger.info("使用 GATE 正式网");
     }
     
