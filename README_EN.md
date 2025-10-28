@@ -43,17 +43,17 @@ The system follows a **minimal human intervention** design philosophy, abandonin
 ```
 ┌─────────────────────────────────────────────────────────┐
 │                   Trading Agent (AI)                    │
-│              (DeepSeek V3.2 / GPT-4 / Claude)          │
+│              (DeepSeek V3.2 / GPT-4 / Claude)           │
 └─────────────────┬───────────────────────────────────────┘
                   │
                   ├─── Market Data Analysis
                   ├─── Position Management
                   └─── Trade Execution Decisions
-                  │
+                  
 ┌─────────────────┴───────────────────────────────────────┐
 │                    VoltAgent Core                       │
 │              (Agent Orchestration & Tool Routing)       │
-└─────────┬──────────────────────────────────┬────────────┘
+└─────────┬───────────────────────────────────┬───────────┘
           │                                  │
 ┌─────────┴──────────┐            ┌──────────┴────────────┐
 │    Trading Tools   │            │   Gate.io API Client  │

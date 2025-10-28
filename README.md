@@ -42,33 +42,33 @@ open-nof1.ai 是一个 AI 驱动的加密货币自动交易系统，将大语言
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│                   交易 Agent (AI)                       │
-│              (DeepSeek V3.2 / GPT-4 / Claude)          │
+│                   Trading Agent (AI)                    │
+│              (DeepSeek V3.2 / GPT-4 / Claude)           │
 └─────────────────┬───────────────────────────────────────┘
                   │
-                  ├─── 市场数据分析
-                  ├─── 持仓管理
-                  └─── 交易执行决策
-                  │
+                  ├─── Market Data Analysis
+                  ├─── Position Management
+                  └─── Trade Execution Decisions
+                  
 ┌─────────────────┴───────────────────────────────────────┐
-│                    VoltAgent 核心                       │
-│              (Agent 编排 & 工具路由)                    │
-└─────────┬──────────────────────────────────┬────────────┘
+│                    VoltAgent Core                       │
+│              (Agent Orchestration & Tool Routing)       │
+└─────────┬───────────────────────────────────┬───────────┘
           │                                  │
 ┌─────────┴──────────┐            ┌──────────┴────────────┐
-│    交易工具集      │            │   Gate.io API 客户端  │
+│    Trading Tools   │            │   Gate.io API Client  │
 │                    │            │                       │
-│ - 市场数据获取     │◄───────────┤ - 订单管理            │
-│ - 账户信息查询     │            │ - 持仓查询            │
-│ - 交易执行         │            │ - 市场数据流          │
+│ - Market Data      │◄───────────┤ - Order Management    │
+│ - Account Info     │            │ - Position Query      │
+│ - Trade Execution  │            │ - Market Data Stream  │
 └─────────┬──────────┘            └───────────────────────┘
           │
 ┌─────────┴──────────┐
-│   LibSQL 数据库    │
+│   LibSQL Database  │
 │                    │
-│ - 账户历史记录     │
-│ - 交易信号         │
-│ - Agent 决策日志   │
+│ - Account History  │
+│ - Trade Signals    │
+│ - Agent Decisions  │
 └────────────────────┘
 ```
 
