@@ -1,6 +1,18 @@
 # open-nof1.ai
 
-[中文](./README.md) | [English](./README_EN.md)
+<div align="center">
+
+[![简体中文](https://img.shields.io/badge/语言-简体中文-red.svg)](./README.md)
+[![English](https://img.shields.io/badge/Language-English-blue.svg)](./README_EN.md)
+
+[![VoltAgent](https://img.shields.io/badge/Framework-VoltAgent-purple.svg)](https://voltagent.dev)
+[![OpenRouter](https://img.shields.io/badge/AI-OpenRouter-orange.svg)](https://openrouter.ai)
+[![Gate.io](https://img.shields.io/badge/Exchange-Gate.io-00D4AA.svg)](https://www.gate.io)
+[![TypeScript](https://img.shields.io/badge/Language-TypeScript-3178C6.svg?logo=typescript&logoColor=white)](https://www.typescriptlang.org)
+[![Node.js](https://img.shields.io/badge/Runtime-Node.js%2020+-339933.svg?logo=node.js&logoColor=white)](https://nodejs.org)
+[![License](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](./LICENSE)
+
+</div>
 
 ## 系统概述
 
