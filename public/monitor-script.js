@@ -144,11 +144,14 @@ class TradingMonitor {
                     const profitPercent = ((pos.unrealizedPnl / pos.openValue) * 100).toFixed(2);
                     const sideText = pos.side === 'long' ? '做多' : '做空';
                     const sideClass = pos.side === 'long' ? 'positive' : 'negative';
+                    // 开仓倍数 = 开仓价值 / (数量 * 开仓价格)，简化为显示 leverage 字段（如果API提供）
+                    // 否则计算为：开仓价值 / (可用保证金)，这里假设 leverage 可从持仓信息中获取
+                    const leverage = pos.leverage || '-';
                     return `
                         <tr>
                             <td>${pos.symbol}</td>
                             <td class="${sideClass}">${sideText}</td>
-                            <td>${pos.quantity}</td>
+                            <td>${leverage}x</td>
                             <td>$${pos.entryPrice.toFixed(4)}</td>
                             <td>$${pos.openValue.toFixed(2)}</td>
                             <td>$${pos.currentPrice.toFixed(4)}</td>
