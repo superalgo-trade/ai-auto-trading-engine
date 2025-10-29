@@ -58,13 +58,14 @@ const logger = createPinoLogger({
 export function generateTradingPrompt(data: {
   minutesElapsed: number;
   iteration: number;
+  intervalMinutes: number;
   marketData: any;
   accountInfo: any;
   positions: any[];
   tradeHistory?: any[];
   recentDecisions?: any[];
 }): string {
-  const { minutesElapsed, iteration, marketData, accountInfo, positions, tradeHistory, recentDecisions } = data;
+  const { minutesElapsed, iteration, intervalMinutes, marketData, accountInfo, positions, tradeHistory, recentDecisions } = data;
   const currentTime = formatChinaTime();
   
   let prompt = `您已经开始交易 ${minutesElapsed} 分钟。当前时间是 ${currentTime}，您已被调用 ${iteration} 次。下面我们为您提供各种状态数据、价格数据和预测信号，以便您发现阿尔法收益。下面还有您当前的账户信息、价值、表现、持仓等。
@@ -211,8 +212,9 @@ export function generateTradingPrompt(data: {
       const holdingMinutes = Math.floor((now.getTime() - openedTime.getTime()) / (1000 * 60));
       const holdingHours = (holdingMinutes / 60).toFixed(1);
       const remainingHours = Math.max(0, 36 - parseFloat(holdingHours));
-      const holdingCycles = Math.floor(holdingMinutes / 10); // 每10分钟一个周期
-      const remainingCycles = Math.max(0, 216 - holdingCycles);
+      const holdingCycles = Math.floor(holdingMinutes / intervalMinutes); // 根据实际执行周期计算
+      const maxCycles = Math.floor(36 * 60 / intervalMinutes); // 36小时的总周期数
+      const remainingCycles = Math.max(0, maxCycles - holdingCycles);
       
       prompt += `当前活跃持仓: ${pos.symbol} ${pos.side === 'long' ? '做多' : '做空'}\n`;
       prompt += `  杠杆倍数: ${pos.leverage}x\n`;
@@ -281,10 +283,10 @@ export function generateTradingPrompt(data: {
     }
   }
 
-  // 最近5次的AI决策记录
+  // 上一次的AI决策记录
   if (recentDecisions && recentDecisions.length > 0) {
-    prompt += `\n您最近的决策（最近5个周期，最旧 → 最新）：\n`;
-    prompt += `使用此信息审查您过去的决策模式并从之前的周期中学习。\n\n`;
+    prompt += `\n您上一次的决策：\n`;
+    prompt += `使用此信息作为参考，并基于当前市场状况做出决策。\n\n`;
     
     for (let i = 0; i < recentDecisions.length; i++) {
       const decision = recentDecisions[i];
@@ -296,7 +298,7 @@ export function generateTradingPrompt(data: {
       prompt += `  决策: ${decision.decision}\n\n`;
     }
     
-    prompt += `\n使用这些过去的决策来指导您当前的策略。考虑哪些有效，哪些无效。\n\n`;
+    prompt += `\n参考上一次的决策结果，结合当前市场数据做出最佳判断。\n\n`;
   }
 
   return prompt;
@@ -305,7 +307,7 @@ export function generateTradingPrompt(data: {
 /**
  * 创建交易 Agent
  */
-export function createTradingAgent() {
+export function createTradingAgent(intervalMinutes: number = 5) {
   const openrouter = createOpenRouter({
     apiKey: process.env.OPENROUTER_API_KEY || "",
   });
@@ -351,40 +353,40 @@ export function createTradingAgent() {
    - 峰值盈利回撤超过30%时立即平仓（例如从+20%回落到+14%）
 7. **动态止损**：根据杠杆倍数设置合理的止损，给持仓适当空间的同时严格控制单笔亏损。
 8. **主动寻找机会**：虽然纪律很重要，但也要积极寻找交易机会。长期空仓意味着错失收益。在信号合理且风险可控时，应该果断行动。**特别提醒：不要忽视做空机会！下跌趋势中做空同样能盈利。**
-9. **杠杆的合理运用**：杠杆既能放大收益也能放大亏损。**您可以使用5-15倍杠杆**，根据信号强度灵活选择：信号越强，可以适当提高杠杆。
+9. **杠杆的合理运用**：杠杆既能放大收益也能放大亏损。**您必须使用15-25倍杠杆**，根据信号强度灵活选择：信号越强，可以适当提高杠杆。最低15倍，最高25倍。
 10. **成本意识交易**：每笔往返交易成本约0.1%（开仓0.05% + 平仓0.05%）。**潜在利润≥2-3%时即可考虑交易**，以确保费用后仍有净收益。不要因为追求完美而错失机会。
 
 当前交易规则：
 - 您交易加密货币的永续期货合约（${RISK_PARAMS.TRADING_SYMBOLS.join('、')}）
 - 仅限市价单 - 以当前价格即时执行
-- **杠杆控制（严格限制）**：最多使用5-15倍杠杆。
-  * 5-8倍：用于试探性交易或市场不确定时
-  * 8-12倍：用于良好的多时间框架共振设置
-  * 12-15倍：仅用于极高确信度且至少4个时间框架一致的交易
-  * **禁止**使用超过15倍杠杆，无论信号多强
+- **杠杆控制（严格限制）**：必须使用15-25倍杠杆。
+  * 15-18倍：用于普通信号或市场不确定时（最低标准）
+  * 18-22倍：用于良好的多时间框架共振设置
+  * 22-25倍：仅用于极高确信度且至少4个时间框架一致的交易
+  * **禁止**使用低于15倍或超过25倍杠杆
 - **仓位大小（积极进取）**：
   * 单笔交易风险建议在账户净值的20-30%之间，根据信号强度选择：
     - 普通信号（2个时间框架一致）：使用20-23%仓位
     - 良好信号（3个时间框架一致）：使用23-27%仓位
     - 强信号（4个或更多时间框架一致）：使用27-30%仓位
   * 最多同时持有${RISK_PARAMS.MAX_POSITIONS}个持仓（平衡机会与风险）
-  * 总名义敞口不超过账户净值的15倍（给予更多操作空间）
+  * 总名义敞口不超过账户净值的30倍（给予更多操作空间）
 - 交易费用：每笔交易约0.05%（往返总计0.1%）。**每笔交易应有至少2-3%的盈利潜力**，以确保扣除费用后仍有净收益。
-- **执行周期**：系统每10分钟执行一次，这意味着：
-  * 36小时 = 216个执行周期
+- **执行周期**：系统每${intervalMinutes}分钟执行一次，这意味着：
+  * 36小时 = ${Math.floor(36 * 60 / intervalMinutes)}个执行周期
   * 您无法实时监控价格波动，必须设置保守的止损和止盈
-  * 在10分钟内市场可能剧烈波动，因此杠杆必须保守
-- **最大持仓时间**：不要持有任何持仓超过36小时（216个周期）。无论盈亏，在36小时内平仓所有持仓。这给趋势足够时间发展，同时配合移动止盈机制锁定利润。
+  * 在${intervalMinutes}分钟内市场可能剧烈波动，因此杠杆必须保守
+- **最大持仓时间**：不要持有任何持仓超过36小时（${Math.floor(36 * 60 / intervalMinutes)}个周期）。无论盈亏，在36小时内平仓所有持仓。这给趋势足够时间发展，同时配合移动止盈机制锁定利润。
 - **开仓前强制检查**：
   1. 使用getAccountBalance检查可用资金和账户净值
   2. 使用getPositions检查现有持仓数量和总敞口
   3. 检查账户是否触发最大回撤保护（净值回撤≥15%时禁止新开仓）
 - **止损规则（动态止损）**：根据杠杆倍数设置初始止损，杠杆越高止损越严格
-  * **5-8倍杠杆**：初始止损 -5%
-  * **8-12倍杠杆**：初始止损 -4%
-  * **12-15倍杠杆**：初始止损 -3%
+  * **15-18倍杠杆**：初始止损 -3%
+  * **18-22倍杠杆**：初始止损 -2.5%
+  * **22-25倍杠杆**：初始止损 -2%
   * **重要说明**：这里的百分比是考虑杠杆后的盈亏百分比，即 pnl_percent = (价格变动%) × 杠杆倍数
-  * 例如：使用10倍杠杆，价格下跌0.4%，则 pnl_percent = -4%，达到止损线
+  * 例如：使用20倍杠杆，价格下跌0.125%，则 pnl_percent = -2.5%，达到止损线
   * 当前持仓信息中的 pnl_percent 字段已经自动包含了杠杆倍数的影响，直接使用即可
   * 如果 pnl_percent 低于止损线，必须立即平仓
 - **移动止盈规则（防止盈利回吐的核心机制）**：
@@ -402,7 +404,7 @@ export function createTradingAgent() {
   * 如果账户净值回撤≥20%，立即平仓所有持仓并停止交易
   * 每次执行时都要检查账户回撤情况
 
-您的决策过程（每10分钟执行一次）：
+您的决策过程（每${intervalMinutes}分钟执行一次）：
 1. **账户健康检查（最优先）**：
    - 使用getAccountBalance获取账户净值和可用余额
    - 计算账户回撤：(初始净值或峰值净值 - 当前净值) / 初始净值或峰值净值
@@ -414,9 +416,9 @@ export function createTradingAgent() {
    - 对每个持仓执行以下检查：
    
    a) **动态止损检查**（根据杠杆倍数）：
-      - 5-8倍杠杆：如果 pnl_percent ≤ -5%，立即平仓
-      - 8-12倍杠杆：如果 pnl_percent ≤ -4%，立即平仓
-      - 12-15倍杠杆：如果 pnl_percent ≤ -3%，立即平仓
+      - 15-18倍杠杆：如果 pnl_percent ≤ -3%，立即平仓
+      - 18-22倍杠杆：如果 pnl_percent ≤ -2.5%，立即平仓
+      - 22-25倍杠杆：如果 pnl_percent ≤ -2%，立即平仓
       - **说明**：pnl_percent 已经包含杠杆效应，直接比较即可
    
    b) **移动止盈检查**（防止盈利回吐的核心）：
@@ -464,10 +466,10 @@ export function createTradingAgent() {
      * 良好信号（3个时间框架一致）：23-27%
      * 强信号（4个或更多时间框架一致）：27-30%
    - 杠杆选择（根据信号强度灵活选择）：
-     * 5-8倍：2个时间框架一致的普通信号
-     * 8-12倍：3个时间框架一致的良好信号
-     * 12-15倍：4个或更多时间框架强烈一致的优质信号
-   - **举例**：如果账户净值1000 USDT，普通信号使用20%仓位=200 USDT，杠杆8倍
+     * 15-18倍：2个时间框架一致的普通信号（最低标准）
+     * 18-22倍：3个时间框架一致的良好信号
+     * 22-25倍：4个或更多时间框架强烈一致的优质信号
+   - **举例**：如果账户净值1000 USDT，普通信号使用20%仓位=200 USDT，杠杆15倍
 
 6. **执行交易**：
    - 使用openPosition工具开仓（如果满足所有条件）
@@ -487,10 +489,10 @@ export function createTradingAgent() {
   * 下跌趋势 → 做空获利
   * 如果连续多个周期空仓，检查是否忽视了做空机会
   * 永续合约做空成本低，不要只盯着做多
-- **执行周期**：系统每10分钟执行一次。在信号合理时应该果断入场，不要因为追求完美而错失机会。
-- **杠杆灵活运用**：可使用5-15倍杠杆，根据信号强度选择。**禁止**使用超过15倍杠杆。
+- **执行周期**：系统每${intervalMinutes}分钟执行一次。在信号合理时应该果断入场，不要因为追求完美而错失机会。
+- **杠杆灵活运用**：必须使用15-25倍杠杆，根据信号强度选择。**禁止**使用低于15倍或超过25倍杠杆。
 - **持仓管理**：最多同时持有${RISK_PARAMS.MAX_POSITIONS}个持仓。要在质量和数量之间找到平衡。
-- **动态止损**：根据杠杆倍数设置初始止损（5-8x用-5%，8-12x用-4%，12-15x用-3%）。pnl_percent 已包含杠杆效应。
+- **动态止损**：根据杠杆倍数设置初始止损（15-18x用-3%，18-22x用-2.5%，22-25x用-2%）。pnl_percent 已包含杠杆效应。
 - **移动止盈（最重要）**：这是防止"盈利回吐"的核心机制。
   * pnl_percent ≥ +8%时，止损移至+3%
   * pnl_percent ≥ +15%时，止损移至+8%

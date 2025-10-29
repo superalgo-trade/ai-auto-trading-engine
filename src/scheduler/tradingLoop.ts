@@ -970,6 +970,7 @@ async function checkAccountThresholds(accountInfo: any): Promise<boolean> {
 async function executeTradingDecision() {
   iterationCount++;
   const minutesElapsed = Math.floor((Date.now() - tradingStartTime.getTime()) / 60000);
+  const intervalMinutes = Number.parseInt(process.env.TRADING_INTERVAL_MINUTES || "5");
   
   logger.info(`\n${"=".repeat(80)}`);
   logger.info(`交易周期 #${iterationCount} (运行${minutesElapsed}分钟)`);
@@ -1206,10 +1207,10 @@ async function executeTradingDecision() {
       // 不影响主流程，继续执行
     }
     
-    // 7. 获取最近3次的AI决策
+    // 7. 获取上一次的AI决策
     let recentDecisions: any[] = [];
     try {
-      recentDecisions = await getRecentDecisions(3);
+      recentDecisions = await getRecentDecisions(1);
     } catch (error) {
       logger.warn("获取最近决策记录失败:", error as any);
       // 不影响主流程，继续执行
@@ -1219,6 +1220,7 @@ async function executeTradingDecision() {
     const prompt = generateTradingPrompt({
       minutesElapsed,
       iteration: iterationCount,
+      intervalMinutes,
       marketData,
       accountInfo,
       positions,
@@ -1232,7 +1234,7 @@ async function executeTradingDecision() {
     logger.info(prompt);
     logger.info("=".repeat(80) + "\n");
     
-    const agent = createTradingAgent();
+    const agent = createTradingAgent(intervalMinutes);
     
     try {
       const response = await agent.generateText(prompt);
