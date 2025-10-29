@@ -150,10 +150,10 @@ export const openPositionTool = createTool({
         };
       }
       
-      // 5. 检查单笔仓位（建议不超过账户净值的15%）
-      const maxSinglePosition = totalBalance * 0.15; // 15%
+      // 5. 检查单笔仓位（建议不超过账户净值的30%）
+      const maxSinglePosition = totalBalance * 0.30; // 30%
       if (amountUsdt > maxSinglePosition) {
-        logger.warn(`开仓金额 ${amountUsdt.toFixed(2)} USDT 超过建议仓位 ${maxSinglePosition.toFixed(2)} USDT（账户净值的15%）`);
+        logger.warn(`开仓金额 ${amountUsdt.toFixed(2)} USDT 超过建议仓位 ${maxSinglePosition.toFixed(2)} USDT（账户净值的30%）`);
       }
       
       // ====== 风控检查通过，继续开仓 ======
