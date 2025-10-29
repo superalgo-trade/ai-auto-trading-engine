@@ -127,7 +127,7 @@ class TradingMonitor {
             
             if (!data.positions || data.positions.length === 0) {
                 if (positionsBody) {
-                    positionsBody.innerHTML = '<tr><td colspan="7" class="empty-state">暂无持仓</td></tr>';
+                    positionsBody.innerHTML = '<tr><td colspan="8" class="empty-state">暂无持仓</td></tr>';
                 }
                 return;
             }
@@ -142,9 +142,12 @@ class TradingMonitor {
             if (positionsBody) {
                 positionsBody.innerHTML = data.positions.map(pos => {
                     const profitPercent = ((pos.unrealizedPnl / pos.openValue) * 100).toFixed(2);
+                    const sideText = pos.side === 'long' ? '做多' : '做空';
+                    const sideClass = pos.side === 'long' ? 'positive' : 'negative';
                     return `
                         <tr>
                             <td>${pos.symbol}</td>
+                            <td class="${sideClass}">${sideText}</td>
                             <td>${pos.quantity}</td>
                             <td>$${pos.entryPrice.toFixed(4)}</td>
                             <td>$${pos.openValue.toFixed(2)}</td>
