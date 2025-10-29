@@ -321,6 +321,9 @@ npm run db:init
 # 重置数据库(清空所有数据)
 npm run db:reset
 
+# 平仓并重置数据库(先平仓所有持仓，再重置数据库)
+npm run db:close-and-reset
+
 # 检查数据库状态
 npm run db:status
 
