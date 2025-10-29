@@ -123,7 +123,7 @@ export const openPositionTool = createTool({
         };
       }
       
-      // 4. 检查总敞口（不超过账户净值的10倍）
+      // 4. 检查总敞口（不超过账户净值的15倍）
       let currentTotalExposure = 0;
       for (const pos of activePositions) {
         const posSize = Math.abs(Number.parseInt(pos.size || "0"));
@@ -141,19 +141,19 @@ export const openPositionTool = createTool({
       
       const newExposure = amountUsdt * leverage;
       const totalExposure = currentTotalExposure + newExposure;
-      const maxAllowedExposure = totalBalance * 10;
+      const maxAllowedExposure = totalBalance * 15; // 提升到15倍
       
       if (totalExposure > maxAllowedExposure) {
         return {
           success: false,
-          message: `新开仓将导致总敞口 ${totalExposure.toFixed(2)} USDT 超过限制 ${maxAllowedExposure.toFixed(2)} USDT（账户净值的10倍），拒绝开仓`,
+          message: `新开仓将导致总敞口 ${totalExposure.toFixed(2)} USDT 超过限制 ${maxAllowedExposure.toFixed(2)} USDT（账户净值的15倍），拒绝开仓`,
         };
       }
       
-      // 5. 检查单笔风险（不超过账户净值的2-3%）
-      const maxSingleRisk = totalBalance * 0.03; // 3%
-      if (amountUsdt > maxSingleRisk) {
-        logger.warn(`开仓金额 ${amountUsdt.toFixed(2)} USDT 超过单笔风险限制 ${maxSingleRisk.toFixed(2)} USDT（账户净值的3%）`);
+      // 5. 检查单笔仓位（建议不超过账户净值的15%）
+      const maxSinglePosition = totalBalance * 0.15; // 15%
+      if (amountUsdt > maxSinglePosition) {
+        logger.warn(`开仓金额 ${amountUsdt.toFixed(2)} USDT 超过建议仓位 ${maxSinglePosition.toFixed(2)} USDT（账户净值的15%）`);
       }
       
       // ====== 风控检查通过，继续开仓 ======
