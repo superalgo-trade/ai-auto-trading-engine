@@ -80,8 +80,10 @@ if [ -z "$SKIP_ENV" ]; then
     read -p "Gate.io API Key: " GATE_API_KEY
     read -p "Gate.io API Secret: " GATE_API_SECRET
     
-    # OpenRouter API Key
-    read -p "OpenRouter API Key: " OPENROUTER_API_KEY
+    # OpenAI API Key (支持 OpenRouter 或其他兼容供应商)
+    read -p "OpenAI API Key (支持 OpenRouter): " OPENAI_API_KEY
+    read -p "OpenAI Base URL (默认: https://openrouter.ai/api/v1): " OPENAI_BASE_URL
+    OPENAI_BASE_URL=${OPENAI_BASE_URL:-https://openrouter.ai/api/v1}
     
     # 初始资金
     read -p "初始资金 (USDT) [默认: 1000]: " INITIAL_BALANCE
@@ -140,7 +142,8 @@ GATE_USE_TESTNET=$GATE_USE_TESTNET
 # ============================================
 # AI 模型配置
 # ============================================
-OPENROUTER_API_KEY=$OPENROUTER_API_KEY
+OPENAI_API_KEY=$OPENAI_API_KEY
+OPENAI_BASE_URL=$OPENAI_BASE_URL
 EOF
     
     echo -e "${GREEN}✅ .env 文件创建成功${NC}"

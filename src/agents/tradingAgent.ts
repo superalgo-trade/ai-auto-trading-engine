@@ -22,7 +22,7 @@
 import { Agent, Memory } from "@voltagent/core";
 import { LibSQLMemoryAdapter } from "@voltagent/libsql";
 import { createPinoLogger } from "@voltagent/logger";
-import { createOpenRouter } from "@openrouter/ai-sdk-provider";
+import { createOpenAI } from "@ai-sdk/openai";
 import * as tradingTools from "../tools/trading";
 import { formatChinaTime } from "../utils/timeUtils";
 import { RISK_PARAMS } from "../config/riskParams";
@@ -635,8 +635,10 @@ function generateInstructions(strategy: TradingStrategy, intervalMinutes: number
  * 创建交易 Agent
  */
 export function createTradingAgent(intervalMinutes: number = 5) {
-  const openrouter = createOpenRouter({
-    apiKey: process.env.OPENROUTER_API_KEY || "",
+  // 使用 OpenAI SDK，通过配置 baseURL 兼容 OpenRouter 或其他供应商
+  const openai = createOpenAI({
+    apiKey: process.env.OPENAI_API_KEY || "",
+    baseURL: process.env.OPENAI_BASE_URL || "https://openrouter.ai/api/v1",
   });
 
   const memory = new Memory({
@@ -653,7 +655,7 @@ export function createTradingAgent(intervalMinutes: number = 5) {
   const agent = new Agent({
     name: "trading-agent",
     instructions: generateInstructions(strategy, intervalMinutes),
-    model: openrouter.chat(process.env.AI_MODEL_NAME || "deepseek/deepseek-v3.2-exp"),
+    model: openai.chat(process.env.AI_MODEL_NAME || "deepseek/deepseek-v3.2-exp"),
     tools: [
       tradingTools.getMarketPriceTool,
       tradingTools.getTechnicalIndicatorsTool,

@@ -41,7 +41,7 @@ if [ ! -f .env ]; then
     echo "请先创建 .env 文件并配置必要的环境变量："
     echo "  - GATE_API_KEY"
     echo "  - GATE_API_SECRET"
-    echo "  - OPENROUTER_API_KEY"
+    echo "  - OPENAI_API_KEY"
     echo "  - INITIAL_BALANCE"
     echo "  - DATABASE_URL"
     echo ""
@@ -65,8 +65,8 @@ if [ -z "$GATE_API_SECRET" ]; then
     MISSING_VARS+=("GATE_API_SECRET")
 fi
 
-if [ -z "$OPENROUTER_API_KEY" ]; then
-    MISSING_VARS+=("OPENROUTER_API_KEY")
+if [ -z "$OPENAI_API_KEY" ]; then
+    MISSING_VARS+=("OPENAI_API_KEY")
 fi
 
 if [ ${#MISSING_VARS[@]} -ne 0 ]; then

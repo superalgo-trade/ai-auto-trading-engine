@@ -3,7 +3,7 @@
 <div align="center">
 
 [![VoltAgent](https://img.shields.io/badge/Framework-VoltAgent-purple.svg)](https://voltagent.dev)
-[![OpenRouter](https://img.shields.io/badge/AI-OpenRouter-orange.svg)](https://openrouter.ai)
+[![OpenAI Compatible](https://img.shields.io/badge/AI-OpenAI_Compatible-orange.svg)](https://openrouter.ai)
 [![Gate.io](https://img.shields.io/badge/Exchange-Gate.io-00D4AA.svg)](https://www.gate.io)
 [![TypeScript](https://img.shields.io/badge/Language-TypeScript-3178C6.svg?logo=typescript&logoColor=white)](https://www.typescriptlang.org)
 [![Node.js](https://img.shields.io/badge/Runtime-Node.js%2020+-339933.svg?logo=node.js&logoColor=white)](https://nodejs.org)
@@ -78,7 +78,7 @@ open-nof1.ai 是一个 AI 驱动的加密货币自动交易系统，将大语言
 | 组件 | 技术 | 用途 |
 |------|------|------|
 | 框架 | [VoltAgent](https://voltagent.dev) | AI Agent 编排与管理 |
-| AI 提供商 | [OpenRouter](https://openrouter.ai) | 统一 LLM API 访问 (DeepSeek V3.2, Grok4, Claude 等) |
+| AI 提供商 | OpenAI 兼容 API | 支持 OpenRouter、OpenAI、DeepSeek 等兼容供应商 |
 | 交易所 | [Gate.io](https://www.gate.io) | 加密货币交易(测试网 & 正式网) |
 | 数据库 | LibSQL (SQLite) | 本地数据持久化 |
 | Web 服务器 | Hono | 高性能 HTTP 框架 |
@@ -179,12 +179,16 @@ GATE_API_KEY=your_api_key_here
 GATE_API_SECRET=your_api_secret_here
 GATE_USE_TESTNET=true
 
-# AI 模型提供商
-OPENROUTER_API_KEY=your_openrouter_key_here
+# AI 模型提供商（OpenAI 兼容 API）
+OPENAI_API_KEY=your_api_key_here
+OPENAI_BASE_URL=https://openrouter.ai/api/v1  # 可选，支持 OpenRouter、OpenAI、DeepSeek 等
+AI_MODEL_NAME=deepseek/deepseek-v3.2-exp      # 模型名称
 ```
 
 **API 密钥获取**:
 - OpenRouter: https://openrouter.ai/keys
+- OpenAI: https://platform.openai.com/api-keys
+- DeepSeek: https://platform.deepseek.com/api_keys
 - Gate.io 测试网: https://www.gate.io/testnet
 - Gate.io 正式网: https://www.gate.io/myaccount/api_key_manage
 
@@ -267,14 +271,35 @@ open-nof1.ai/
 | `GATE_API_KEY` | Gate.io API 密钥 | - | 是 |
 | `GATE_API_SECRET` | Gate.io API 密钥 | - | 是 |
 | `GATE_USE_TESTNET` | 使用测试网环境 | true | 否 |
-| `OPENROUTER_API_KEY` | OpenRouter API 密钥 | - | 是 |
+| `OPENAI_API_KEY` | OpenAI 兼容的 API 密钥 | - | 是 |
+| `OPENAI_BASE_URL` | API 基础地址 | https://openrouter.ai/api/v1 | 否 |
+| `AI_MODEL_NAME` | 模型名称 | deepseek/deepseek-v3.2-exp | 否 |
 
 ### AI 模型配置
 
-默认模型: `deepseek/deepseek-v3.2-exp`
+系统支持任何兼容 OpenAI API 的供应商：
 
-可通过 OpenRouter 使用的替代模型:
-- `openai/gpt-4o-mini` - 性价比高
+**OpenRouter** (推荐，支持多种模型):
+```bash
+OPENAI_BASE_URL=https://openrouter.ai/api/v1
+AI_MODEL_NAME=deepseek/deepseek-v3.2-exp  # 或 x-ai/grok-4-fast, anthropic/claude-4.5-sonnet
+```
+
+**OpenAI**:
+```bash
+OPENAI_BASE_URL=https://api.openai.com/v1
+AI_MODEL_NAME=gpt-4o  # 或 gpt-4o-mini
+```
+
+**DeepSeek**:
+```bash
+OPENAI_BASE_URL=https://api.deepseek.com/v1
+AI_MODEL_NAME=deepseek-chat  # 或 deepseek-coder
+```
+
+支持的模型（通过不同供应商）:
+- `deepseek/deepseek-v3.2-exp` - 高性价比，推荐
+- `x-ai/grok-4-fast` - 快速响应
 - `openai/gpt-4o` - 高质量推理
 - `anthropic/claude-4.5-sonnet` - 强大的分析能力
 - `google/gemini-pro-2.5` - 多模态支持
@@ -556,13 +581,17 @@ npm run trading:restart
 
 #### AI 模型 API 错误
 
-**错误**: `OpenRouter API error`
+**错误**: `OpenAI API error` 或连接失败
 
 **解决方案**:
-- 验证 `OPENROUTER_API_KEY` 是否正确
+- 验证 `OPENAI_API_KEY` 是否正确
+- 确认 `OPENAI_BASE_URL` 配置正确
+  - OpenRouter: `https://openrouter.ai/api/v1`
+  - OpenAI: `https://api.openai.com/v1`
+  - DeepSeek: `https://api.deepseek.com/v1`
 - 确保 API 密钥有足够额度
-- 检查网络连接
-- 验证 OpenRouter 服务状态
+- 检查网络连接和防火墙设置
+- 验证对应服务商的服务状态
 
 ### 日志记录
 
@@ -694,6 +723,8 @@ npm run trading:start
 
 - [VoltAgent 文档](https://voltagent.dev/docs/)
 - [OpenRouter 模型目录](https://openrouter.ai/models)
+- [OpenAI API 参考](https://platform.openai.com/docs/api-reference)
+- [DeepSeek API 文档](https://platform.deepseek.com/api-docs/)
 - [Gate.io API 参考](https://www.gate.io/docs/developers/apiv4/)
 - [Gate.io 测试网](https://www.gate.io/testnet)
 
