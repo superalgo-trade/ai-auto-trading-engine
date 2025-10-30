@@ -85,7 +85,28 @@ export const openPositionTool = createTool({
         };
       }
       
-      // 2. 获取账户信息
+      // 2. 检查该币种是否已有持仓（禁止双向持仓）
+      const existingPosition = activePositions.find((p: any) => {
+        const posSymbol = p.contract.replace("_USDT", "");
+        return posSymbol === symbol;
+      });
+      
+      if (existingPosition) {
+        const existingSize = Number.parseInt(existingPosition.size || "0");
+        const existingSide = existingSize > 0 ? "long" : "short";
+        
+        if (existingSide !== side) {
+          return {
+            success: false,
+            message: `${symbol} 已有${existingSide === "long" ? "多" : "空"}单持仓，禁止同时持有双向持仓。请先平掉${existingSide === "long" ? "多" : "空"}单后再开${side === "long" ? "多" : "空"}单。`,
+          };
+        }
+        
+        // 如果方向相同，允许加仓（但需要注意总持仓限制）
+        logger.info(`${symbol} 已有${side === "long" ? "多" : "空"}单持仓，允许加仓`);
+      }
+      
+      // 3. 获取账户信息
       const account = await client.getFuturesAccount();
       const unrealisedPnl = Number.parseFloat(account.unrealisedPnl || "0");
       const totalBalance = Number.parseFloat(account.total || "0") - unrealisedPnl;
@@ -98,7 +119,7 @@ export const openPositionTool = createTool({
         };
       }
       
-      // 3. 检查账户回撤（从数据库获取初始净值和峰值净值）
+      // 4. 检查账户回撤（从数据库获取初始净值和峰值净值）
       const initialBalanceResult = await dbClient.execute(
         "SELECT total_value FROM account_history ORDER BY timestamp ASC LIMIT 1"
       );
@@ -124,7 +145,7 @@ export const openPositionTool = createTool({
         };
       }
       
-      // 4. 检查总敞口（不超过账户净值的15倍）
+      // 5. 检查总敞口（不超过账户净值的15倍）
       let currentTotalExposure = 0;
       for (const pos of activePositions) {
         const posSize = Math.abs(Number.parseInt(pos.size || "0"));
@@ -147,7 +168,7 @@ export const openPositionTool = createTool({
         };
       }
       
-      // 5. 检查单笔仓位（建议不超过账户净值的30%）
+      // 6. 检查单笔仓位（建议不超过账户净值的30%）
       const maxSinglePosition = totalBalance * 0.30; // 30%
       if (amountUsdt > maxSinglePosition) {
         logger.warn(`开仓金额 ${amountUsdt.toFixed(2)} USDT 超过建议仓位 ${maxSinglePosition.toFixed(2)} USDT（账户净值的30%）`);
