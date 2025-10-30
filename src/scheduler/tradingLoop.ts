@@ -1154,23 +1154,114 @@ async function executeTradingDecision() {
           const contract = `${symbol}_USDT`;
           const size = side === 'long' ? -pos.quantity : pos.quantity;
           
-          await gateClient.placeOrder({
+          // 1. 执行平仓订单
+          const order = await gateClient.placeOrder({
             contract,
             size,
             price: 0,
             reduceOnly: true,
           });
           
-          logger.info(`✅ 已强制平仓 ${symbol}，原因：${closeReason}`);
+          logger.info(`✅ 已下达强制平仓订单 ${symbol}，订单ID: ${order.id}`);
           
-          // 从数据库删除持仓记录
+          // 2. 等待订单完成并获取成交信息（最多重试5次）
+          let actualExitPrice = 0;
+          let actualQuantity = Math.abs(pos.quantity);
+          let pnl = 0;
+          let totalFee = 0;
+          let orderFilled = false;
+          
+          for (let retry = 0; retry < 5; retry++) {
+            await new Promise(resolve => setTimeout(resolve, 500));
+            
+            try {
+              const orderStatus = await gateClient.getOrder(order.id?.toString() || "");
+              
+              if (orderStatus.status === 'finished') {
+                actualExitPrice = Number.parseFloat(orderStatus.fill_price || orderStatus.price || "0");
+                actualQuantity = Math.abs(Number.parseFloat(orderStatus.size || "0"));
+                orderFilled = true;
+                
+                // 获取合约乘数
+                let quantoMultiplier = 0.01;
+                try {
+                  const contractInfo = await gateClient.getContractInfo(contract);
+                  quantoMultiplier = Number.parseFloat(contractInfo.quantoMultiplier || "0.01");
+                } catch (err) {
+                  logger.warn(`获取合约信息失败，使用默认乘数 0.01`);
+                }
+                
+                // 计算盈亏
+                const entryPrice = pos.entry_price;
+                const priceChange = side === "long" 
+                  ? (actualExitPrice - entryPrice) 
+                  : (entryPrice - actualExitPrice);
+                
+                const grossPnl = priceChange * actualQuantity * quantoMultiplier;
+                
+                // 计算手续费（开仓 + 平仓）
+                const openFee = entryPrice * actualQuantity * quantoMultiplier * 0.0005;
+                const closeFee = actualExitPrice * actualQuantity * quantoMultiplier * 0.0005;
+                totalFee = openFee + closeFee;
+                
+                // 净盈亏
+                pnl = grossPnl - totalFee;
+                
+                logger.info(`平仓成交: 价格=${actualExitPrice}, 数量=${actualQuantity}, 盈亏=${pnl.toFixed(2)} USDT`);
+                break;
+              }
+            } catch (statusError: any) {
+              logger.warn(`查询订单状态失败 (重试${retry + 1}/5): ${statusError.message}`);
+            }
+          }
+          
+          // 3. 记录到trades表（无论是否成功获取详细信息都要记录）
+          try {
+            await dbClient.execute({
+              sql: `INSERT INTO trades (order_id, symbol, side, type, price, quantity, leverage, pnl, fee, timestamp, status)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+              args: [
+                order.id?.toString() || "",
+                symbol,
+                side,
+                "close",
+                actualExitPrice || pos.current_price, // 如果没获取到成交价，使用当前价
+                actualQuantity,
+                pos.leverage || 1,
+                pnl, // 如果没计算出来就是0
+                totalFee,
+                getChinaTimeISO(),
+                orderFilled ? "filled" : "pending",
+              ],
+            });
+            logger.info(`✅ 已记录强制平仓交易到数据库: ${symbol}, 盈亏=${pnl.toFixed(2)} USDT, 原因=${closeReason}`);
+          } catch (dbError: any) {
+            logger.error(`❌ 记录强制平仓交易失败: ${dbError.message}`);
+            // 即使数据库写入失败，也记录到日志以便后续补救
+            logger.error(`缺失的交易记录: ${JSON.stringify({
+              order_id: order.id,
+              symbol,
+              side,
+              type: "close",
+              price: actualExitPrice,
+              quantity: actualQuantity,
+              pnl,
+              reason: closeReason,
+            })}`);
+          }
+          
+          // 4. 从数据库删除持仓记录
           await dbClient.execute({
             sql: "DELETE FROM positions WHERE symbol = ?",
             args: [symbol],
           });
           
+          logger.info(`✅ 强制平仓完成 ${symbol}，原因：${closeReason}`);
+          
         } catch (closeError: any) {
           logger.error(`强制平仓失败 ${symbol}: ${closeError.message}`);
+          // 即使失败也记录到日志
+          logger.error(`强制平仓失败详情: symbol=${symbol}, side=${side}, quantity=${pos.quantity}, reason=${closeReason}`);
         }
       }
     }
