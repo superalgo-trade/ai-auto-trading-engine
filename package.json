@@ -36,7 +36,7 @@
     "trading:restart": "npm run trading:stop && npm run trading:start",
     "db:init": "bash scripts/init-db.sh",
     "db:reset": "tsx --env-file=.env ./src/database/reset.ts",
-    "db:close-and-reset": "bash scripts/close-and-reset.sh",
+    "db:close-and-reset": "bash scripts/close-reset-and-start.sh",
     "db:status": "bash scripts/db-status.sh",
     "db:sync": "bash scripts/sync-from-gate.sh",
     "db:sync-positions": "bash scripts/sync-positions.sh",
