@@ -39,7 +39,7 @@ const DEFAULT_MULTIPLIERS: Record<string, number> = {
   'ETH': 0.01,    // 1张 = 0.01 ETH
   'SOL': 1,       // 1张 = 1 SOL
   'XRP': 10,      // 1张 = 10 XRP
-  'BNB': 0.01,    // 1张 = 0.01 BNB
+  'BNB': 0.001,   // 1张 = 0.001 BNB (修复：原来错误地配置为0.01)
   'BCH': 0.01,    // 1张 = 0.01 BCH
 };
 

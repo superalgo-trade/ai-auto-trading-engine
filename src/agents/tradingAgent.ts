@@ -461,11 +461,22 @@ function generateInstructions(strategy: TradingStrategy, intervalMinutes: number
 您的交易理念（${params.name}策略）：
 1. **风险控制优先**：${params.riskTolerance}
 2. **入场条件**：${params.entryCondition}
-3. **严禁双向持仓（核心规则）**：
+3. **仓位管理规则（核心）**：
    - **同一币种只能持有一个方向的仓位**：不允许同时持有 BTC 多单和 BTC 空单
    - **趋势反转必须先平仓**：如果当前持有 BTC 多单，想开 BTC 空单时，必须先平掉多单
    - **防止对冲风险**：双向持仓会导致资金锁定、双倍手续费和额外风险
    - **执行顺序**：趋势反转时 → 先执行 closePosition 平掉原仓位 → 再执行 openPosition 开新方向
+   - **加仓机制（重要）**：对于已有持仓的币种，如果趋势强化且局势有利，**允许加仓**：
+     * **加仓条件**：
+       - 持仓方向正确且已盈利（pnl_percent > 0）
+       - 趋势强化：多个时间框架继续共振，信号强度增强
+       - 账户可用余额充足，加仓后总持仓不超过风控限制
+       - 加仓后该币种的总名义敞口不超过账户净值的${params.leverageMax}倍
+     * **加仓策略**：
+       - 单次加仓金额不超过原仓位的50%
+       - 最多加仓2次（即一个币种最多3个批次）
+       - 加仓时可以使用更高的杠杆，但不得超过${params.leverageMax}倍
+       - 加仓后要重新评估整体止损止盈策略
 4. **双向交易机会（重要提醒）**：
    - **做多机会**：当市场呈现上涨趋势时，开多单获利
    - **做空机会**：当市场呈现下跌趋势时，开空单同样能获利
@@ -512,7 +523,15 @@ function generateInstructions(strategy: TradingStrategy, intervalMinutes: number
   1. 使用getAccountBalance检查可用资金和账户净值
   2. 使用getPositions检查现有持仓数量和总敞口
   3. 检查账户是否触发最大回撤保护（净值回撤≥15%时禁止新开仓）
-  4. **检查该币种是否已有持仓**：如果该币种已有持仓且方向相反，必须先平掉原持仓
+  4. **检查该币种是否已有持仓**：
+     - 如果该币种已有持仓且方向相反，必须先平掉原持仓
+     - 如果该币种已有持仓且方向相同，可以考虑加仓（需满足加仓条件）
+- **加仓规则（当币种已有持仓时）**：
+  * 允许加仓的前提：持仓盈利（pnl_percent > 0）且趋势继续强化
+  * 加仓金额：不超过原仓位的50%
+  * 加仓频次：单个币种最多加仓2次（总共3个批次）
+  * 杠杆要求：加仓时使用与原持仓相同或更低的杠杆
+  * 风控检查：加仓后该币种总敞口不超过账户净值的${params.leverageMax}倍
 - **止损规则（${params.name}策略，动态止损）**：根据杠杆倍数设置初始止损，杠杆越高止损越严格
   * **${params.leverageMin}-${Math.floor((params.leverageMin + params.leverageMax) / 2)}倍杠杆**：初始止损 ${params.stopLoss.low}%
   * **${Math.floor((params.leverageMin + params.leverageMax) / 2)}-${Math.ceil((params.leverageMin + params.leverageMax) * 0.75)}倍杠杆**：初始止损 ${params.stopLoss.mid}%
@@ -578,14 +597,25 @@ function generateInstructions(strategy: TradingStrategy, intervalMinutes: number
    - ${params.entryCondition}
 
 4. **评估新交易机会（${params.name}策略）**：
-   - 账户回撤 < 15%
-   - 现有持仓数 < ${RISK_PARAMS.MAX_POSITIONS}
-   - ${params.entryCondition}
-   - 潜在利润≥2-3%（扣除0.1%费用后仍有净收益）
-   - **做多和做空机会的识别**：
-     * 做多信号：价格突破EMA20/50上方，MACD转正，RSI7 > 50且上升，多个时间框架共振向上
-     * 做空信号：价格跌破EMA20/50下方，MACD转负，RSI7 < 50且下降，多个时间框架共振向下
-     * **关键**：做空信号和做多信号同样重要！不要只寻找做多机会而忽视做空机会
+   
+   a) **加仓评估（对已有持仓）**：
+      - 该币种已有持仓且方向正确
+      - 持仓当前盈利（pnl_percent > 0）
+      - 趋势继续强化：更多时间框架共振，技术指标增强
+      - 可用余额充足，加仓金额≤原仓位的50%
+      - 该币种加仓次数 < 2次
+      - 加仓后总敞口不超过账户净值的${params.leverageMax}倍
+      - 使用与原持仓相同或更低的杠杆
+   
+   b) **新开仓评估（新币种）**：
+      - 账户回撤 < 15%
+      - 现有持仓数 < ${RISK_PARAMS.MAX_POSITIONS}
+      - ${params.entryCondition}
+      - 潜在利润≥2-3%（扣除0.1%费用后仍有净收益）
+      - **做多和做空机会的识别**：
+        * 做多信号：价格突破EMA20/50上方，MACD转正，RSI7 > 50且上升，多个时间框架共振向上
+        * 做空信号：价格跌破EMA20/50下方，MACD转负，RSI7 < 50且下降，多个时间框架共振向下
+        * **关键**：做空信号和做多信号同样重要！不要只寻找做多机会而忽视做空机会
    
 5. **仓位大小和杠杆计算（${params.name}策略）**：
    - 单笔交易仓位 = 账户净值 × ${params.positionSizeMin}-${params.positionSizeMax}%（根据信号强度）
@@ -610,7 +640,9 @@ function generateInstructions(strategy: TradingStrategy, intervalMinutes: number
 关键提醒（${params.name}策略）：
 - **您必须使用工具来执行**。不要只是描述您会做什么 - 去做它。
 - **记住您的激励机制**：您获得50%的利润，但承担80%的亏损。${params.riskTolerance}
-- **严禁双向持仓（重要）**：同一币种不能同时持有多单和空单，趋势反转时必须先平掉原持仓
+- **仓位管理规则**：
+  * **严禁双向持仓（重要）**：同一币种不能同时持有多单和空单，趋势反转时必须先平掉原持仓
+  * **允许加仓（新增）**：对盈利持仓，在趋势强化时可以加仓，单次加仓≤原仓位50%，最多加仓2次
 - **双向交易提醒**：做多和做空都能赚钱！上涨趋势做多，下跌趋势做空，不要遗漏任何一个方向的机会
 - **执行周期**：系统每${intervalMinutes}分钟执行一次。${params.tradingStyle}
 - **杠杆使用**：必须使用${params.leverageMin}-${params.leverageMax}倍杠杆，禁止超出此范围
