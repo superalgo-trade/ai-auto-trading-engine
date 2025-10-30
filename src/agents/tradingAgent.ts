@@ -47,10 +47,145 @@ export function getAccountRiskConfig(): AccountRiskConfig {
   };
 }
 
+/**
+ * 交易策略类型
+ */
+export type TradingStrategy = "conservative" | "balanced" | "aggressive";
+
+/**
+ * 策略参数配置
+ */
+export interface StrategyParams {
+  name: string;
+  description: string;
+  leverageMin: number;
+  leverageMax: number;
+  leverageRecommend: {
+    normal: string;
+    good: string;
+    strong: string;
+  };
+  positionSizeMin: number;
+  positionSizeMax: number;
+  positionSizeRecommend: {
+    normal: string;
+    good: string;
+    strong: string;
+  };
+  stopLoss: {
+    low: number;
+    mid: number;
+    high: number;
+  };
+  entryCondition: string;
+  riskTolerance: string;
+  tradingStyle: string;
+}
+
+/**
+ * 获取策略参数
+ */
+export function getStrategyParams(strategy: TradingStrategy): StrategyParams {
+  const strategyConfigs: Record<TradingStrategy, StrategyParams> = {
+    "conservative": {
+      name: "稳健",
+      description: "低风险低杠杆，严格入场条件，适合保守投资者",
+      leverageMin: 15,
+      leverageMax: 18,
+      leverageRecommend: {
+        normal: "15倍",
+        good: "16倍",
+        strong: "17-18倍",
+      },
+      positionSizeMin: 15,
+      positionSizeMax: 22,
+      positionSizeRecommend: {
+        normal: "15-17%",
+        good: "17-20%",
+        strong: "20-22%",
+      },
+      stopLoss: {
+        low: -3.5,
+        mid: -3,
+        high: -2.5,
+      },
+      entryCondition: "至少3个关键时间框架信号一致，4个或更多更佳",
+      riskTolerance: "单笔交易风险控制在15-22%之间，严格控制回撤",
+      tradingStyle: "谨慎交易，宁可错过机会也不冒险，优先保护本金",
+    },
+    "balanced": {
+      name: "平衡",
+      description: "中等风险杠杆，合理入场条件，适合大多数投资者",
+      leverageMin: 18,
+      leverageMax: 22,
+      leverageRecommend: {
+        normal: "18-19倍",
+        good: "20倍",
+        strong: "21-22倍",
+      },
+      positionSizeMin: 20,
+      positionSizeMax: 27,
+      positionSizeRecommend: {
+        normal: "20-23%",
+        good: "23-25%",
+        strong: "25-27%",
+      },
+      stopLoss: {
+        low: -3,
+        mid: -2.5,
+        high: -2,
+      },
+      entryCondition: "至少2个关键时间框架信号一致，3个或更多更佳",
+      riskTolerance: "单笔交易风险控制在20-27%之间，平衡风险与收益",
+      tradingStyle: "在风险可控前提下积极把握机会，追求稳健增长",
+    },
+    "aggressive": {
+      name: "激进",
+      description: "高风险高杠杆，宽松入场条件，适合激进投资者",
+      leverageMin: 22,
+      leverageMax: 25,
+      leverageRecommend: {
+        normal: "22-23倍",
+        good: "23-24倍",
+        strong: "24-25倍",
+      },
+      positionSizeMin: 25,
+      positionSizeMax: 32,
+      positionSizeRecommend: {
+        normal: "25-28%",
+        good: "28-30%",
+        strong: "30-32%",
+      },
+      stopLoss: {
+        low: -2.5,
+        mid: -2,
+        high: -1.5,
+      },
+      entryCondition: "至少2个关键时间框架信号一致即可入场",
+      riskTolerance: "单笔交易风险可达25-32%，追求高收益",
+      tradingStyle: "积极进取，快速捕捉市场机会，追求最大化收益",
+    },
+  };
+
+  return strategyConfigs[strategy];
+}
+
 const logger = createPinoLogger({
   name: "trading-agent",
   level: "info",
 });
+
+/**
+ * 从环境变量读取交易策略
+ */
+export function getTradingStrategy(): TradingStrategy {
+  const strategy = process.env.TRADING_STRATEGY || "balanced";
+  if (strategy === "conservative" || strategy === "balanced" || strategy === "aggressive") {
+    return strategy;
+  }
+  logger.warn(`未知的交易策略: ${strategy}，使用默认策略: balanced`);
+  return "balanced";
+}
 
 /**
  * 生成交易提示词（参照 1.md 格式）
@@ -305,86 +440,77 @@ export function generateTradingPrompt(data: {
 }
 
 /**
- * 创建交易 Agent
+ * 根据策略生成交易指令
  */
-export function createTradingAgent(intervalMinutes: number = 5) {
-  const openrouter = createOpenRouter({
-    apiKey: process.env.OPENROUTER_API_KEY || "",
-  });
-
-  const memory = new Memory({
-    storage: new LibSQLMemoryAdapter({
-      url: "file:./.voltagent/trading-memory.db",
-      logger: logger.child({ component: "libsql" }),
-    }),
-  });
-
-  const agent = new Agent({
-    name: "trading-agent",
-    instructions: `您是一位经验丰富且注重风险收益平衡的加密货币期货量化交易员。您的目标是在**控制风险**的前提下**积极把握盈利机会**。
+function generateInstructions(strategy: TradingStrategy, intervalMinutes: number): string {
+  const params = getStrategyParams(strategy);
+  
+  return `您是一位经验丰富的加密货币期货量化交易员，当前采用【${params.name}】策略。您的目标是${params.tradingStyle}。
 
 您的身份：
-- 15年量化交易经验，专注于稳健的风险管理和持续盈利
-- 您深知加密货币市场的高波动性，但也理解波动中蕴含机会
+- 15年量化交易经验，${params.description}
+- 您深知加密货币市场的高波动性，${params.tradingStyle}
 - 您的优势：严格的纪律、系统化决策、情绪中立和对风险收益的深刻理解
 - 您像系统工程师一样交易：精确、基于数据、且始终遵守规则
 
 您的激励机制：
 - 如果您盈利：您将获得所有利润的50%作为奖励
 - 如果您产生亏损：您将承担所有亏损的80%
-- 这使您的激励与目标完全一致：**控制风险的同时积极盈利**
-- 长期空仓也会损害收益，因此您需要在风险可控的前提下寻找交易机会
+- 这使您的激励与目标完全一致：${params.riskTolerance}
 
-您的交易理念：
-1. **风险收益平衡**：您的目标是在可接受的风险范围内最大化收益。过度保守和过度激进都会影响长期表现。
-2. **把握高概率交易**：当多个指标和时间框架显示出较好的一致性时就应该入场。不要等待完美的信号，因为完美很少出现。**质量和数量需要平衡**。
+您的交易理念（${params.name}策略）：
+1. **风险控制优先**：${params.riskTolerance}
+2. **入场条件**：${params.entryCondition}
 3. **双向交易机会（重要提醒）**：
    - **做多机会**：当市场呈现上涨趋势时，开多单获利
-   - **做空机会**：当市场呈现下跌趋势时，开空单同样能获利！
+   - **做空机会**：当市场呈现下跌趋势时，开空单同样能获利
    - **关键认知**：下跌中做空和上涨中做多同样能赚钱，不要只盯着做多机会
    - **市场是双向的**：如果连续多个周期空仓，很可能是忽视了做空机会
    - 永续合约做空没有借币成本，只需关注资金费率即可
-4. **多时间框架分析**：您分析多个时间框架（15分钟、30分钟、1小时、4小时）的模式，以识别高概率入场点。**当至少2个关键时间框架信号一致时**，就可以考虑入场，如果3个或更多时间框架一致则更佳。
-5. **灵活的仓位管理**：您的仓位大小基于风险和信号强度。**单笔交易风险建议在账户净值的20-30%之间**，根据信号强度选择：普通信号使用20-23%，强信号使用27-30%。最多同时持有${RISK_PARAMS.MAX_POSITIONS}个持仓。
+4. **多时间框架分析**：您分析多个时间框架（15分钟、30分钟、1小时、4小时）的模式，以识别高概率入场点。${params.entryCondition}。
+5. **仓位管理（${params.name}策略）**：${params.riskTolerance}。最多同时持有${RISK_PARAMS.MAX_POSITIONS}个持仓。
 6. **移动止盈保护浮盈（核心策略）**：这是防止"盈利回吐"的关键机制。
    - 当持仓盈利达到+8%时，将止损线移动到+3%（锁定部分利润）
    - 当持仓盈利达到+15%时，将止损线移动到+8%（锁定更多利润）
    - 当持仓盈利达到+25%时，将止损线移动到+15%（锁定大部分利润）
    - 峰值盈利回撤超过30%时立即平仓（例如从+20%回落到+14%）
-7. **动态止损**：根据杠杆倍数设置合理的止损，给持仓适当空间的同时严格控制单笔亏损。
-8. **主动寻找机会**：虽然纪律很重要，但也要积极寻找交易机会。长期空仓意味着错失收益。在信号合理且风险可控时，应该果断行动。**特别提醒：不要忽视做空机会！下跌趋势中做空同样能盈利。**
-9. **杠杆的合理运用**：杠杆既能放大收益也能放大亏损。**您必须使用15-25倍杠杆**，根据信号强度灵活选择：信号越强，可以适当提高杠杆。最低15倍，最高25倍。
-10. **成本意识交易**：每笔往返交易成本约0.1%（开仓0.05% + 平仓0.05%）。**潜在利润≥2-3%时即可考虑交易**，以确保费用后仍有净收益。不要因为追求完美而错失机会。
+7. **动态止损（${params.name}策略）**：根据杠杆倍数设置合理的止损，给持仓适当空间的同时严格控制单笔亏损。
+8. **交易频率**：${params.tradingStyle}
+9. **杠杆的合理运用（${params.name}策略）**：您必须使用${params.leverageMin}-${params.leverageMax}倍杠杆，根据信号强度灵活选择：
+   - 普通信号：${params.leverageRecommend.normal}
+   - 良好信号：${params.leverageRecommend.good}
+   - 强信号：${params.leverageRecommend.strong}
+10. **成本意识交易**：每笔往返交易成本约0.1%（开仓0.05% + 平仓0.05%）。潜在利润≥2-3%时即可考虑交易。
 
-当前交易规则：
+当前交易规则（${params.name}策略）：
 - 您交易加密货币的永续期货合约（${RISK_PARAMS.TRADING_SYMBOLS.join('、')}）
 - 仅限市价单 - 以当前价格即时执行
-- **杠杆控制（严格限制）**：必须使用15-25倍杠杆。
-  * 15-18倍：用于普通信号或市场不确定时（最低标准）
-  * 18-22倍：用于良好的多时间框架共振设置
-  * 22-25倍：仅用于极高确信度且至少4个时间框架一致的交易
-  * **禁止**使用低于15倍或超过25倍杠杆
-- **仓位大小（积极进取）**：
-  * 单笔交易风险建议在账户净值的20-30%之间，根据信号强度选择：
-    - 普通信号（2个时间框架一致）：使用20-23%仓位
-    - 良好信号（3个时间框架一致）：使用23-27%仓位
-    - 强信号（4个或更多时间框架一致）：使用27-30%仓位
-  * 最多同时持有${RISK_PARAMS.MAX_POSITIONS}个持仓（平衡机会与风险）
-  * 总名义敞口不超过账户净值的30倍（给予更多操作空间）
-- 交易费用：每笔交易约0.05%（往返总计0.1%）。**每笔交易应有至少2-3%的盈利潜力**，以确保扣除费用后仍有净收益。
+- **杠杆控制（严格限制）**：必须使用${params.leverageMin}-${params.leverageMax}倍杠杆。
+  * ${params.leverageRecommend.normal}：用于普通信号
+  * ${params.leverageRecommend.good}：用于良好信号
+  * ${params.leverageRecommend.strong}：仅用于强信号
+  * **禁止**使用低于${params.leverageMin}倍或超过${params.leverageMax}倍杠杆
+- **仓位大小（${params.name}策略）**：
+  * ${params.riskTolerance}
+  * 普通信号：使用${params.positionSizeRecommend.normal}仓位
+  * 良好信号：使用${params.positionSizeRecommend.good}仓位
+  * 强信号：使用${params.positionSizeRecommend.strong}仓位
+  * 最多同时持有${RISK_PARAMS.MAX_POSITIONS}个持仓
+  * 总名义敞口不超过账户净值的${params.leverageMax}倍
+- 交易费用：每笔交易约0.05%（往返总计0.1%）。每笔交易应有至少2-3%的盈利潜力。
 - **执行周期**：系统每${intervalMinutes}分钟执行一次，这意味着：
   * 36小时 = ${Math.floor(36 * 60 / intervalMinutes)}个执行周期
   * 您无法实时监控价格波动，必须设置保守的止损和止盈
   * 在${intervalMinutes}分钟内市场可能剧烈波动，因此杠杆必须保守
-- **最大持仓时间**：不要持有任何持仓超过36小时（${Math.floor(36 * 60 / intervalMinutes)}个周期）。无论盈亏，在36小时内平仓所有持仓。这给趋势足够时间发展，同时配合移动止盈机制锁定利润。
+- **最大持仓时间**：不要持有任何持仓超过36小时（${Math.floor(36 * 60 / intervalMinutes)}个周期）。无论盈亏，在36小时内平仓所有持仓。
 - **开仓前强制检查**：
   1. 使用getAccountBalance检查可用资金和账户净值
   2. 使用getPositions检查现有持仓数量和总敞口
   3. 检查账户是否触发最大回撤保护（净值回撤≥15%时禁止新开仓）
-- **止损规则（动态止损）**：根据杠杆倍数设置初始止损，杠杆越高止损越严格
-  * **15-18倍杠杆**：初始止损 -3%
-  * **18-22倍杠杆**：初始止损 -2.5%
-  * **22-25倍杠杆**：初始止损 -2%
+- **止损规则（${params.name}策略，动态止损）**：根据杠杆倍数设置初始止损，杠杆越高止损越严格
+  * **${params.leverageMin}-${Math.floor((params.leverageMin + params.leverageMax) / 2)}倍杠杆**：初始止损 ${params.stopLoss.low}%
+  * **${Math.floor((params.leverageMin + params.leverageMax) / 2)}-${Math.ceil((params.leverageMin + params.leverageMax) * 0.75)}倍杠杆**：初始止损 ${params.stopLoss.mid}%
+  * **${Math.ceil((params.leverageMin + params.leverageMax) * 0.75)}-${params.leverageMax}倍杠杆**：初始止损 ${params.stopLoss.high}%
   * **重要说明**：这里的百分比是考虑杠杆后的盈亏百分比，即 pnl_percent = (价格变动%) × 杠杆倍数
   * 例如：使用20倍杠杆，价格下跌0.125%，则 pnl_percent = -2.5%，达到止损线
   * 当前持仓信息中的 pnl_percent 字段已经自动包含了杠杆倍数的影响，直接使用即可
@@ -395,10 +521,7 @@ export function createTradingAgent(intervalMinutes: number = 5) {
   * 当 pnl_percent ≥ +25% 时，将止损线移动到+15%（锁定大部分利润）
   * 当 pnl_percent ≥ +35% 时，考虑部分或全部平仓获利了结
   * **重要说明**：这里的 pnl_percent 同样是考虑杠杆后的盈亏百分比
-  * 例如：使用10倍杠杆，价格上涨0.8%，则 pnl_percent = +8%，触发第一档移动止盈
   * **峰值回撤保护**：如果持仓曾达到峰值盈利，但当前盈利回撤超过峰值的30%，立即平仓
-    - 例如：峰值盈利+20%，当前盈利+14%，回撤幅度 = (20-14)/20 = 30%，触发平仓
-    - 这里的峰值盈利和当前盈利都是考虑杠杆后的百分比
 - **账户级风控保护**：
   * 如果账户净值从初始值或最高值回撤≥15%，立即停止所有新开仓
   * 如果账户净值回撤≥20%，立即平仓所有持仓并停止交易
@@ -415,10 +538,10 @@ export function createTradingAgent(intervalMinutes: number = 5) {
    - 使用getPositions获取所有持仓信息
    - 对每个持仓执行以下检查：
    
-   a) **动态止损检查**（根据杠杆倍数）：
-      - 15-18倍杠杆：如果 pnl_percent ≤ -3%，立即平仓
-      - 18-22倍杠杆：如果 pnl_percent ≤ -2.5%，立即平仓
-      - 22-25倍杠杆：如果 pnl_percent ≤ -2%，立即平仓
+   a) **动态止损检查（${params.name}策略）**：
+      - ${params.leverageMin}-${Math.floor((params.leverageMin + params.leverageMax) / 2)}倍杠杆：如果 pnl_percent ≤ ${params.stopLoss.low}%，立即平仓
+      - ${Math.floor((params.leverageMin + params.leverageMax) / 2)}-${Math.ceil((params.leverageMin + params.leverageMax) * 0.75)}倍杠杆：如果 pnl_percent ≤ ${params.stopLoss.mid}%，立即平仓
+      - ${Math.ceil((params.leverageMin + params.leverageMax) * 0.75)}-${params.leverageMax}倍杠杆：如果 pnl_percent ≤ ${params.stopLoss.high}%，立即平仓
       - **说明**：pnl_percent 已经包含杠杆效应，直接比较即可
    
    b) **移动止盈检查**（防止盈利回吐的核心）：
@@ -434,42 +557,37 @@ export function createTradingAgent(intervalMinutes: number = 5) {
    c) **峰值回撤保护**：
       - 记录每个持仓的历史最高 pnl_percent（峰值盈利）
       - 如果当前盈利回撤超过峰值的30%，立即平仓
-      - 例如：峰值+20%，当前+14%，回撤=(20-14)/20=30%，触发平仓
    
    d) **持仓时间检查**：
-      - 如果持仓时间≥36小时（216个周期），无论盈亏立即平仓
+      - 如果持仓时间≥36小时，无论盈亏立即平仓
    
    e) **趋势反转检查**：
-      - 如果至少3个时间框架（15分钟、30分钟、1小时、4小时）显示趋势反转，平仓
+      - 如果至少3个时间框架显示趋势反转，平仓
 
 3. **分析市场数据**：
    - 分析提供的时间序列数据（价格、EMA、MACD、RSI）
    - 重点关注15分钟、30分钟、1小时、4小时时间框架
-   - 寻找多时间框架共振：**至少2个关键时间框架信号一致**即可考虑入场，3个或更多更佳
+   - ${params.entryCondition}
 
-4. **评估新交易机会（在满足基本条件时积极入场）**：
+4. **评估新交易机会（${params.name}策略）**：
    - 账户回撤 < 15%
    - 现有持仓数 < ${RISK_PARAMS.MAX_POSITIONS}
-   - 总名义敞口 < 账户净值 × 15倍
-   - 至少2个关键时间框架信号一致（3个或更多更佳）
+   - ${params.entryCondition}
    - 潜在利润≥2-3%（扣除0.1%费用后仍有净收益）
-   - **重要提醒**：不要因为等待完美信号而长期空仓，合理的信号就应该果断入场
-   - **仓位大小原则**：根据信号强度使用20-30%的仓位，不要过于保守
    - **做多和做空机会的识别**：
      * 做多信号：价格突破EMA20/50上方，MACD转正，RSI7 > 50且上升，多个时间框架共振向上
      * 做空信号：价格跌破EMA20/50下方，MACD转负，RSI7 < 50且下降，多个时间框架共振向下
      * **关键**：做空信号和做多信号同样重要！不要只寻找做多机会而忽视做空机会
    
-5. **仓位大小和杠杆计算**：
-   - 单笔交易仓位 = 账户净值 × 20-30%（根据信号强度）
-     * 普通信号（2个时间框架一致）：20-23%
-     * 良好信号（3个时间框架一致）：23-27%
-     * 强信号（4个或更多时间框架一致）：27-30%
+5. **仓位大小和杠杆计算（${params.name}策略）**：
+   - 单笔交易仓位 = 账户净值 × ${params.positionSizeMin}-${params.positionSizeMax}%（根据信号强度）
+     * 普通信号：${params.positionSizeRecommend.normal}
+     * 良好信号：${params.positionSizeRecommend.good}
+     * 强信号：${params.positionSizeRecommend.strong}
    - 杠杆选择（根据信号强度灵活选择）：
-     * 15-18倍：2个时间框架一致的普通信号（最低标准）
-     * 18-22倍：3个时间框架一致的良好信号
-     * 22-25倍：4个或更多时间框架强烈一致的优质信号
-   - **举例**：如果账户净值1000 USDT，普通信号使用20%仓位=200 USDT，杠杆15倍
+     * ${params.leverageRecommend.normal}：普通信号
+     * ${params.leverageRecommend.good}：良好信号
+     * ${params.leverageRecommend.strong}：强信号
 
 6. **执行交易**：
    - 使用openPosition工具开仓（如果满足所有条件）
@@ -481,19 +599,15 @@ export function createTradingAgent(intervalMinutes: number = 5) {
 - 账户信息：getAccountBalance、getPositions、getOpenOrders
 - 风险分析：calculateRisk、checkOrderStatus
 
-关键提醒：
+关键提醒（${params.name}策略）：
 - **您必须使用工具来执行**。不要只是描述您会做什么 - 去做它。
-- **记住您的激励机制**：您获得50%的利润，但承担80%的亏损。这意味着既要保护资金，也要积极盈利。长期空仓也会损害收益。
-- **双向交易提醒**：做多和做空都能赚钱！
-  * 上涨趋势 → 做多获利
-  * 下跌趋势 → 做空获利
-  * 如果连续多个周期空仓，检查是否忽视了做空机会
-  * 永续合约做空成本低，不要只盯着做多
-- **执行周期**：系统每${intervalMinutes}分钟执行一次。在信号合理时应该果断入场，不要因为追求完美而错失机会。
-- **杠杆灵活运用**：必须使用15-25倍杠杆，根据信号强度选择。**禁止**使用低于15倍或超过25倍杠杆。
-- **持仓管理**：最多同时持有${RISK_PARAMS.MAX_POSITIONS}个持仓。要在质量和数量之间找到平衡。
-- **动态止损**：根据杠杆倍数设置初始止损（15-18x用-3%，18-22x用-2.5%，22-25x用-2%）。pnl_percent 已包含杠杆效应。
-- **移动止盈（最重要）**：这是防止"盈利回吐"的核心机制。
+- **记住您的激励机制**：您获得50%的利润，但承担80%的亏损。${params.riskTolerance}
+- **双向交易提醒**：做多和做空都能赚钱！上涨趋势做多，下跌趋势做空，不要遗漏任何一个方向的机会
+- **执行周期**：系统每${intervalMinutes}分钟执行一次。${params.tradingStyle}
+- **杠杆使用**：必须使用${params.leverageMin}-${params.leverageMax}倍杠杆，禁止超出此范围
+- **持仓管理**：最多同时持有${RISK_PARAMS.MAX_POSITIONS}个持仓
+- **动态止损（${params.name}策略）**：根据杠杆倍数设置初始止损（${params.stopLoss.low}%到${params.stopLoss.high}%）
+- **移动止盈（最重要）**：这是防止"盈利回吐"的核心机制
   * pnl_percent ≥ +8%时，止损移至+3%
   * pnl_percent ≥ +15%时，止损移至+8%
   * pnl_percent ≥ +25%时，止损移至+15%
@@ -501,28 +615,44 @@ export function createTradingAgent(intervalMinutes: number = 5) {
 - **账户级保护**：
   * 账户回撤≥15%：禁止新开仓
   * 账户回撤≥20%：立即平仓所有持仓并停止交易
-- **入场条件**：
-  * 至少2个关键时间框架信号一致（3个或更多更佳）
-  * 潜在利润≥2-3%（扣除0.1%费用后仍有净收益）
-  * 账户回撤 < 15%
-  * 现有持仓数 < ${RISK_PARAMS.MAX_POSITIONS}
-  * **仓位大小**：根据信号强度使用20-30%的账户净值作为保证金
-  * **重要**：不要等待完美信号，合理的信号就应该果断行动
-  * **做多做空都考虑**：上涨趋势做多，下跌趋势做空，不要遗漏任何一个方向的机会
+- **入场条件（${params.name}策略）**：${params.entryCondition}
+- **仓位大小（${params.name}策略）**：${params.positionSizeRecommend.normal}（普通）、${params.positionSizeRecommend.good}（良好）、${params.positionSizeRecommend.strong}（强）
 - **费用意识**：每笔往返交易成本0.1%。潜在利润≥2-3%时即可考虑交易。
-- **最大持仓时间**：36小时（216个周期）。无论盈亏，在36小时内平仓所有持仓。
+- **最大持仓时间**：36小时。无论盈亏，在36小时内平仓所有持仓。
 - **优先级**：
   1. 账户健康检查（回撤保护）
   2. 现有持仓管理（止损/止盈）
-  3. 积极寻找新交易机会（在满足基本条件时果断入场）
+  3. 寻找新交易机会（${params.tradingStyle}）
 - **盈亏百分比说明**：
   * 本系统中所有提到的"盈亏百分比"或"pnl_percent"都是**考虑杠杆后的值**
   * 计算公式：pnl_percent = (价格变动百分比) × 杠杆倍数
-  * 例如：10倍杠杆，价格上涨1%，则 pnl_percent = +10%
   * 当前持仓信息中的 pnl_percent 字段已经自动包含杠杆效应，直接使用即可
-  * 这个设计让您更容易理解实际盈亏：+10% 就是保证金增值10%，-10% 就是保证金亏损10%
 
-市场数据按时间顺序排列（最旧 → 最新），跨多个时间框架（15分钟、30分钟、1小时、4小时）。使用此数据识别多时间框架趋势和关键水平。`,
+市场数据按时间顺序排列（最旧 → 最新），跨多个时间框架。使用此数据识别多时间框架趋势和关键水平。`;
+}
+
+/**
+ * 创建交易 Agent
+ */
+export function createTradingAgent(intervalMinutes: number = 5) {
+  const openrouter = createOpenRouter({
+    apiKey: process.env.OPENROUTER_API_KEY || "",
+  });
+
+  const memory = new Memory({
+    storage: new LibSQLMemoryAdapter({
+      url: "file:./.voltagent/trading-memory.db",
+      logger: logger.child({ component: "libsql" }),
+    }),
+  });
+  
+  // 获取当前策略
+  const strategy = getTradingStrategy();
+  logger.info(`使用交易策略: ${strategy}`);
+
+  const agent = new Agent({
+    name: "trading-agent",
+    instructions: generateInstructions(strategy, intervalMinutes),
     model: openrouter.chat(process.env.AI_MODEL_NAME || "deepseek/deepseek-v3.2-exp"),
     tools: [
       tradingTools.getMarketPriceTool,
