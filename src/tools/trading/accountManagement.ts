@@ -24,6 +24,7 @@ import { z } from "zod";
 import { createGateClient } from "../../services/gateClient";
 import { createClient } from "@libsql/client";
 import { RISK_PARAMS } from "../../config/riskParams";
+import { getQuantoMultiplier } from "../../utils/contractUtils";
 
 const dbClient = createClient({
   url: process.env.DATABASE_URL || "file:./.voltagent/trading.db",
@@ -224,13 +225,7 @@ export const calculateRiskTool = createTool({
           const pnl = Number.parseFloat(p.unrealisedPnl || "0");
           
           // 获取合约乘数（修复：正确计算名义价值）
-          let quantoMultiplier = 0.01; // 默认值
-          try {
-            const contractInfo = await client.getContractInfo(p.contract);
-            quantoMultiplier = Number.parseFloat(contractInfo.quantoMultiplier || "0.01");
-          } catch (error: any) {
-            // 使用默认值
-          }
+          const quantoMultiplier = await getQuantoMultiplier(p.contract);
           
           // 正确计算名义价值：张数 × 入场价格 × 合约乘数
           const notionalValue = size * entryPrice * quantoMultiplier;

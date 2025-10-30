@@ -26,6 +26,7 @@ import { createClient } from "@libsql/client";
 import { createPinoLogger } from "@voltagent/logger";
 import { getChinaTimeISO } from "../../utils/timeUtils";
 import { RISK_PARAMS } from "../../config/riskParams";
+import { getQuantoMultiplier } from "../../utils/contractUtils";
 
 const logger = createPinoLogger({
   name: "trade-execution",
@@ -130,11 +131,7 @@ export const openPositionTool = createTool({
         const entryPrice = Number.parseFloat(pos.entryPrice || "0");
         const posLeverage = Number.parseInt(pos.leverage || "1");
         // 获取合约乘数
-        let posQuantoMultiplier = 0.01;
-        try {
-          const contractInfo = await client.getContractInfo(pos.contract);
-          posQuantoMultiplier = Number.parseFloat(contractInfo.quantoMultiplier || "0.01");
-        } catch {}
+        const posQuantoMultiplier = await getQuantoMultiplier(pos.contract);
         const posValue = posSize * entryPrice * posQuantoMultiplier;
         currentTotalExposure += posValue;
       }
@@ -173,8 +170,8 @@ export const openPositionTool = createTool({
       // 对于 BTC_USDT: 1张 = 0.0001 BTC
       // 保证金计算：保证金 = (张数 * quantoMultiplier * 价格) / 杠杆
       
-      //  修复：使用正确的字段名 quantoMultiplier（驼峰命名），不是 quanto_multiplier
-      const quantoMultiplier = Number.parseFloat(contractInfo.quantoMultiplier || "0.01");
+      // 获取合约乘数
+      const quantoMultiplier = await getQuantoMultiplier(contract);
       const minSize = Number.parseInt(contractInfo.orderSizeMin || "1");
       const maxSize = Number.parseInt(contractInfo.orderSizeMax || "1000000");
       
@@ -517,13 +514,7 @@ export const closePositionTool = createTool({
       const size = side === "long" ? -closeSize : closeSize;
       
       //  获取合约乘数用于计算盈亏和手续费
-      let quantoMultiplier = 0.01;
-      try {
-        const contractInfo = await client.getContractInfo(contract);
-        quantoMultiplier = Number.parseFloat(contractInfo.quantoMultiplier || "0.01");
-      } catch (error: any) {
-        logger.warn(`获取合约信息失败，使用默认乘数: ${error.message}`);
-      }
+      const quantoMultiplier = await getQuantoMultiplier(contract);
       
       // 🔥 不再依赖Gate.io返回的unrealisedPnl，始终手动计算毛盈亏
       // 手动计算盈亏公式：
@@ -595,13 +586,7 @@ export const closePositionTool = createTool({
             
             //  重新计算实际盈亏（基于真实成交价格）
             // 获取合约乘数
-            let quantoMultiplier = 0.01; // 默认值
-            try {
-              const contractInfo = await client.getContractInfo(contract);
-              quantoMultiplier = Number.parseFloat(contractInfo.quantoMultiplier || "0.01");
-            } catch (error: any) {
-              logger.warn(`获取合约信息失败，使用默认乘数: ${error.message}`);
-            }
+            const quantoMultiplier = await getQuantoMultiplier(contract);
             
             const priceChange = side === "long" 
               ? (actualExitPrice - entryPrice) 
@@ -635,11 +620,7 @@ export const closePositionTool = createTool({
               actualCloseSize = closeSize;
               actualExitPrice = currentPrice;
               // 重新计算盈亏（需要乘以合约乘数）
-              let quantoMultiplier = 0.01;
-              try {
-                const contractInfo = await client.getContractInfo(contract);
-                quantoMultiplier = Number.parseFloat(contractInfo.quantoMultiplier || "0.01");
-              } catch {}
+              const quantoMultiplier = await getQuantoMultiplier(contract);
               const priceChange = side === "long" 
                 ? (actualExitPrice - entryPrice) 
                 : (entryPrice - actualExitPrice);
@@ -662,13 +643,7 @@ export const closePositionTool = createTool({
       
       //  计算总手续费（开仓 + 平仓）用于数据库记录
       // 需要获取合约乘数
-      let dbQuantoMultiplier = 0.01;
-      try {
-        const contractInfo = await client.getContractInfo(contract);
-        dbQuantoMultiplier = Number.parseFloat(contractInfo.quantoMultiplier || "0.01");
-      } catch (error: any) {
-        logger.warn(`获取合约信息失败，使用默认乘数: ${error.message}`);
-      }
+      const dbQuantoMultiplier = await getQuantoMultiplier(contract);
       
       // 开仓手续费 = 开仓名义价值 * 0.05%
       const dbOpenFee = entryPrice * actualCloseSize * dbQuantoMultiplier * 0.0005;

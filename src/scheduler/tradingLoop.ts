@@ -26,6 +26,7 @@ import { createTradingAgent, generateTradingPrompt, getAccountRiskConfig } from 
 import { createGateClient } from "../services/gateClient";
 import { getChinaTimeISO } from "../utils/timeUtils";
 import { RISK_PARAMS } from "../config/riskParams";
+import { getQuantoMultiplier } from "../utils/contractUtils";
 
 const logger = createPinoLogger({
   name: "trading-loop",
@@ -1100,19 +1101,30 @@ async function executeTradingDecision() {
         closeReason = `持仓时间已达 ${holdingHours.toFixed(1)} 小时，超过36小时限制`;
       }
       
-      // b) 动态止损检查（根据杠杆）
-      let stopLossPercent = -5; // 默认
-      if (leverage >= 12) {
-        stopLossPercent = -3;
-      } else if (leverage >= 8) {
-        stopLossPercent = -4;
+      // b) 动态止损检查（根据策略和杠杆）
+      // 从策略配置中获取止损参数
+      const { getStrategyParams, getTradingStrategy } = await import("../agents/tradingAgent.js");
+      const strategy = getTradingStrategy();
+      const params = getStrategyParams(strategy);
+      
+      // 根据杠杆倍数确定止损线
+      const leverageMid = Math.floor((params.leverageMin + params.leverageMax) / 2);
+      const leverageHigh = Math.floor(params.leverageMin + (params.leverageMax - params.leverageMin) * 0.75);
+      
+      let stopLossPercent = params.stopLoss.low; // 默认使用 low
+      if (leverage >= leverageHigh) {
+        stopLossPercent = params.stopLoss.high; // 高杠杆，严格止损
+      } else if (leverage >= leverageMid) {
+        stopLossPercent = params.stopLoss.mid;   // 中等杠杆
       } else {
-        stopLossPercent = -5;
+        stopLossPercent = params.stopLoss.low;   // 低杠杆，宽松止损
       }
+      
+      logger.info(`${symbol} 止损检查: 策略=${strategy}, 杠杆=${leverage}x, 止损线=${stopLossPercent}%, 当前盈亏=${pnlPercent.toFixed(2)}%`);
       
       if (pnlPercent <= stopLossPercent) {
         shouldClose = true;
-        closeReason = `触发动态止损 (${pnlPercent.toFixed(2)}% ≤ ${stopLossPercent}%)`;
+        closeReason = `触发动态止损 (${pnlPercent.toFixed(2)}% ≤ ${stopLossPercent}%, 策略=${strategy}, 杠杆=${leverage}x)`;
       }
       
       // c) 移动止盈检查
@@ -1183,13 +1195,7 @@ async function executeTradingDecision() {
                 orderFilled = true;
                 
                 // 获取合约乘数
-                let quantoMultiplier = 0.01;
-                try {
-                  const contractInfo = await gateClient.getContractInfo(contract);
-                  quantoMultiplier = Number.parseFloat(contractInfo.quantoMultiplier || "0.01");
-                } catch (err) {
-                  logger.warn(`获取合约信息失败，使用默认乘数 0.01`);
-                }
+                const quantoMultiplier = await getQuantoMultiplier(contract);
                 
                 // 计算盈亏
                 const entryPrice = pos.entry_price;
