@@ -189,11 +189,6 @@ class TradingMonitor {
                     `;
                 }).join('');
             }
-
-            // 更新终端消息
-            if (data.positions.length > 0) {
-                this.addTerminalLine(`POSITIONS: ${data.positions.length} active`);
-            }
             
         } catch (error) {
             console.error('加载持仓数据失败:', error);
@@ -211,12 +206,12 @@ class TradingMonitor {
                 return;
             }
 
-            const container = document.getElementById('tradesContainer');
+            const tradesBody = document.getElementById('trades-body');
             const countEl = document.getElementById('tradesCount');
             
             if (!data.trades || data.trades.length === 0) {
-                if (container) {
-                    container.innerHTML = '<p class="no-data">暂无交易记录</p>';
+                if (tradesBody) {
+                    tradesBody.innerHTML = '<tr><td colspan="9" class="empty-state">暂无交易记录</td></tr>';
                 }
                 if (countEl) {
                     countEl.textContent = '';
@@ -228,8 +223,8 @@ class TradingMonitor {
                 countEl.textContent = `(${data.trades.length})`;
             }
             
-            if (container) {
-                container.innerHTML = data.trades.map(trade => {
+            if (tradesBody) {
+                tradesBody.innerHTML = data.trades.map(trade => {
                     const date = new Date(trade.timestamp);
                     const timeStr = date.toLocaleString('zh-CN', {
                         timeZone: 'Asia/Shanghai',
@@ -240,48 +235,31 @@ class TradingMonitor {
                         second: '2-digit'
                     });
                     
-                    // 对于平仓交易，显示盈亏
+                    // 类型显示
+                    const typeText = trade.type === 'open' ? '开仓' : '平仓';
+                    const typeClass = trade.type === 'open' ? 'buy' : 'sell';
+                    
+                    // 方向显示
+                    const sideText = trade.side === 'long' ? '做多' : '做空';
+                    const sideClass = trade.side === 'long' ? 'long' : 'short';
+                    
+                    // 盈亏显示（仅平仓时显示）
                     const pnlHtml = trade.type === 'close' && trade.pnl !== null && trade.pnl !== undefined
-                        ? `<div class="trade-field">
-                            <span class="label">盈亏</span>
-                            <span class="value ${trade.pnl >= 0 ? 'profit' : 'loss'}">${trade.pnl >= 0 ? '+' : ''}${trade.pnl.toFixed(2)} USDT</span>
-                           </div>`
-                        : '';
+                        ? `<span class="${trade.pnl >= 0 ? 'profit' : 'loss'}">${trade.pnl >= 0 ? '+' : ''}${trade.pnl.toFixed(2)}</span>`
+                        : '<span class="na">-</span>';
                     
                     return `
-                        <div class="trade-item">
-                            <div class="trade-header">
-                                <div class="trade-symbol">${trade.symbol}</div>
-                                <div class="trade-time">${timeStr}</div>
-                            </div>
-                            <div class="trade-info">
-                                <div class="trade-field">
-                                    <span class="label">方向</span>
-                                    <span class="value ${trade.side}">${trade.side === 'long' ? '做多' : trade.side === 'short' ? '做空' : '-'}</span>
-                                </div>
-                                <div class="trade-field">
-                                    <span class="label">类型</span>
-                                    <span class="value">${trade.type === 'open' ? '开仓' : '平仓'}</span>
-                                </div>
-                                <div class="trade-field">
-                                    <span class="label">数量</span>
-                                    <span class="value">${trade.quantity.toFixed(4)}</span>
-                                </div>
-                                <div class="trade-field">
-                                    <span class="label">价格</span>
-                                    <span class="value">${trade.price.toFixed(4)}</span>
-                                </div>
-                                <div class="trade-field">
-                                    <span class="label">杠杆</span>
-                                    <span class="value">${trade.leverage}x</span>
-                                </div>
-                                <div class="trade-field">
-                                    <span class="label">手续费</span>
-                                    <span class="value">${trade.fee.toFixed(4)}</span>
-                                </div>
-                                ${pnlHtml}
-                            </div>
-                        </div>
+                        <tr>
+                            <td>${timeStr}</td>
+                            <td><span class="symbol">${trade.symbol}</span></td>
+                            <td><span class="type ${typeClass}">${typeText}</span></td>
+                            <td><span class="side ${sideClass}">${sideText}</span></td>
+                            <td>${trade.price.toFixed(2)}</td>
+                            <td>${trade.quantity}</td>
+                            <td>${trade.leverage}x</td>
+                            <td>${trade.fee.toFixed(4)}</td>
+                            <td>${pnlHtml}</td>
+                        </tr>
                     `;
                 }).join('');
             }

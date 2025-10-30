@@ -234,8 +234,27 @@
         <!-- Trades Section -->
         <section class="trades-section">
             <h2 class="section-header">交易历史 <span id="tradesCount"></span></h2>
-            <div class="trades-container" id="tradesContainer">
-                <p class="loading">加载中...</p>
+            <div class="trades-container">
+                <table class="trades-table">
+                    <thead>
+                        <tr>
+                            <th>时间</th>
+                            <th>币种</th>
+                            <th>类型</th>
+                            <th>方向</th>
+                            <th>价格</th>
+                            <th>数量</th>
+                            <th>杠杆</th>
+                            <th>手续费</th>
+                            <th>盈亏</th>
+                        </tr>
+                    </thead>
+                    <tbody id="trades-body">
+                        <tr>
+                            <td colspan="9" class="loading">加载中...</td>
+                        </tr>
+                    </tbody>
+                </table>
             </div>
         </section>
   </main>

@@ -572,12 +572,99 @@ body {
 }
 
 .trades-container {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(500px, 1fr));
-    gap: 1rem;
     max-height: 600px;
     overflow-y: auto;
-    padding-right: 0.5rem;
+    overflow-x: auto;
+}
+
+.trades-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.9rem;
+}
+
+.trades-table thead {
+    border-bottom: 1px solid var(--border-color);
+}
+
+.trades-table th {
+    padding: 0.8rem;
+    text-align: left;
+    color: var(--text-dim);
+    font-weight: bold;
+    font-size: 0.85rem;
+    text-transform: uppercase;
+}
+
+.trades-table td {
+    padding: 0.8rem;
+    color: var(--text-secondary);
+    border-bottom: 1px solid var(--border-color);
+}
+
+.trades-table tbody tr {
+    transition: background-color 0.2s ease;
+}
+
+.trades-table tbody tr:hover {
+    background-color: var(--bg-tertiary);
+}
+
+.trades-table .empty-state,
+.trades-table .loading {
+    text-align: center;
+    color: var(--text-dim);
+    padding: 2rem;
+}
+
+/* 交易表格特殊样式 */
+.trades-table .symbol {
+    color: var(--accent-green);
+    font-weight: bold;
+}
+
+.trades-table .type {
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    font-weight: bold;
+}
+
+.trades-table .type.buy {
+    background-color: rgba(0, 255, 170, 0.1);
+    color: var(--accent-green);
+}
+
+.trades-table .type.sell {
+    background-color: rgba(255, 82, 82, 0.1);
+    color: var(--accent-red);
+}
+
+.trades-table .side {
+    font-weight: 500;
+}
+
+.trades-table .side.long {
+    color: var(--accent-green);
+}
+
+.trades-table .side.short {
+    color: var(--accent-red);
+}
+
+.trades-table .profit {
+    color: var(--accent-green);
+    font-weight: bold;
+}
+
+.trades-table .loss {
+    color: var(--accent-red);
+    font-weight: bold;
+}
+
+.trades-table .na {
+    color: var(--text-dim);
+    opacity: 0.5;
 }
 
 .loading,
@@ -970,19 +1057,20 @@ body {
         font-size: 0.9rem;
     }
 
-    .positions-table {
+    .positions-table,
+    .trades-table {
         font-size: 0.75rem;
     }
 
     .positions-table th,
-    .positions-table td {
+    .positions-table td,
+    .trades-table th,
+    .trades-table td {
         padding: 0.5rem 0.3rem;
     }
 
     .trades-container {
-        grid-template-columns: 1fr;
         max-height: 500px;
-        gap: 0.8rem;
     }
 
     .trade-item {
@@ -1043,15 +1131,15 @@ body {
     }
 
     .positions-table th,
-    .positions-table td {
+    .positions-table td,
+    .trades-table th,
+    .trades-table td {
         font-size: 0.7rem;
         padding: 0.4rem 0.2rem;
     }
     
     .trades-container {
-        grid-template-columns: 1fr;
         max-height: 400px;
-        gap: 0.6rem;
     }
     
     .trade-item {
