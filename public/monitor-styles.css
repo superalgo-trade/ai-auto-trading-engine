@@ -653,12 +653,12 @@ body {
 }
 
 .trades-table .profit {
-    color: var(--accent-green);
+    color: var(--accent-red);
     font-weight: bold;
 }
 
 .trades-table .loss {
-    color: var(--accent-red);
+    color: var(--accent-green);
     font-weight: bold;
 }
 
