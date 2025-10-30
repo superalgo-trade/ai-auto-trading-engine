@@ -295,7 +295,7 @@ async function loadLogsData() {
 async function loadTradesData() {
     try {
         // 不传 contract 参数，获取所有合约的成交记录
-        const response = await fetch('/api/trades?limit=10');
+        const response = await fetch('/api/trades?limit=100');
         const data = await response.json();
         
         const container = document.getElementById('tradesContainer');

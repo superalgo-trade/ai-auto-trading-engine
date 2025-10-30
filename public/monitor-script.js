@@ -198,7 +198,7 @@ class TradingMonitor {
     // 加载交易记录 - 使用和 index.html 相同的布局
     async loadTradesData() {
         try {
-            const response = await fetch('/api/trades?limit=10');
+            const response = await fetch('/api/trades?limit=100');
             const data = await response.json();
             
             if (data.error) {
