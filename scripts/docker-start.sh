@@ -40,13 +40,13 @@ fi
 # 检查必需的环境变量
 echo "🔍 检查环境变量配置..."
 if ! grep -q "GATE_API_KEY=your_api_key_here" .env && \
-   ! grep -q "OPENROUTER_API_KEY=your_openrouter_key_here" .env; then
+   ! grep -q "OPENAI_API_KEY=your_openai_key_here" .env; then
     echo "✅ 环境变量已配置"
 else
     echo "⚠️  警告: 请确保已正确配置以下环境变量:"
     echo "   - GATE_API_KEY"
     echo "   - GATE_API_SECRET"
-    echo "   - OPENROUTER_API_KEY"
+    echo "   - OPENAI_API_KEY"
     echo ""
     read -p "是否继续? (y/N) " -n 1 -r
     echo

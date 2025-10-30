@@ -3,7 +3,7 @@
 <div align="center">
 
 [![VoltAgent](https://img.shields.io/badge/Framework-VoltAgent-purple.svg)](https://voltagent.dev)
-[![OpenRouter](https://img.shields.io/badge/AI-OpenRouter-orange.svg)](https://openrouter.ai)
+[![OpenAI Compatible](https://img.shields.io/badge/AI-OpenAI_Compatible-orange.svg)](https://openrouter.ai)
 [![Gate.io](https://img.shields.io/badge/Exchange-Gate.io-00D4AA.svg)](https://www.gate.io)
 [![TypeScript](https://img.shields.io/badge/Language-TypeScript-3178C6.svg?logo=typescript&logoColor=white)](https://www.typescriptlang.org)
 [![Node.js](https://img.shields.io/badge/Runtime-Node.js%2020+-339933.svg?logo=node.js&logoColor=white)](https://nodejs.org)
@@ -78,7 +78,7 @@ open-nof1.ai は、大規模言語モデルの知能と量的取引実践を深�
 | コンポーネント | 技術 | 用途 |
 |---------------|------|------|
 | フレームワーク | [VoltAgent](https://voltagent.dev) | AI Agent オーケストレーションと管理 |
-| AI プロバイダー | [OpenRouter](https://openrouter.ai) | 統一 LLM API アクセス (DeepSeek V3.2, Grok4, Claude など) |
+| AI プロバイダー | OpenAI 互換 API | OpenRouter、OpenAI、DeepSeek などの互換プロバイダーをサポート |
 | 取引所 | [Gate.io](https://www.gate.io) | 暗号通貨取引(テストネット & 本番ネット) |
 | データベース | LibSQL (SQLite) | ローカルデータ永続化 |
 | Web サーバー | Hono | 高性能 HTTP フレームワーク |
@@ -179,12 +179,16 @@ GATE_API_KEY=your_api_key_here
 GATE_API_SECRET=your_api_secret_here
 GATE_USE_TESTNET=true
 
-# AI モデルプロバイダー
-OPENROUTER_API_KEY=your_openrouter_key_here
+# AI モデルプロバイダー (OpenAI 互換 API)
+OPENAI_API_KEY=your_api_key_here
+OPENAI_BASE_URL=https://openrouter.ai/api/v1  # オプション、OpenRouter、OpenAI、DeepSeek などをサポート
+AI_MODEL_NAME=deepseek/deepseek-v3.2-exp      # モデル名
 ```
 
 **API キー取得**:
 - OpenRouter: https://openrouter.ai/keys
+- OpenAI: https://platform.openai.com/api-keys
+- DeepSeek: https://platform.deepseek.com/api_keys
 - Gate.io テストネット: https://www.gate.io/testnet
 - Gate.io 本番ネット: https://www.gate.io/myaccount/api_key_manage
 
@@ -267,13 +271,33 @@ open-nof1.ai/
 | `GATE_API_KEY` | Gate.io API キー | - | はい |
 | `GATE_API_SECRET` | Gate.io API シークレット | - | はい |
 | `GATE_USE_TESTNET` | テストネット環境を使用 | true | いいえ |
-| `OPENROUTER_API_KEY` | OpenRouter API キー | - | はい |
+| `OPENAI_API_KEY` | OpenAI 互換 API キー | - | はい |
+| `OPENAI_BASE_URL` | API ベース URL | https://openrouter.ai/api/v1 | いいえ |
+| `AI_MODEL_NAME` | モデル名 | deepseek/deepseek-v3.2-exp | いいえ |
 
 ### AI モデル設定
 
-デフォルトモデル: `deepseek/deepseek-v3.2-exp`
+システムは OpenAI API 互換のプロバイダーをサポートします：
 
-OpenRouter を通じて使用可能な代替モデル:
+**OpenRouter** (推奨、複数のモデルをサポート):
+```bash
+OPENAI_BASE_URL=https://openrouter.ai/api/v1
+AI_MODEL_NAME=deepseek/deepseek-v3.2-exp  # または x-ai/grok-4-fast, anthropic/claude-4.5-sonnet
+```
+
+**OpenAI**:
+```bash
+OPENAI_BASE_URL=https://api.openai.com/v1
+AI_MODEL_NAME=gpt-4o  # または gpt-4o-mini
+```
+
+**DeepSeek**:
+```bash
+OPENAI_BASE_URL=https://api.deepseek.com/v1
+AI_MODEL_NAME=deepseek-chat  # または deepseek-coder
+```
+
+サポートされているモデル（異なるプロバイダー経由）:
 - `openai/gpt-4o-mini` - コストパフォーマンスが高い
 - `openai/gpt-4o` - 高品質な推論
 - `anthropic/claude-4.5-sonnet` - 強力な分析能力
@@ -553,13 +577,17 @@ npm run trading:restart
 
 #### AI モデル API エラー
 
-**エラー**: `OpenRouter API error`
+**エラー**: `OpenAI API error` または接続失敗
 
 **解決策**:
-- `OPENROUTER_API_KEY` が正しいことを確認
+- `OPENAI_API_KEY` が正しいことを確認
+- `OPENAI_BASE_URL` が正しく設定されていることを確認
+  - OpenRouter: `https://openrouter.ai/api/v1`
+  - OpenAI: `https://api.openai.com/v1`
+  - DeepSeek: `https://api.deepseek.com/v1`
 - API キーに十分なクレジットがあることを確認
-- ネットワーク接続を確認
-- OpenRouter サービスのステータスを確認
+- ネットワーク接続とファイアウォール設定を確認
+- 該当サービスプロバイダーのステータスを確認
 
 ### ログ記録
 
@@ -691,6 +719,8 @@ npm run trading:start
 
 - [VoltAgent ドキュメント](https://voltagent.dev/docs/)
 - [OpenRouter モデルカタログ](https://openrouter.ai/models)
+- [OpenAI API リファレンス](https://platform.openai.com/docs/api-reference)
+- [DeepSeek API ドキュメント](https://platform.deepseek.com/api-docs/)
 - [Gate.io API リファレンス](https://www.gate.io/docs/developers/apiv4/)
 - [Gate.io テストネット](https://www.gate.io/testnet)
 

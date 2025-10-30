@@ -3,7 +3,7 @@
 <div align="center">
 
 [![VoltAgent](https://img.shields.io/badge/Framework-VoltAgent-purple.svg)](https://voltagent.dev)
-[![OpenRouter](https://img.shields.io/badge/AI-OpenRouter-orange.svg)](https://openrouter.ai)
+[![OpenAI Compatible](https://img.shields.io/badge/AI-OpenAI_Compatible-orange.svg)](https://openrouter.ai)
 [![Gate.io](https://img.shields.io/badge/Exchange-Gate.io-00D4AA.svg)](https://www.gate.io)
 [![TypeScript](https://img.shields.io/badge/Language-TypeScript-3178C6.svg?logo=typescript&logoColor=white)](https://www.typescriptlang.org)
 [![Node.js](https://img.shields.io/badge/Runtime-Node.js%2020+-339933.svg?logo=node.js&logoColor=white)](https://nodejs.org)
@@ -78,7 +78,7 @@ The system follows a **minimal human intervention** design philosophy, abandonin
 | Component | Technology | Purpose |
 |-----------|-----------|---------|
 | Framework | [VoltAgent](https://voltagent.dev) | AI Agent orchestration and management |
-| AI Provider | [OpenRouter](https://openrouter.ai) | Unified LLM API access (DeepSeek V3.2, Grok4, Claude, etc.) |
+| AI Provider | OpenAI Compatible API | Supports OpenRouter, OpenAI, DeepSeek and other compatible providers |
 | Exchange | [Gate.io](https://www.gate.io) | Cryptocurrency trading (testnet & mainnet) |
 | Database | LibSQL (SQLite) | Local data persistence |
 | Web Server | Hono | High-performance HTTP framework |
@@ -180,12 +180,16 @@ GATE_API_KEY=your_api_key_here
 GATE_API_SECRET=your_api_secret_here
 GATE_USE_TESTNET=true
 
-# AI Model Provider
-OPENROUTER_API_KEY=your_openrouter_key_here
+# AI Model Provider (OpenAI Compatible API)
+OPENAI_API_KEY=your_api_key_here
+OPENAI_BASE_URL=https://openrouter.ai/api/v1  # Optional, supports OpenRouter, OpenAI, DeepSeek, etc.
+AI_MODEL_NAME=deepseek/deepseek-v3.2-exp      # Model name
 ```
 
 **API Key Acquisition**:
 - OpenRouter: https://openrouter.ai/keys
+- OpenAI: https://platform.openai.com/api-keys
+- DeepSeek: https://platform.deepseek.com/api_keys
 - Gate.io Testnet: https://www.gate.io/testnet
 - Gate.io Mainnet: https://www.gate.io/myaccount/api_key_manage
 
@@ -268,13 +272,33 @@ open-nof1.ai/
 | `GATE_API_KEY` | Gate.io API key | - | Yes |
 | `GATE_API_SECRET` | Gate.io API secret | - | Yes |
 | `GATE_USE_TESTNET` | Use testnet environment | true | No |
-| `OPENROUTER_API_KEY` | OpenRouter API key | - | Yes |
+| `OPENAI_API_KEY` | OpenAI compatible API key | - | Yes |
+| `OPENAI_BASE_URL` | API base URL | https://openrouter.ai/api/v1 | No |
+| `AI_MODEL_NAME` | Model name | deepseek/deepseek-v3.2-exp | No |
 
 ### AI Model Configuration
 
-Default model: `deepseek/deepseek-v3.2-exp`
+The system supports any OpenAI API compatible provider:
 
-Alternative models available through OpenRouter:
+**OpenRouter** (Recommended, supports multiple models):
+```bash
+OPENAI_BASE_URL=https://openrouter.ai/api/v1
+AI_MODEL_NAME=deepseek/deepseek-v3.2-exp  # or x-ai/grok-4-fast, anthropic/claude-4.5-sonnet
+```
+
+**OpenAI**:
+```bash
+OPENAI_BASE_URL=https://api.openai.com/v1
+AI_MODEL_NAME=gpt-4o  # or gpt-4o-mini
+```
+
+**DeepSeek**:
+```bash
+OPENAI_BASE_URL=https://api.deepseek.com/v1
+AI_MODEL_NAME=deepseek-chat  # or deepseek-coder
+```
+
+Supported models (via different providers):
 - `openai/gpt-4o-mini` - Cost-effective option
 - `openai/gpt-4o` - High-quality reasoning
 - `anthropic/claude-4.5-sonnet` - Strong analytical capabilities
@@ -553,13 +577,17 @@ npm run trading:restart
 
 #### AI Model API Errors
 
-**Error**: `OpenRouter API error`
+**Error**: `OpenAI API error` or connection failure
 
 **Solution**:
-- Verify `OPENROUTER_API_KEY` is correct
+- Verify `OPENAI_API_KEY` is correct
+- Confirm `OPENAI_BASE_URL` is configured correctly
+  - OpenRouter: `https://openrouter.ai/api/v1`
+  - OpenAI: `https://api.openai.com/v1`
+  - DeepSeek: `https://api.deepseek.com/v1`
 - Ensure API key has sufficient credits
-- Check network connectivity
-- Verify OpenRouter service status
+- Check network connectivity and firewall settings
+- Verify the service provider's status
 
 ### Logging
 
@@ -691,6 +719,8 @@ npm run trading:start
 
 - [VoltAgent Documentation](https://voltagent.dev/docs/)
 - [OpenRouter Model Catalog](https://openrouter.ai/models)
+- [OpenAI API Reference](https://platform.openai.com/docs/api-reference)
+- [DeepSeek API Documentation](https://platform.deepseek.com/api-docs/)
 - [Gate.io API Reference](https://www.gate.io/docs/developers/apiv4/)
 - [Gate.io Testnet](https://www.gate.io/testnet)
 

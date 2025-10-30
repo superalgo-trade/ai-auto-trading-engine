@@ -80,7 +80,7 @@ if [ ! -f .env ]; then
     echo "请创建 .env 文件并配置以下变量："
     echo "  - GATE_API_KEY"
     echo "  - GATE_API_SECRET"
-    echo "  - OPENROUTER_API_KEY"
+    echo "  - OPENAI_API_KEY"
     echo "  - GATE_USE_TESTNET=true"
     exit 1
 fi
@@ -91,7 +91,7 @@ echo -e "${GREEN}✓${NC} 找到 .env 文件"
 source .env
 
 # 检查必需的环境变量
-REQUIRED_VARS=("GATE_API_KEY" "GATE_API_SECRET" "OPENROUTER_API_KEY")
+REQUIRED_VARS=("GATE_API_KEY" "GATE_API_SECRET" "OPENAI_API_KEY")
 MISSING_VARS=()
 
 for var in "${REQUIRED_VARS[@]}"; do
