@@ -516,8 +516,7 @@ export const closePositionTool = createTool({
       const closeSize = Math.floor((quantity * percentage) / 100);
       const size = side === "long" ? -closeSize : closeSize;
       
-      //  改进：计算实际盈亏，Gate.io 返回的是毛盈亏（未扣除手续费）
-      // 获取合约乘数用于计算手续费
+      //  获取合约乘数用于计算盈亏和手续费
       let quantoMultiplier = 0.01;
       try {
         const contractInfo = await client.getContractInfo(contract);
@@ -526,31 +525,24 @@ export const closePositionTool = createTool({
         logger.warn(`获取合约信息失败，使用默认乘数: ${error.message}`);
       }
       
-      // Gate.io 返回的毛盈亏
-      let grossPnl = percentage === 100 
-        ? totalUnrealizedPnl 
-        : (totalUnrealizedPnl * percentage) / 100;
+      // 🔥 不再依赖Gate.io返回的unrealisedPnl，始终手动计算毛盈亏
+      // 手动计算盈亏公式：
+      // 对于做多：(currentPrice - entryPrice) * quantity * quantoMultiplier
+      // 对于做空：(entryPrice - currentPrice) * quantity * quantoMultiplier
+      const priceChange = side === "long" 
+        ? (currentPrice - entryPrice) 
+        : (entryPrice - currentPrice);
       
-      // 如果 Gate.io 返回的盈亏为 0 且入场价和当前价不同，手动计算毛盈亏
-      if (grossPnl === 0 && Math.abs(currentPrice - entryPrice) > 0.01) {
-        // 手动计算盈亏公式：
-        // 对于做多：(currentPrice - entryPrice) * quantity * quantoMultiplier
-        // 对于做空：(entryPrice - currentPrice) * quantity * quantoMultiplier
-        const priceChange = side === "long" 
-          ? (currentPrice - entryPrice) 
-          : (entryPrice - currentPrice);
-        
-        grossPnl = priceChange * closeSize * quantoMultiplier;
-        
-        logger.warn(`Gate.io 返回的盈亏为0，手动计算毛盈亏: ${grossPnl.toFixed(2)} USDT (价格变动: ${priceChange.toFixed(4)})`);
-      }
+      const grossPnl = priceChange * closeSize * quantoMultiplier;
       
-      //  扣除手续费（开仓 + 平仓）
+      logger.info(`预估盈亏: ${grossPnl >= 0 ? '+' : ''}${grossPnl.toFixed(2)} USDT (价格变动: ${priceChange.toFixed(4)})`);
+      
+      //  计算手续费（开仓 + 平仓）
       const openFee = entryPrice * closeSize * quantoMultiplier * 0.0005;
       const closeFee = currentPrice * closeSize * quantoMultiplier * 0.0005;
       const totalFees = openFee + closeFee;
       
-      // 净盈亏 = 毛盈亏 - 总手续费
+      // 净盈亏 = 毛盈亏 - 总手续费（此值为预估，平仓后会基于实际成交价重新计算）
       let pnl = grossPnl - totalFees;
       
       logger.info(`平仓 ${symbol} ${side === "long" ? "做多" : "做空"} ${closeSize}张 (入场: ${entryPrice.toFixed(2)}, 当前: ${currentPrice.toFixed(2)})`);
