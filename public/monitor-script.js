@@ -124,10 +124,16 @@ class TradingMonitor {
             }
 
             const positionsBody = document.getElementById('positions-body');
+            const positionsCardsContainer = document.getElementById('positions-cards-container');
             
             if (!data.positions || data.positions.length === 0) {
+                // 更新表格
                 if (positionsBody) {
                     positionsBody.innerHTML = '<tr><td colspan="8" class="empty-state">暂无持仓</td></tr>';
+                }
+                // 更新小卡片
+                if (positionsCardsContainer) {
+                    positionsCardsContainer.innerHTML = '<div class="positions-cards-empty">暂无持仓</div>';
                 }
                 return;
             }
@@ -144,8 +150,6 @@ class TradingMonitor {
                     const profitPercent = ((pos.unrealizedPnl / pos.openValue) * 100).toFixed(2);
                     const sideText = pos.side === 'long' ? '做多' : '做空';
                     const sideClass = pos.side === 'long' ? 'positive' : 'negative';
-                    // 开仓倍数 = 开仓价值 / (数量 * 开仓价格)，简化为显示 leverage 字段（如果API提供）
-                    // 否则计算为：开仓价值 / (可用保证金)，这里假设 leverage 可从持仓信息中获取
                     const leverage = pos.leverage || '-';
                     return `
                         <tr>
@@ -162,6 +166,25 @@ class TradingMonitor {
                                 ${pos.unrealizedPnl >= 0 ? '+' : ''}${profitPercent}%
                             </td>
                         </tr>
+                    `;
+                }).join('');
+            }
+
+            // 更新持仓小卡片
+            if (positionsCardsContainer) {
+                positionsCardsContainer.innerHTML = data.positions.map(pos => {
+                    const profitPercent = ((pos.unrealizedPnl / pos.openValue) * 100).toFixed(2);
+                    const sideClass = pos.side;
+                    const sideText = pos.side === 'long' ? '多' : '空';
+                    const pnlClass = pos.unrealizedPnl >= 0 ? 'positive' : 'negative';
+                    
+                    return `
+                        <div class="position-card ${sideClass}">
+                            <span class="position-card-symbol">${pos.symbol}</span>
+                            <span class="position-card-pnl ${pnlClass}">
+                                ${sideText} ${pos.unrealizedPnl >= 0 ? '+' : ''}$${pos.unrealizedPnl.toFixed(2)} (${pos.unrealizedPnl >= 0 ? '+' : ''}${profitPercent}%)
+                            </span>
+                        </div>
                     `;
                 }).join('');
             }
