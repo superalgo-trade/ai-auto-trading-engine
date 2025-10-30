@@ -220,6 +220,81 @@ async function resetDatabase(): Promise<void> {
 }
 
 /**
+ * 同步持仓数据
+ */
+async function syncPositions(): Promise<void> {
+  const gateClient = createGateClient();
+  const dbUrl = process.env.DATABASE_URL || "file:./.voltagent/trading.db";
+  
+  try {
+    logger.info("🔄 从 Gate.io 同步持仓...");
+    
+    const client = createClient({
+      url: dbUrl,
+    });
+    
+    // 从 Gate.io 获取持仓
+    const positions = await gateClient.getPositions();
+    const activePositions = positions.filter((p: any) => Number.parseInt(p.size || "0") !== 0);
+    
+    logger.info(`📊 Gate.io 当前持仓数: ${activePositions.length}`);
+    
+    // 清空本地持仓表
+    await client.execute("DELETE FROM positions");
+    logger.info("✅ 已清空本地持仓表");
+    
+    // 同步持仓到数据库
+    if (activePositions.length > 0) {
+      logger.info(`🔄 同步 ${activePositions.length} 个持仓到数据库...`);
+      
+      for (const pos of activePositions) {
+        const size = Number.parseInt(pos.size || "0");
+        if (size === 0) continue;
+        
+        const symbol = pos.contract.replace("_USDT", "");
+        const entryPrice = Number.parseFloat(pos.entryPrice || "0");
+        const currentPrice = Number.parseFloat(pos.markPrice || "0");
+        const leverage = Number.parseInt(pos.leverage || "1");
+        const side = size > 0 ? "long" : "short";
+        const quantity = Math.abs(size);
+        const pnl = Number.parseFloat(pos.unrealisedPnl || "0");
+        const liqPrice = Number.parseFloat(pos.liqPrice || "0");
+        
+        await client.execute({
+          sql: `INSERT INTO positions 
+                (symbol, quantity, entry_price, current_price, liquidation_price, unrealized_pnl, 
+                 leverage, side, entry_order_id, opened_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          args: [
+            symbol,
+            quantity,
+            entryPrice,
+            currentPrice,
+            liqPrice,
+            pnl,
+            leverage,
+            side,
+            "synced",
+            new Date().toISOString(),
+          ],
+        });
+        
+        logger.info(`   ✅ ${symbol}: ${quantity} 张 (${side}) @ ${entryPrice} | 盈亏: ${pnl >= 0 ? '+' : ''}${pnl.toFixed(2)} USDT`);
+      }
+    } else {
+      logger.info("✅ 当前无持仓");
+    }
+    
+    client.close();
+    logger.info("✅ 持仓同步完成");
+    
+  } catch (error: any) {
+    logger.error(`❌ 持仓同步失败: ${error.message}`);
+    throw error;
+  }
+}
+
+/**
  * 主执行函数
  */
 async function closeAndReset() {
@@ -230,7 +305,7 @@ async function closeAndReset() {
   
   try {
     // 步骤1：平仓所有持仓
-    logger.info("【步骤 1/2】平仓所有持仓");
+    logger.info("【步骤 1/3】平仓所有持仓");
     logger.info("-".repeat(80));
     await closeAllPositions();
     logger.info("");
@@ -241,9 +316,15 @@ async function closeAndReset() {
     logger.info("");
     
     // 步骤2：重置数据库
-    logger.info("【步骤 2/2】重置数据库");
+    logger.info("【步骤 2/3】重置数据库");
     logger.info("-".repeat(80));
     await resetDatabase();
+    logger.info("");
+    
+    // 步骤3：同步持仓数据
+    logger.info("【步骤 3/3】从 Gate.io 同步持仓数据");
+    logger.info("-".repeat(80));
+    await syncPositions();
     logger.info("");
     
     logger.info("=".repeat(80));
