@@ -1432,7 +1432,15 @@ async function executeTradingDecision() {
       return;
     }
     
-    // 6. 获取历史成交记录（最近10条）
+    // 6. 修复历史盈亏记录
+    try {
+      await fixHistoricalPnlRecords();
+    } catch (error) {
+      logger.warn("修复历史盈亏记录失败:", error as any);
+      // 不影响主流程，继续执行
+    }
+    
+    // 7. 获取历史成交记录（最近10条）
     let tradeHistory: any[] = [];
     try {
       tradeHistory = await getTradeHistory(10);
@@ -1441,7 +1449,7 @@ async function executeTradingDecision() {
       // 不影响主流程，继续执行
     }
     
-    // 7. 获取上一次的AI决策
+    // 8. 获取上一次的AI决策
     let recentDecisions: any[] = [];
     try {
       recentDecisions = await getRecentDecisions(1);
@@ -1450,7 +1458,7 @@ async function executeTradingDecision() {
       // 不影响主流程，继续执行
     }
     
-    // 8. 生成提示词并调用 Agent
+    // 9. 生成提示词并调用 Agent
     const prompt = generateTradingPrompt({
       minutesElapsed,
       iteration: iterationCount,
