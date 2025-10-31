@@ -983,7 +983,7 @@ body {
 @media (max-width: 768px) {
     /* Header */
     .header {
-        padding: 0.8rem 1rem;
+        padding: 0.5rem 0.8rem;
         max-width: 100vw;
         overflow: hidden;
     }
@@ -992,21 +992,31 @@ body {
         max-width: 100%;
         overflow: hidden;
         flex-wrap: wrap;
-        gap: 0.5rem;
+        gap: 0.3rem;
+        justify-content: space-between;
+        align-items: center;
     }
 
     .logo {
-        font-size: 1.2rem;
+        font-size: 1rem;
         flex-shrink: 0;
     }
 
     .nav-menu {
         gap: 0.5rem;
         flex-wrap: wrap;
+        align-items: center;
     }
 
     .nav-link {
         font-size: 0.75rem;
+        display: flex;
+        align-items: center;
+    }
+    
+    /* 移动端去除 LIVE 下面的线 */
+    .nav-link.active::after {
+        display: none;
     }
 
     .nav-link svg {
@@ -1040,124 +1050,156 @@ body {
 
     /* Ticker */
     .ticker-wrapper {
-        padding: 0.6rem 0;
+        padding: 0.4rem 0;
         width: 100%;
     }
 
     .ticker-content {
-        gap: 2rem;
+        gap: 1.5rem;
     }
 
     .ticker-item {
-        font-size: 0.85rem;
+        font-size: 0.8rem;
     }
 
     /* Main Content */
     .main-content {
-        padding: 1rem;
-        gap: 1rem;
+        padding: 0.6rem;
+        gap: 0.6rem;
         max-width: 100vw;
         overflow-x: hidden;
     }
 
     /* Chart Section */
     .chart-section {
-        padding: 1rem;
-        min-height: 350px;
+        padding: 0.8rem;
+        min-height: auto;
         max-width: 100%;
         overflow: hidden;
     }
+    
+    /* 资产曲线保持一定高度 */
+    .chart-section:first-child {
+        min-height: 250px;
+    }
 
     .chart-container {
-        height: 300px;
-        padding: 0.5rem;
+        height: auto;
+        min-height: 200px;
+        padding: 0.4rem;
         max-width: 100%;
         overflow: hidden;
+    }
+    
+    .chart-container canvas {
+        height: auto !important;
+        width: 100% !important;
     }
 
     .chart-title,
     .decision-title {
-        font-size: 0.9rem;
+        font-size: 0.85rem;
+    }
+    
+    .chart-header {
+        margin-bottom: 0.6rem;
+        padding-bottom: 0.4rem;
     }
 
     .timeframe-select {
-        font-size: 0.75rem;
-        padding: 0.3rem 0.6rem;
+        font-size: 0.7rem;
+        padding: 0.25rem 0.5rem;
     }
 
     .decision-container {
-        height: 300px;
-        padding: 0.8rem;
+        height: auto;
+        min-height: 150px;
+        max-height: 400px;
+        padding: 0.6rem;
     }
 
     .decision-text {
-        font-size: 0.8rem;
+        font-size: 0.75rem;
         word-break: break-word;
         overflow-wrap: break-word;
     }
 
     /* Positions Cards */
     .positions-cards {
-        margin-top: 1rem;
-        padding-top: 1rem;
+        margin-top: 0.8rem;
+        padding-top: 0.8rem;
     }
 
     .positions-cards-title {
-        font-size: 0.75rem;
+        font-size: 0.7rem;
     }
 
     .positions-cards-container {
-        max-height: 150px;
-        gap: 0.4rem;
+        max-height: 120px;
+        gap: 0.3rem;
     }
 
     .position-card {
-        padding: 0.4rem 0.6rem;
+        padding: 0.35rem 0.5rem;
     }
 
     .position-card-symbol {
-        font-size: 0.85rem;
+        font-size: 0.8rem;
     }
 
     .position-card-pnl {
-        font-size: 0.8rem;
+        font-size: 0.75rem;
     }
 
     /* Account Section */
     .account-section {
-        padding: 1rem;
+        padding: 0.8rem;
     }
 
     .account-value {
-        font-size: 2rem;
+        font-size: 1.8rem;
+        margin: 0.6rem 0;
     }
 
     .currency-symbol {
-        font-size: 1.5rem;
+        font-size: 1.3rem;
+    }
+    
+    .account-header {
+        margin-bottom: 0.6rem;
+    }
+    
+    .account-details {
+        margin-top: 0.8rem;
+        padding-top: 0.8rem;
+        gap: 0.6rem;
     }
 
     /* Tables */
     .positions-section,
     .trades-section {
-        padding: 1rem;
+        padding: 0.8rem;
         max-width: 100%;
         overflow: hidden;
     }
 
     .section-header {
-        font-size: 0.9rem;
+        font-size: 0.85rem;
+        margin-bottom: 0.8rem;
+        padding-bottom: 0.5rem;
     }
 
     .positions-table,
     .trades-table {
-        font-size: 0.75rem;
+        font-size: 0.7rem;
     }
 
     .positions-table th,
     .positions-table td,
     .trades-table th,
     .trades-table td {
-        padding: 0.5rem 0.3rem;
+        padding: 0.35rem 0.2rem;
+        white-space: nowrap;
     }
 
     /* 移动端隐藏持仓表格的一些列 */
@@ -1170,9 +1212,9 @@ body {
         display: none;
     }
 
-    /* 移动端隐藏交易历史表格的一些列 */
-    .trades-table th:nth-child(6),
-    .trades-table td:nth-child(6),
+    /* 移动端隐藏交易历史表格的一些列 - 隐藏价格，显示数量（开仓价值） */
+    .trades-table th:nth-child(5),
+    .trades-table td:nth-child(5),
     .trades-table th:nth-child(7),
     .trades-table td:nth-child(7),
     .trades-table th:nth-child(8),
@@ -1181,7 +1223,7 @@ body {
     }
 
     .trades-container {
-        max-height: 500px;
+        max-height: 450px;
         max-width: 100%;
     }
 
@@ -1223,28 +1265,48 @@ body {
 @media (max-width: 480px) {
     /* Extra small screens */
     .header {
-        padding: 0.6rem 0.8rem;
+        padding: 0.4rem 0.6rem;
     }
 
     .nav-bar {
-        gap: 0.4rem;
+        gap: 0.3rem;
     }
 
     .logo {
-        font-size: 1rem;
+        font-size: 0.9rem;
     }
 
     .nav-link {
-        font-size: 0.7rem;
+        font-size: 0.65rem;
     }
 
     .github-stars {
         padding: 2px 4px;
-        font-size: 0.7rem;
+        font-size: 0.65rem;
+    }
+    
+    .main-content {
+        padding: 0.5rem;
+        gap: 0.5rem;
+    }
+    
+    .chart-section {
+        padding: 0.6rem;
+        min-height: auto;
+    }
+    
+    /* 资产曲线保持一定高度 */
+    .chart-section:first-child {
+        min-height: 220px;
+    }
+
+    .account-section {
+        padding: 0.6rem;
     }
 
     .account-value {
         font-size: 1.5rem;
+        margin: 0.5rem 0;
     }
 
     .currency-symbol {
@@ -1252,22 +1314,49 @@ body {
     }
 
     .chart-container {
-        height: 250px;
+        height: auto;
+        min-height: 180px;
+        padding: 0.3rem;
         max-width: 100%;
         overflow: hidden;
+    }
+    
+    .chart-container canvas {
+        height: auto !important;
+        width: 100% !important;
+    }
+    
+    .decision-container {
+        height: auto;
+        min-height: 120px;
+        max-height: 350px;
+        padding: 0.5rem;
     }
 
     .positions-table,
     .trades-table {
         min-width: auto;
+        font-size: 0.65rem;
     }
 
     .positions-table th,
     .positions-table td,
     .trades-table th,
     .trades-table td {
-        font-size: 0.7rem;
-        padding: 0.4rem 0.2rem;
+        font-size: 0.65rem;
+        padding: 0.3rem 0.15rem;
+        white-space: nowrap;
+    }
+    
+    .positions-section,
+    .trades-section {
+        padding: 0.6rem;
+    }
+    
+    .section-header {
+        font-size: 0.8rem;
+        margin-bottom: 0.6rem;
+        padding-bottom: 0.4rem;
     }
 
     /* 继承768px的列隐藏规则 */
@@ -1280,8 +1369,8 @@ body {
         display: none;
     }
 
-    .trades-table th:nth-child(6),
-    .trades-table td:nth-child(6),
+    .trades-table th:nth-child(5),
+    .trades-table td:nth-child(5),
     .trades-table th:nth-child(7),
     .trades-table td:nth-child(7),
     .trades-table th:nth-child(8),
@@ -1290,37 +1379,37 @@ body {
     }
     
     .trades-container {
-        max-height: 400px;
+        max-height: 350px;
     }
     
     .trade-item {
-        padding: 0.8rem;
+        padding: 0.6rem;
     }
     
     .trade-header {
-        margin-bottom: 0.8rem;
-        padding-bottom: 0.8rem;
+        margin-bottom: 0.6rem;
+        padding-bottom: 0.6rem;
     }
     
     .trade-symbol {
-        font-size: 0.9rem;
+        font-size: 0.85rem;
     }
     
     .trade-info {
         grid-template-columns: 1fr;
-        gap: 0.6rem;
+        gap: 0.5rem;
     }
     
     .trade-field {
-        padding: 0.4rem;
+        padding: 0.3rem;
     }
     
     .trade-field .label {
-        font-size: 0.65rem;
+        font-size: 0.6rem;
     }
     
     .trade-field .value {
-        font-size: 0.85rem;
+        font-size: 0.8rem;
     }
 }
 
