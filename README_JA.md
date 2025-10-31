@@ -9,8 +9,8 @@
 [![Node.js](https://img.shields.io/badge/Runtime-Node.js%2020+-339933.svg?logo=node.js&logoColor=white)](https://nodejs.org)
 [![License](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](./LICENSE)
 
-[![简体中文](https://img.shields.io/badge/语言-简体中文-red.svg)](./README.md)
-[![English](https://img.shields.io/badge/Language-English-blue.svg)](./README_EN.md)
+[![English](https://img.shields.io/badge/Language-English-blue.svg)](./README.md)
+[![简体中文](https://img.shields.io/badge/语言-简体中文-red.svg)](./README_ZH.md)
 [![日本語](https://img.shields.io/badge/言語-日本語-yellow.svg)](./README_JA.md)
 
 </div>

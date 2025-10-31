@@ -9,37 +9,37 @@
 [![Node.js](https://img.shields.io/badge/Runtime-Node.js%2020+-339933.svg?logo=node.js&logoColor=white)](https://nodejs.org)
 [![License](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](./LICENSE)
 
-[![简体中文](https://img.shields.io/badge/语言-简体中文-red.svg)](./README.md)
-[![English](https://img.shields.io/badge/Language-English-blue.svg)](./README_EN.md)
+[![English](https://img.shields.io/badge/Language-English-blue.svg)](./README.md)
+[![简体中文](https://img.shields.io/badge/语言-简体中文-red.svg)](./README_ZH.md)
 [![日本語](https://img.shields.io/badge/言語-日本語-yellow.svg)](./README_JA.md)
 
 </div>
 
-## 系统概述
+## Overview
 
-open-nof1.ai 是一个 AI 驱动的加密货币自动交易系统，将大语言模型智能与量化交易实践深度融合。系统基于 Agent 框架构建，通过赋予 AI 完全的市场分析和交易决策自主权，实现真正的智能化交易。
+open-nof1.ai is an AI-powered cryptocurrency automated trading system that deeply integrates large language model intelligence with quantitative trading practices. Built on an Agent framework, the system achieves truly intelligent trading by granting AI complete autonomy in market analysis and trading decisions.
 
-本系统采用**最小人工干预**的设计理念，摒弃传统的硬编码交易规则，让 AI 模型基于原始市场数据进行自主学习和决策。系统集成 Gate.io 交易所（支持测试网和正式网），提供完整的永续合约交易能力，覆盖 BTC、ETH、SOL 等主流加密货币，支持从数据采集、智能分析、风险管理到交易执行的全流程自动化。
+The system follows a **minimal human intervention** design philosophy, abandoning traditional hardcoded trading rules and allowing AI models to autonomously learn and make decisions based on raw market data. It integrates with Gate.io exchange (supporting both testnet and mainnet), provides complete perpetual contract trading capabilities, covers mainstream cryptocurrencies such as BTC, ETH, SOL, and supports full automation from data collection, intelligent analysis, risk management to trade execution.
 
 ![open-nof1.ai](./public/image.png)
 
-## 目录
+## Table of Contents
 
-- [系统概述](#系统概述)
-- [系统架构](#系统架构)
-- [核心特性](#核心特性)
-- [快速开始](#快速开始)
-- [项目结构](#项目结构)
-- [配置说明](#配置说明)
-- [命令参考](#命令参考)
-- [生产部署](#生产部署)
-- [故障排查](#故障排查)
-- [开发指南](#开发指南)
-- [API 文档](#api-文档)
-- [参与贡献](#参与贡献)
-- [开源协议](#开源协议)
+- [Overview](#overview)
+- [Architecture](#architecture)
+- [Key Features](#key-features)
+- [Quick Start](#quick-start)
+- [Project Structure](#project-structure)
+- [Configuration](#configuration)
+- [Commands Reference](#commands-reference)
+- [Production Deployment](#production-deployment)
+- [Troubleshooting](#troubleshooting)
+- [Development Guide](#development-guide)
+- [API Documentation](#api-documentation)
+- [Contributing](#contributing)
+- [License](#license)
 
-## 系统架构
+## Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────┐
@@ -73,379 +73,376 @@ open-nof1.ai 是一个 AI 驱动的加密货币自动交易系统，将大语言
 └────────────────────┘
 ```
 
-### 技术栈
+### Technology Stack
 
-| 组件 | 技术 | 用途 |
-|------|------|------|
-| 框架 | [VoltAgent](https://voltagent.dev) | AI Agent 编排与管理 |
-| AI 提供商 | OpenAI 兼容 API | 支持 OpenRouter、OpenAI、DeepSeek 等兼容供应商 |
-| 交易所 | [Gate.io](https://www.gate.io) | 加密货币交易(测试网 & 正式网) |
-| 数据库 | LibSQL (SQLite) | 本地数据持久化 |
-| Web 服务器 | Hono | 高性能 HTTP 框架 |
-| 开发语言 | TypeScript | 类型安全开发 |
-| 运行时 | Node.js 20+ | JavaScript 运行环境 |
+| Component | Technology | Purpose |
+|-----------|-----------|---------|
+| Framework | [VoltAgent](https://voltagent.dev) | AI Agent orchestration and management |
+| AI Provider | OpenAI Compatible API | Supports OpenRouter, OpenAI, DeepSeek and other compatible providers |
+| Exchange | [Gate.io](https://www.gate.io) | Cryptocurrency trading (testnet & mainnet) |
+| Database | LibSQL (SQLite) | Local data persistence |
+| Web Server | Hono | High-performance HTTP framework |
+| Language | TypeScript | Type-safe development |
+| Runtime | Node.js 20+ | JavaScript runtime |
 
-### 核心设计理念
+### Core Design Philosophy
 
-- **数据驱动**: 向 AI 提供原始市场数据，不进行预处理或添加主观判断
-- **自主决策**: AI 拥有完全的分析和交易决策权限，无硬编码策略限制
-- **多维度分析**: 聚合多时间框架数据(5分钟、15分钟、1小时、4小时)提供全面市场视图
-- **透明可追溯**: 完整记录每一次决策过程，便于回测分析和策略优化
-- **持续学习**: 系统自动积累交易经验，不断优化决策模型
+- **Data-Driven**: Provides raw market data to AI without preprocessing or subjective judgments
+- **Autonomous Decision-Making**: AI has complete authority in analysis and trading decisions, without hardcoded strategy constraints
+- **Multi-Dimensional Analysis**: Aggregates multi-timeframe data (5m, 15m, 1h, 4h) for comprehensive market view
+- **Transparent and Traceable**: Records every decision process for backtesting analysis and strategy optimization
+- **Continuous Learning**: System automatically accumulates trading experience and continuously optimizes decision models
 
-## 核心特性
+## Key Features
 
-### AI 驱动决策
+### AI-Powered Decision Making
 
-- **模型支持**: DeepSeek V3.2、Grok4、Claude 4.5、Gemini Pro 2.5
-- **数据输入**: 实时价格、成交量、K线形态、技术指标
-- **自主分析**: 无预配置交易信号
-- **多时间框架**: 跨多个时间窗口聚合数据
-- **风险管理**: AI 控制的仓位规模和杠杆管理
+- **Model Support**: DeepSeek V3.2, Grok4, Claude 4.5, Gemini Pro 2.5
+- **Data Inputs**: Real-time prices, volume, candlestick patterns, technical indicators
+- **Autonomous Analysis**: No pre-configured trading signals
+- **Multi-Timeframe**: Aggregates data across multiple time windows
+- **Risk Management**: AI-controlled position sizing and leverage management
 
-### 完整交易功能
+### Complete Trading Functionality
 
-- **支持资产**: BTC、ETH、SOL、BNB、XRP、DOGE、GT、TRUMP、ADA、WLFI
-- **合约类型**: USDT 结算永续合约
-- **杠杆范围**: 1倍至10倍(可配置)
-- **订单类型**: 市价单、止损、止盈
-- **持仓方向**: 做多和做空
-- **实时执行**: 通过 Gate.io API 亚秒级下单
+- **Supported Assets**: BTC, ETH, SOL, BNB, XRP, DOGE, GT, TRUMP, ADA, WLFI
+- **Contract Type**: USDT-settled perpetual futures
+- **Leverage Range**: 1x to 10x (configurable)
+- **Order Types**: Market orders, stop-loss, take-profit
+- **Position Direction**: Long and short positions
+- **Real-time Execution**: Sub-second order placement via Gate.io API
 
-### 实时监控界面
+### Real-Time Monitoring Interface
 
-- **Web 仪表板**: 访问地址 `http://localhost:3100`
-- **账户指标**: 余额、净值、未实现盈亏
-- **持仓概览**: 当前持仓、入场价格、杠杆倍数
-- **交易历史**: 完整的交易记录与时间戳
-- **AI 决策日志**: 透明展示模型推理过程
-- **技术指标**: 市场数据和信号的可视化
+- **Web Dashboard**: Accessible at `http://localhost:3100`
+- **Account Metrics**: Balance, equity, unrealized PnL
+- **Position Overview**: Current holdings, entry prices, leverage
+- **Trade History**: Complete transaction log with timestamps
+- **AI Decision Log**: Transparency into model reasoning
+- **Technical Indicators**: Visualization of market data and signals
 
-### 风险管理系统
+### Risk Management System
 
-- **自动止损**: 可配置的百分比止损
-- **止盈订单**: 自动利润兑现
-- **仓位限制**: 每个资产的最大敞口
-- **杠杆控制**: 可配置的最大杠杆
-- **交易节流**: 交易之间的最小间隔
-- **审计追踪**: 完整的数据库日志记录
+- **Automated Stop-Loss**: Configurable percentage-based exits
+- **Take-Profit Orders**: Automatic profit realization
+- **Position Limits**: Maximum exposure per asset
+- **Leverage Control**: Configurable maximum leverage
+- **Trade Throttling**: Minimum interval between trades
+- **Audit Trail**: Complete database logging of all actions
 
-### 生产就绪部署
+### Production-Ready Deployment
 
-- **测试网支持**: 零风险策略验证
-- **进程管理**: PM2 集成确保可靠性
-- **容器化**: Docker 支持隔离部署
-- **自动恢复**: 失败时自动重启
-- **日志记录**: 全面的错误和信息日志
-- **健康监控**: 内置健康检查端点
+- **Testnet Support**: Risk-free strategy validation
+- **Process Management**: PM2 integration for reliability
+- **Containerization**: Docker support for isolated deployment
+- **Auto-Recovery**: Automatic restart on failures
+- **Logging**: Comprehensive error and info logging
+- **Health Monitoring**: Built-in health check endpoints
 
-## 快速开始
+## Quick Start
 
-### 前置要求
+### Prerequisites
 
 - Node.js >= 20.19.0
-- npm 或 pnpm 包管理器
-- Git 版本控制工具
+- npm or pnpm package manager
+- Git version control
 
-### 安装
+### Installation
 
 ```bash
-# 克隆仓库
+# Clone repository
 git clone <repository-url>
 cd open-nof1.ai
 
-# 安装依赖
+# Install dependencies
 npm install
+
 ```
 
-### 配置
+### Configuration
 
-在项目根目录创建 `.env` 文件:
+Create `.env` file in project root:
 
 ```env
-# 服务器配置
+# Server Configuration
 PORT=3100
 
-# 交易参数
-TRADING_INTERVAL_MINUTES=5      # 交易循环间隔
-MAX_LEVERAGE=10                 # 最大杠杆倍数
-INITIAL_BALANCE=2000            # 初始资金(USDT)
+# Trading Parameters
+TRADING_INTERVAL_MINUTES=5      # Trading loop interval
+MAX_LEVERAGE=10                 # Maximum leverage multiplier
+INITIAL_BALANCE=2000            # Initial capital in USDT
 
-# 数据库
+# Database
 DATABASE_URL=file:./.voltagent/trading.db
 
-# Gate.io API 凭证(建议先使用测试网!)
+# Gate.io API Credentials (use testnet first!)
 GATE_API_KEY=your_api_key_here
 GATE_API_SECRET=your_api_secret_here
 GATE_USE_TESTNET=true
 
-# AI 模型提供商（OpenAI 兼容 API）
+# AI Model Provider (OpenAI Compatible API)
 OPENAI_API_KEY=your_api_key_here
-OPENAI_BASE_URL=https://openrouter.ai/api/v1  # 可选，支持 OpenRouter、OpenAI、DeepSeek 等
-AI_MODEL_NAME=deepseek/deepseek-v3.2-exp      # 模型名称
+OPENAI_BASE_URL=https://openrouter.ai/api/v1  # Optional, supports OpenRouter, OpenAI, DeepSeek, etc.
+AI_MODEL_NAME=deepseek/deepseek-v3.2-exp      # Model name
 ```
 
-**API 密钥获取**:
+**API Key Acquisition**:
 - OpenRouter: https://openrouter.ai/keys
 - OpenAI: https://platform.openai.com/api-keys
 - DeepSeek: https://platform.deepseek.com/api_keys
-- Gate.io 测试网: https://www.gate.io/testnet
-- Gate.io 正式网: https://www.gate.io/myaccount/api_key_manage
+- Gate.io Testnet: https://www.gate.io/testnet
+- Gate.io Mainnet: https://www.gate.io/myaccount/api_key_manage
 
-### 数据库初始化
+### Database Initialization
 
 ```bash
 npm run db:init
 ```
 
-### 启动交易系统
+### Start Trading System
 
 ```bash
-# 开发模式(热重载)
+# Development mode with hot reload
 npm run dev
 
-# 生产模式
+# Production mode
 npm run trading:start
 ```
 
-### 访问 Web 仪表板
+### Access Web Dashboard
 
-在浏览器中访问 `http://localhost:3100`
+Navigate to `http://localhost:3100` in your browser.
 
-## 项目结构
+## Project Structure
 
 ```
 open-nof1.ai/
 ├── src/
-│   ├── index.ts                      # 应用入口
+│   ├── index.ts                      # Application entry point
 │   ├── agents/
-│   │   └── tradingAgent.ts           # AI 交易 Agent 实现
+│   │   └── tradingAgent.ts           # AI trading agent implementation
 │   ├── api/
-│   │   └── routes.ts                 # 监控界面 HTTP API 端点
+│   │   └── routes.ts                 # HTTP API endpoints for monitoring
 │   ├── database/
-│   │   ├── init.ts                   # 数据库初始化逻辑
-│   │   ├── schema.ts                 # 数据库模式定义
-│   │   └── sync-from-gate.ts         # 交易所数据同步
+│   │   ├── init.ts                   # Database initialization logic
+│   │   ├── schema.ts                 # Database schema definitions
+│   │   └── sync-from-gate.ts         # Exchange data synchronization
 │   ├── scheduler/
-│   │   └── tradingLoop.ts            # 交易循环编排
+│   │   └── tradingLoop.ts            # Trading cycle orchestration
 │   ├── services/
-│   │   ├── gateClient.ts             # Gate.io API 客户端封装
-│   │   └── multiTimeframeAnalysis.ts # 多时间框架数据聚合器
+│   │   ├── gateClient.ts             # Gate.io API client wrapper
+│   │   └── multiTimeframeAnalysis.ts # Multi-timeframe data aggregator
 │   ├── tools/
-│   │   └── trading/                  # VoltAgent 工具实现
-│   │       ├── accountManagement.ts  # 账户查询与管理
-│   │       ├── marketData.ts         # 市场数据获取
-│   │       └── tradeExecution.ts     # 订单下达与管理
+│   │   └── trading/                  # VoltAgent tool implementations
+│   │       ├── accountManagement.ts  # Account query and management
+│   │       ├── marketData.ts         # Market data retrieval
+│   │       └── tradeExecution.ts     # Order placement and management
 │   ├── types/
-│   │   └── gate.d.ts                 # TypeScript 类型定义
+│   │   └── gate.d.ts                 # TypeScript type definitions
 │   └── utils/
-│       └── timeUtils.ts              # 时间/日期工具函数
-├── public/                           # Web 仪表板静态文件
-│   ├── index.html                    # 仪表板 HTML
-│   ├── app.js                        # 仪表板 JavaScript
-│   └── style.css                     # 仪表板样式
-├── scripts/                          # 运维脚本
-│   ├── init-db.sh                    # 数据库设置脚本
-│   ├── kill-port.sh                  # 服务关闭脚本
-│   └── sync-from-gate.sh             # 数据同步脚本
-├── .env                              # 环境配置
-├── .voltagent/                       # 数据存储目录
-│   └── trading.db                    # SQLite 数据库文件
-├── ecosystem.config.cjs              # PM2 进程配置
-├── package.json                      # Node.js 依赖
-├── tsconfig.json                     # TypeScript 配置
-└── Dockerfile                        # 容器构建定义
+│       └── timeUtils.ts              # Time/date utility functions
+├── public/                           # Web dashboard static files
+│   ├── index.html                    # Dashboard HTML
+│   ├── app.js                        # Dashboard JavaScript
+│   └── style.css                     # Dashboard styles
+├── scripts/                          # Operational scripts
+│   ├── init-db.sh                    # Database setup script
+│   ├── kill-port.sh                  # Service shutdown script
+│   └── sync-from-gate.sh             # Data sync script
+├── .env                              # Environment configuration
+├── .voltagent/                       # Data storage directory
+│   └── trading.db                    # SQLite database file
+├── ecosystem.config.cjs              # PM2 process configuration
+├── package.json                      # Node.js dependencies
+├── tsconfig.json                     # TypeScript configuration
+└── Dockerfile                        # Container build definition
 ```
 
-## 配置说明
+## Configuration
 
-### 环境变量
+### Environment Variables
 
-| 变量 | 说明 | 默认值 | 是否必需 |
-|------|------|--------|---------|
-| `PORT` | HTTP 服务器端口 | 3100 | 否 |
-| `TRADING_INTERVAL_MINUTES` | 交易循环间隔(分钟) | 5 | 否 |
-| `MAX_LEVERAGE` | 最大杠杆倍数 | 10 | 否 |
-| `INITIAL_BALANCE` | 初始资金(USDT) | 2000 | 否 |
-| `DATABASE_URL` | SQLite 数据库文件路径 | file:./.voltagent/trading.db | 否 |
-| `GATE_API_KEY` | Gate.io API 密钥 | - | 是 |
-| `GATE_API_SECRET` | Gate.io API 密钥 | - | 是 |
-| `GATE_USE_TESTNET` | 使用测试网环境 | true | 否 |
-| `OPENAI_API_KEY` | OpenAI 兼容的 API 密钥 | - | 是 |
-| `OPENAI_BASE_URL` | API 基础地址 | https://openrouter.ai/api/v1 | 否 |
-| `AI_MODEL_NAME` | 模型名称 | deepseek/deepseek-v3.2-exp | 否 |
+| Variable | Description | Default | Required |
+|----------|-------------|---------|----------|
+| `PORT` | HTTP server port | 3141 | No |
+| `TRADING_INTERVAL_MINUTES` | Trading loop interval in minutes | 5 | No |
+| `MAX_LEVERAGE` | Maximum leverage multiplier | 10 | No |
+| `INITIAL_BALANCE` | Initial capital in USDT | 2000 | No |
+| `DATABASE_URL` | SQLite database file path | file:./.voltagent/trading.db | No |
+| `GATE_API_KEY` | Gate.io API key | - | Yes |
+| `GATE_API_SECRET` | Gate.io API secret | - | Yes |
+| `GATE_USE_TESTNET` | Use testnet environment | true | No |
+| `OPENAI_API_KEY` | OpenAI compatible API key | - | Yes |
+| `OPENAI_BASE_URL` | API base URL | https://openrouter.ai/api/v1 | No |
+| `AI_MODEL_NAME` | Model name | deepseek/deepseek-v3.2-exp | No |
 
-### AI 模型配置
+### AI Model Configuration
 
-系统支持任何兼容 OpenAI API 的供应商：
+The system supports any OpenAI API compatible provider:
 
-**OpenRouter** (推荐，支持多种模型):
+**OpenRouter** (Recommended, supports multiple models):
 ```bash
 OPENAI_BASE_URL=https://openrouter.ai/api/v1
-AI_MODEL_NAME=deepseek/deepseek-v3.2-exp  # 或 x-ai/grok-4-fast, anthropic/claude-4.5-sonnet
+AI_MODEL_NAME=deepseek/deepseek-v3.2-exp  # or x-ai/grok-4-fast, anthropic/claude-4.5-sonnet
 ```
 
 **OpenAI**:
 ```bash
 OPENAI_BASE_URL=https://api.openai.com/v1
-AI_MODEL_NAME=gpt-4o  # 或 gpt-4o-mini
+AI_MODEL_NAME=gpt-4o  # or gpt-4o-mini
 ```
 
 **DeepSeek**:
 ```bash
 OPENAI_BASE_URL=https://api.deepseek.com/v1
-AI_MODEL_NAME=deepseek-chat  # 或 deepseek-coder
+AI_MODEL_NAME=deepseek-chat  # or deepseek-coder
 ```
 
-支持的模型（通过不同供应商）:
-- `deepseek/deepseek-v3.2-exp` - 高性价比，推荐
-- `x-ai/grok-4-fast` - 快速响应
-- `openai/gpt-4o` - 高质量推理
-- `anthropic/claude-4.5-sonnet` - 强大的分析能力
-- `google/gemini-pro-2.5` - 多模态支持
+Supported models (via different providers):
+- `openai/gpt-4o-mini` - Cost-effective option
+- `openai/gpt-4o` - High-quality reasoning
+- `anthropic/claude-4.5-sonnet` - Strong analytical capabilities
+- `google/gemini-pro-2.5` - Multimodal support
 
-要更换模型,请修改 `src/agents/tradingAgent.ts` 中的配置。
+To change models, modify the configuration in `src/agents/tradingAgent.ts`.
 
-## 命令参考
+## Commands Reference
 
-### 开发
+### Development
 
 ```bash
-# 开发模式(热重载)
+# Development mode with hot reload
 npm run dev
 
-# 类型检查
+# Type checking
 npm run typecheck
 
-# 代码检查
+# Linting
 npm run lint
 
-# 自动修复代码问题
+# Auto-fix linting issues
 npm run lint:fix
 ```
 
-### 交易系统操作
+### Trading System Operations
 
 ```bash
-# 启动交易系统
+# Start trading system
 npm run trading:start
 
-# 停止交易系统
+# Stop trading system
 npm run trading:stop
 
-# 重启交易系统
+# Restart trading system
 npm run trading:restart
 ```
 
-### 数据库管理
+### Database Management
 
 ```bash
-# 初始化数据库结构
+# Initialize database schema
 npm run db:init
 
-# 重置数据库(清空所有数据)
+# Reset database (clear all data)
 npm run db:reset
 
-# 平仓并重置数据库(先平仓所有持仓，再重置数据库)
-npm run db:close-and-reset
-
-# 检查数据库状态
+# Check database status
 npm run db:status
 
-# 从 Gate.io 同步数据
+# Sync data from Gate.io
 npm run db:sync
 
-# 同步持仓数据
+# Sync position data
 npm run db:sync-positions
 ```
 
-### Docker 容器管理
+### Docker Container Management
 
 ```bash
-# 使用快速启动脚本（推荐）
+# Use quick start script (recommended)
 npm run docker:start
 
-# 停止容器
+# Stop container
 npm run docker:stop
 
-# 查看日志
+# View logs
 npm run docker:logs
 
-# 构建镜像
+# Build image
 npm run docker:build
 
-# 使用 Docker Compose
-npm run docker:up          # 启动开发环境
-npm run docker:down        # 停止开发环境
-npm run docker:restart     # 重启容器
+# Using Docker Compose
+npm run docker:up          # Start development environment
+npm run docker:down        # Stop development environment
+npm run docker:restart     # Restart container
 
-# 生产环境
-npm run docker:prod:up     # 启动生产环境
-npm run docker:prod:down   # 停止生产环境
+# Production environment
+npm run docker:prod:up     # Start production environment
+npm run docker:prod:down   # Stop production environment
 ```
 
-### PM2 进程管理
+### PM2 Process Management
 
 ```bash
-# 启动守护进程
+# Start daemon process
 npm run pm2:start
 
-# 以开发模式启动
+# Start in development mode
 npm run pm2:start:dev
 
-# 停止进程
+# Stop process
 npm run pm2:stop
 
-# 重启进程
+# Restart process
 npm run pm2:restart
 
-# 查看日志
+# View logs
 npm run pm2:logs
 
-# 实时监控
+# Real-time monitoring
 npm run pm2:monit
 
-# 列出所有进程
+# List all processes
 npm run pm2:list
 
-# 删除进程
+# Delete process
 npm run pm2:delete
 ```
 
-### 构建与生产
+### Build and Production
 
 ```bash
-# 构建生产版本
+# Build for production
 npm run build
 
-# 运行生产构建
+# Run production build
 npm start
 ```
 
-## 生产部署
+## Production Deployment
 
-### PM2 部署(推荐)
+### PM2 Deployment (Recommended)
 
-PM2 为长时间运行的 Node.js 应用提供强大的进程管理。
+PM2 provides robust process management for long-running Node.js applications.
 
-**安装和设置**:
+**Installation and Setup**:
 
 ```bash
-# 1. 全局安装 PM2
+# 1. Install PM2 globally
 npm install -g pm2
 
-# 2. 启动应用
+# 2. Start application
 npm run pm2:start
 
-# 3. 启用开机自启
+# 3. Enable startup script
 pm2 startup
 pm2 save
 
-# 4. 监控日志
+# 4. Monitor logs
 npm run pm2:logs
 ```
 
-**PM2 配置** (`ecosystem.config.cjs`):
+**PM2 Configuration** (`ecosystem.config.cjs`):
 
 ```javascript
 module.exports = {
@@ -467,349 +464,348 @@ module.exports = {
 };
 ```
 
-### Docker 部署
+### Docker Deployment
 
-**构建和运行**:
+**Build and Run**:
 
 ```bash
-# 构建 Docker 镜像
+# Build Docker image
 docker build -t open-nof1.ai:latest .
 
-# 运行容器
+# Run container
 docker run -d \
   --name open-nof1.ai \
-  -p 3100:3100 \
+  -p 3141:3141 \
   --env-file .env \
   --restart unless-stopped \
-  -v ./voltagent-data:/app/.voltagent \
-  -v ./logs:/app/logs \
   open-nof1.ai:latest
 
-# 查看日志
+# View logs
 docker logs -f open-nof1.ai
 
-# 停止容器
+# Stop container
 docker stop open-nof1.ai
 
-# 删除容器
+# Remove container
 docker rm open-nof1.ai
 ```
 
-**Docker Compose**(推荐):
+**Docker Compose** (optional):
 
-```bash
-# 使用快速启动脚本
-./scripts/docker-start.sh
-
-# 或手动使用 Docker Compose
-docker compose up -d
-
-# 查看日志
-docker compose logs -f
-
-# 停止服务
-docker compose down
+```yaml
+version: '3.8'
+services:
+  trading:
+    build: .
+    container_name: open-nof1.ai
+    ports:
+      - "3141:3141"
+    env_file:
+      - .env
+    restart: unless-stopped
+    volumes:
+      - ./.voltagent:/app/.voltagent
 ```
 
-## 故障排查
+## Troubleshooting
 
-### 常见问题
+### Common Issues
 
-#### 数据库锁定
+#### Database Locked
 
-**错误**: `database is locked`
+**Error**: `database is locked`
 
-**解决方案**:
+**Solution**:
 ```bash
-# 停止所有运行实例
+# Stop all running instances
 npm run trading:stop
-# 或强制终止
+# Or forcefully kill
 pkill -f "tsx"
 
-# 删除数据库锁文件
+# Remove database lock files
 rm -f .voltagent/trading.db-shm
 rm -f .voltagent/trading.db-wal
 
-# 重启
+# Restart
 npm run trading:start
 ```
 
-#### API 凭证未配置
+#### API Credentials Not Configured
 
-**错误**: `GATE_API_KEY and GATE_API_SECRET must be set in environment variables`
+**Error**: `GATE_API_KEY and GATE_API_SECRET must be set in environment variables`
 
-**解决方案**:
+**Solution**:
 ```bash
-# 验证 .env 文件
+# Verify .env file
 cat .env | grep GATE_API
 
-# 编辑配置
+# Edit configuration
 nano .env
 ```
 
-#### 端口被占用
+#### Port Already in Use
 
-**错误**: `EADDRINUSE: address already in use :::3100`
+**Error**: `EADDRINUSE: address already in use :::3141`
 
-**解决方案**:
+**Solution**:
 ```bash
-# 方法 1: 使用停止脚本
+# Method 1: Use stop script
 npm run trading:stop
 
-# 方法 2: 手动终止进程
-lsof -ti:3100 | xargs kill -9
+# Method 2: Manually kill process
+lsof -ti:3141 | xargs kill -9
 
-# 方法 3: 在 .env 中更改端口
-# 设置 PORT=3200
+# Method 3: Change port in .env
+# Set PORT=3142
 ```
 
-#### 技术指标返回零
+#### Technical Indicators Returning Zero
 
-**原因**: K线数据格式不匹配
+**Cause**: Candlestick data format mismatch
 
-**解决方案**:
+**Solution**:
 ```bash
-# 拉取最新更新
+# Pull latest updates
 git pull
 
-# 重新安装依赖
+# Reinstall dependencies
 npm install
 
-# 重启系统
+# Restart system
 npm run trading:restart
 ```
 
-#### AI 模型 API 错误
+#### AI Model API Errors
 
-**错误**: `OpenAI API error` 或连接失败
+**Error**: `OpenAI API error` or connection failure
 
-**解决方案**:
-- 验证 `OPENAI_API_KEY` 是否正确
-- 确认 `OPENAI_BASE_URL` 配置正确
+**Solution**:
+- Verify `OPENAI_API_KEY` is correct
+- Confirm `OPENAI_BASE_URL` is configured correctly
   - OpenRouter: `https://openrouter.ai/api/v1`
   - OpenAI: `https://api.openai.com/v1`
   - DeepSeek: `https://api.deepseek.com/v1`
-- 确保 API 密钥有足够额度
-- 检查网络连接和防火墙设置
-- 验证对应服务商的服务状态
+- Ensure API key has sufficient credits
+- Check network connectivity and firewall settings
+- Verify the service provider's status
 
-### 日志记录
+### Logging
 
 ```bash
-# 查看实时终端日志
+# View real-time terminal logs
 npm run trading:start
 
-# 查看 PM2 日志
+# View PM2 logs
 npm run pm2:logs
 
-# 查看历史日志文件
+# View historical log files
 tail -f logs/trading-$(date +%Y-%m-%d).log
 
-# 查看 PM2 错误日志
+# View PM2 error logs
 tail -f logs/pm2-error.log
 ```
 
-### 数据库检查
+### Database Inspection
 
 ```bash
-# 检查数据库状态
+# Check database status
 npm run db:status
 
-# 进入 SQLite 交互模式
+# Enter SQLite interactive mode
 sqlite3 .voltagent/trading.db
 
-# SQLite 命令
-.tables                      # 列出所有表
-.schema account_history      # 查看表结构
+# SQLite commands
+.tables                      # List all tables
+.schema account_history      # View table schema
 SELECT * FROM account_history ORDER BY timestamp DESC LIMIT 10;
-.exit                        # 退出 SQLite
+.exit                        # Exit SQLite
 ```
 
-## API 文档
+## API Documentation
 
-### REST API 端点
+### REST API Endpoints
 
-| 端点 | 方法 | 说明 |
-|------|------|------|
-| `/api/account` | GET | 当前账户状态和余额 |
-| `/api/positions` | GET | 活跃持仓 |
-| `/api/trades` | GET | 交易历史 |
-| `/api/decisions` | GET | AI 决策日志 |
-| `/api/health` | GET | 系统健康检查 |
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/account` | GET | Current account status and balance |
+| `/api/positions` | GET | Active positions |
+| `/api/trades` | GET | Trade history |
+| `/api/decisions` | GET | AI decision logs |
+| `/api/health` | GET | System health check |
 
-### WebSocket 支持
+### WebSocket Support
 
-实时数据流支持:
-- 账户更新
-- 持仓变化
-- 新交易执行
-- AI 决策事件
+Real-time data streaming available for:
+- Account updates
+- Position changes
+- New trade executions
+- AI decision events
 
-## 最佳实践
+## Best Practices
 
-### 测试网测试
+### Testing on Testnet
 
-**重要**: 正式网部署前务必在测试网充分测试。
+**Critical**: Always test thoroughly on testnet before mainnet deployment.
 
 ```bash
-# 在 .env 中配置
+# Configure in .env
 GATE_USE_TESTNET=true
 ```
 
-测试网优势:
-- 使用虚拟资金零金融风险
-- 完整模拟真实交易环境
-- 验证 AI 策略有效性
-- 在各种条件下测试系统可靠性
+Testnet advantages:
+- Zero financial risk with virtual funds
+- Complete simulation of real trading environment
+- Validate AI strategy effectiveness
+- Test system reliability under various conditions
 
-### 资金管理
+### Capital Management
 
-切换到正式网时:
-- 使用最小资金启动(建议: 100-500 USDT)
-- 监控几天的表现
-- 根据验证结果逐步扩大资金规模
-- 设置合适的止损百分比
+When transitioning to mainnet:
+- Start with minimal capital (recommended: 100-500 USDT)
+- Monitor performance for several days
+- Gradually scale capital based on proven results
+- Set appropriate stop-loss percentages
 
-### 定期备份
+### Regular Backups
 
 ```bash
-# 备份数据库
+# Backup database
 cp .voltagent/trading.db .voltagent/trading.db.backup-$(date +%Y%m%d)
 
-# 自动备份脚本
+# Automated backup script
 #!/bin/bash
 backup_dir="backups"
 mkdir -p $backup_dir
 cp .voltagent/trading.db "$backup_dir/trading-$(date +%Y%m%d-%H%M%S).db"
 ```
 
-### 监控与调整
+### Monitoring and Adjustment
 
-- 定期查看 Web 仪表板指标
-- 分析 AI 决策日志中的模式
-- 监控错误日志和系统告警
-- 根据市场条件调整参数
+- Regularly review web dashboard metrics
+- Analyze AI decision logs for patterns
+- Monitor error logs and system alerts
+- Adjust parameters based on market conditions
 
-### 风险控制
+### Risk Control
 
-- 设置保守的最大杠杆(建议: 3-5倍)
-- 定义每笔交易的最大仓位规模
-- 跨多个资产分散投资
-- 避免在极端市场波动期间交易
+- Set conservative maximum leverage (recommended: 3-5x)
+- Define maximum position size per trade
+- Diversify across multiple assets
+- Avoid trading during extreme market volatility
 
-### 切换到正式网
+### Transitioning to Mainnet
 
-**警告**: 正式网部署前确保已完成彻底的测试网验证。
+**Warning**: Ensure thorough testnet validation before mainnet deployment.
 
 ```bash
-# 1. 停止系统
-# 按 Ctrl+C
+# 1. Stop the system
+# Press Ctrl+C
 
-# 2. 编辑 .env 文件
+# 2. Edit .env file
 nano .env
 
-# 3. 更新配置
+# 3. Update configuration
 GATE_USE_TESTNET=false
 GATE_API_KEY=your_mainnet_api_key
 GATE_API_SECRET=your_mainnet_api_secret
 
-# 4. 重启系统
+# 4. Restart system
 npm run trading:start
 ```
 
-## 资源
+## Resources
 
-### 外部链接
+### External Links
 
-- [VoltAgent 文档](https://voltagent.dev/docs/)
-- [OpenRouter 模型目录](https://openrouter.ai/models)
-- [OpenAI API 参考](https://platform.openai.com/docs/api-reference)
-- [DeepSeek API 文档](https://platform.deepseek.com/api-docs/)
-- [Gate.io API 参考](https://www.gate.io/docs/developers/apiv4/)
-- [Gate.io 测试网](https://www.gate.io/testnet)
+- [VoltAgent Documentation](https://voltagent.dev/docs/)
+- [OpenRouter Model Catalog](https://openrouter.ai/models)
+- [OpenAI API Reference](https://platform.openai.com/docs/api-reference)
+- [DeepSeek API Documentation](https://platform.deepseek.com/api-docs/)
+- [Gate.io API Reference](https://www.gate.io/docs/developers/apiv4/)
+- [Gate.io Testnet](https://www.gate.io/testnet)
 
-## 风险声明
+## Risk Disclaimer
 
-**本系统仅供教育和研究目的。加密货币交易具有重大风险,可能导致资金损失。**
+**This system is provided for educational and research purposes only. Cryptocurrency trading carries substantial risk and may result in financial loss.**
 
-- 务必先在测试网测试策略
-- 仅投资您能承受损失的资金
-- 理解并接受所有交易风险
-- AI 决策不保证盈利
-- 用户对所有交易活动承担全部责任
-- 系统性能不提供任何保证或担保
-- 过往表现不代表未来结果
+- Always test strategies on testnet first
+- Only invest capital you can afford to lose
+- Understand and accept all trading risks
+- AI decisions do not guarantee profitability
+- Users assume full responsibility for all trading activities
+- No warranty or guarantee of system performance
+- Past performance does not indicate future results
 
-## 开源协议
+## License
 
-本项目采用 **GNU Affero General Public License v3.0 (AGPL-3.0)** 协议。
+This project is licensed under the **GNU Affero General Public License v3.0 (AGPL-3.0)**.
 
-### 主要条款
+### Key Terms
 
-- **免费使用**: 您可以出于任何目的使用本软件
-- **开源要求**: 任何修改或衍生作品必须在 AGPL-3.0 下发布
-- **网络使用**: 如果您通过网络提供本软件服务,必须公开源代码
-- **无担保**: 软件按"原样"提供,不提供任何形式的担保
+- **Free to use**: You may use this software for any purpose
+- **Open source requirement**: Any modifications or derivative works must be released under AGPL-3.0
+- **Network use**: If you provide this software as a service over a network, you must make the source code available
+- **No warranty**: Software is provided "as is" without warranty of any kind
 
-完整条款请参见 [LICENSE](./LICENSE) 文件。
+See the [LICENSE](./LICENSE) file for complete terms.
 
-### 为什么选择 AGPL-3.0?
+### Why AGPL-3.0?
 
-我们选择 AGPL-3.0 以确保:
-- 交易社区从所有改进中受益
-- 金融软件的透明度
-- 防止专有分支
-- 保护用户自由
+We chose AGPL-3.0 to ensure:
+- The trading community benefits from all improvements
+- Transparency in financial software
+- Prevention of proprietary forks
+- Protection of user freedoms
 
-## 参与贡献
+## Contributing
 
-欢迎贡献!请遵循以下指南:
+Contributions are welcome! Please follow these guidelines:
 
-### 报告问题
+### Reporting Issues
 
-- 使用 GitHub Issues 报告 bug 和功能请求
-- 提供详细的重现步骤
-- 包含系统信息和日志
-- 创建新问题前检查是否已存在相同问题
+- Use GitHub Issues for bug reports and feature requests
+- Provide detailed reproduction steps
+- Include system information and logs
+- Check for existing issues before creating new ones
 
-### Pull Request
+### Pull Requests
 
-1. Fork 仓库
-2. 创建功能分支 (`git checkout -b feature/amazing-feature`)
-3. 提交更改时遵循 [Conventional Commits](https://www.conventionalcommits.org/)
-4. 推送到分支 (`git push origin feature/amazing-feature`)
-5. 开启 Pull Request
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes following [Conventional Commits](https://www.conventionalcommits.org/)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
 
-### 代码规范
+### Code Standards
 
-- 遵循现有的 TypeScript 代码风格
-- 为新功能添加测试
-- 根据需要更新文档
-- 确保所有测试通过
-- 提交前运行 linter
+- Follow existing TypeScript code style
+- Add tests for new functionality
+- Update documentation as needed
+- Ensure all tests pass
+- Run linter before committing
 
-### 提交信息规范
+### Commit Message Convention
 
-遵循 Conventional Commits 规范:
+Follow Conventional Commits specification:
 
 ```
-<类型>[可选 范围]: <描述>
+<type>[optional scope]: <description>
 
-[可选 正文]
+[optional body]
 
-[可选 脚注]
+[optional footer]
 ```
 
-类型:
-- `feat`: 新功能
-- `fix`: Bug 修复
-- `docs`: 文档变更
-- `style`: 代码样式变更(格式化等)
-- `refactor`: 代码重构
-- `perf`: 性能优化
-- `test`: 测试添加或修改
-- `chore`: 构建过程或辅助工具变更
-- `ci`: CI/CD 配置变更
+Types:
+- `feat`: New feature
+- `fix`: Bug fix
+- `docs`: Documentation changes
+- `style`: Code style changes (formatting, etc.)
+- `refactor`: Code refactoring
+- `perf`: Performance improvements
+- `test`: Test additions or modifications
+- `chore`: Build process or auxiliary tool changes
+- `ci`: CI/CD configuration changes
 
 ---
 <div align="center">
