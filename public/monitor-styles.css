@@ -24,6 +24,8 @@ body {
     color: var(--text-primary);
     line-height: 1.6;
     overflow-x: hidden;
+    max-width: 100vw;
+    width: 100%;
 }
 
 /* Header */
@@ -135,6 +137,7 @@ body {
     overflow: hidden;
     padding: 0.8rem 0;
     width: 100%;
+    max-width: 100vw;
 }
 
 .ticker-content {
@@ -179,6 +182,8 @@ body {
     grid-template-columns: 2fr 1fr;
     grid-template-rows: auto auto auto;
     gap: 2rem;
+    width: 100%;
+    box-sizing: border-box;
 }
 
 /* Chart Section */
@@ -188,6 +193,8 @@ body {
     padding: 1.5rem;
     position: relative;
     min-height: 500px;
+    max-width: 100%;
+    overflow: hidden;
 }
 
 /* 资产曲线图表区域 - 占据第一行 */
@@ -242,10 +249,13 @@ body {
     border: 1px solid var(--border-color);
     padding: 1rem;
     border-radius: 4px;
+    max-width: 100%;
+    overflow: hidden;
 }
 
 .chart-container canvas {
     max-height: 100%;
+    max-width: 100%;
 }
 
 .chart-title {
@@ -288,6 +298,9 @@ body {
     background-color: var(--bg-primary);
     border: 1px solid var(--border-color);
     padding: 1rem;
+    max-width: 100%;
+    word-wrap: break-word;
+    word-break: break-word;
 }
 
 .decision-content {
@@ -323,6 +336,8 @@ body {
     min-height: 500px;
     display: flex;
     flex-direction: column;
+    max-width: 100%;
+    overflow: hidden;
 }
 
 .account-header {
@@ -517,16 +532,21 @@ body {
     background-color: var(--bg-secondary);
     border: 1px solid var(--border-color);
     padding: 1.5rem;
+    max-width: 100%;
+    overflow: hidden;
 }
 
 .positions-container {
     overflow-x: auto;
+    max-width: 100%;
+    -webkit-overflow-scrolling: touch;
 }
 
 .positions-table {
     width: 100%;
     border-collapse: collapse;
     font-size: 0.9rem;
+    min-width: 600px;
 }
 
 .positions-table thead {
@@ -579,6 +599,8 @@ body {
     background-color: var(--bg-secondary);
     border: 1px solid var(--border-color);
     padding: 1.5rem;
+    max-width: 100%;
+    overflow: hidden;
 }
 
 .section-header {
@@ -602,12 +624,15 @@ body {
     max-height: 600px;
     overflow-y: auto;
     overflow-x: auto;
+    max-width: 100%;
+    -webkit-overflow-scrolling: touch;
 }
 
 .trades-table {
     width: 100%;
     border-collapse: collapse;
     font-size: 0.9rem;
+    min-width: 700px;
 }
 
 .trades-table thead {
@@ -956,10 +981,13 @@ body {
     /* Header */
     .header {
         padding: 0.8rem 1rem;
+        max-width: 100vw;
+        overflow-x: hidden;
     }
 
     .nav-bar {
         max-width: 100%;
+        overflow-x: hidden;
     }
 
     .logo {
@@ -978,6 +1006,19 @@ body {
         width: 16px;
         height: 16px;
         margin-right: 3px !important;
+    }
+
+    /* 移动端隐藏 GitHub 文字和图标，只保留星数 */
+    .github-link > svg {
+        display: none;
+    }
+
+    .github-link > span:first-of-type {
+        display: none;
+    }
+
+    .github-stars {
+        margin-left: 0;
     }
 
     .btn-waitlist {
@@ -1002,17 +1043,23 @@ body {
     .main-content {
         padding: 1rem;
         gap: 1rem;
+        max-width: 100vw;
+        overflow-x: hidden;
     }
 
     /* Chart Section */
     .chart-section {
         padding: 1rem;
         min-height: 350px;
+        max-width: 100%;
+        overflow: hidden;
     }
 
     .chart-container {
         height: 300px;
         padding: 0.5rem;
+        max-width: 100%;
+        overflow: hidden;
     }
 
     .chart-title,
@@ -1078,6 +1125,8 @@ body {
     .positions-section,
     .trades-section {
         padding: 1rem;
+        max-width: 100%;
+        overflow: hidden;
     }
 
     .section-header {
@@ -1096,8 +1145,29 @@ body {
         padding: 0.5rem 0.3rem;
     }
 
+    /* 移动端隐藏持仓表格的一些列 */
+    .positions-table th:nth-child(3),
+    .positions-table td:nth-child(3),
+    .positions-table th:nth-child(4),
+    .positions-table td:nth-child(4),
+    .positions-table th:nth-child(5),
+    .positions-table td:nth-child(5) {
+        display: none;
+    }
+
+    /* 移动端隐藏交易历史表格的一些列 */
+    .trades-table th:nth-child(6),
+    .trades-table td:nth-child(6),
+    .trades-table th:nth-child(7),
+    .trades-table td:nth-child(7),
+    .trades-table th:nth-child(8),
+    .trades-table td:nth-child(8) {
+        display: none;
+    }
+
     .trades-container {
         max-height: 500px;
+        max-width: 100%;
     }
 
     .trade-item {
@@ -1155,6 +1225,13 @@ body {
 
     .chart-container {
         height: 250px;
+        max-width: 100%;
+        overflow: hidden;
+    }
+
+    .positions-table,
+    .trades-table {
+        min-width: auto;
     }
 
     .positions-table th,
@@ -1163,6 +1240,25 @@ body {
     .trades-table td {
         font-size: 0.7rem;
         padding: 0.4rem 0.2rem;
+    }
+
+    /* 继承768px的列隐藏规则 */
+    .positions-table th:nth-child(3),
+    .positions-table td:nth-child(3),
+    .positions-table th:nth-child(4),
+    .positions-table td:nth-child(4),
+    .positions-table th:nth-child(5),
+    .positions-table td:nth-child(5) {
+        display: none;
+    }
+
+    .trades-table th:nth-child(6),
+    .trades-table td:nth-child(6),
+    .trades-table th:nth-child(7),
+    .trades-table td:nth-child(7),
+    .trades-table th:nth-child(8),
+    .trades-table td:nth-child(8) {
+        display: none;
     }
     
     .trades-container {
