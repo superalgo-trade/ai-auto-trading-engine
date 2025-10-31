@@ -87,8 +87,8 @@ class TradingMonitor {
             
             // 使用和 app.js 相同的算法计算总资产
             // API 返回的 totalBalance 不包含未实现盈亏
-            // 显示的总资产需要加上未实现盈亏 * 2，以便实时反映持仓盈亏
-            const totalBalanceWithPnl = data.totalBalance + data.unrealisedPnl * 2;
+            // 显示的总资产需要加上未实现盈亏，以便实时反映持仓盈亏
+            const totalBalanceWithPnl = data.totalBalance + data.unrealisedPnl;
             
             // 更新总资产
         const accountValueEl = document.getElementById('account-value');
@@ -479,7 +479,7 @@ class TradingMonitor {
                 datasets: [
                     {
                         label: '总资产 (USDT)',
-                        data: historyData.map(d => parseFloat((d.totalValue + d.unrealizedPnl).toFixed(2))),
+                        data: historyData.map(d => parseFloat(d.totalValue.toFixed(2))),
                         borderColor: 'rgb(0, 255, 170)',
                         backgroundColor: 'rgba(0, 255, 170, 0.1)',
                         borderWidth: 2,
@@ -606,7 +606,7 @@ class TradingMonitor {
         });
         
         this.equityChart.data.datasets[0].data = historyData.map(d => 
-            parseFloat((d.totalValue + d.unrealizedPnl).toFixed(2))
+            parseFloat(d.totalValue.toFixed(2))
         );
         
         // 固定不显示圆点

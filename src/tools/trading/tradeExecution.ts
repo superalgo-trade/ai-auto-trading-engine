@@ -138,10 +138,10 @@ export const openPositionTool = createTool({
         ? ((peakBalance - totalBalance) / peakBalance) * 100 
         : 0;
       
-      if (drawdownFromPeak >= 15) {
+      if (drawdownFromPeak >= RISK_PARAMS.ACCOUNT_DRAWDOWN_NO_NEW_POSITION_PERCENT) {
         return {
           success: false,
-          message: `账户回撤已达 ${drawdownFromPeak.toFixed(2)}% ≥ 15%，触发风控保护，禁止新开仓`,
+          message: `账户回撤已达 ${drawdownFromPeak.toFixed(2)}% ≥ ${RISK_PARAMS.ACCOUNT_DRAWDOWN_NO_NEW_POSITION_PERCENT}%，触发风控保护，禁止新开仓`,
         };
       }
       

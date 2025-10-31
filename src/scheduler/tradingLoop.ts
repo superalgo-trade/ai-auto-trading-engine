@@ -570,13 +570,13 @@ async function calculateSharpeRatio(): Promise<number> {
 /**
  * 获取账户信息
  * 
- * Gate.io 的 account.total 包含了未实现盈亏
- * 总资产 = total - unrealisedPnl = available + positionMargin
+ * Gate.io 的 account.total 不包含未实现盈亏
+ * 总资产（不含未实现盈亏）= account.total = available + positionMargin
  * 
  * 因此：
  * - totalBalance 不包含未实现盈亏
  * - returnPercent 反映已实现盈亏
- * - 监控页面的资金曲线实时更新
+ * - 前端显示时需加上 unrealisedPnl
  */
 async function getAccountInfo() {
   const gateClient = createGateClient();
@@ -597,9 +597,9 @@ async function getAccountInfo() {
     const availableBalance = Number.parseFloat(account.available || "0");
     const unrealisedPnl = Number.parseFloat(account.unrealisedPnl || "0");
     
-    // Gate.io 的 account.total 包含了未实现盈亏
-    // totalBalance 应该不包含未实现盈亏
-    const totalBalance = accountTotal - unrealisedPnl;
+    // Gate.io 的 account.total 不包含未实现盈亏
+    // totalBalance 直接使用 account.total（不包含未实现盈亏）
+    const totalBalance = accountTotal;
     
     // 实时收益率 = (总资产 - 初始资金) / 初始资金 * 100
     // 总资产不包含未实现盈亏，收益率反映已实现盈亏

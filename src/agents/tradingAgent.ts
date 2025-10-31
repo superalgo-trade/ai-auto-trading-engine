@@ -410,7 +410,8 @@ export function generateTradingPrompt(data: {
   // 历史成交记录（最近10条）
   if (tradeHistory && tradeHistory.length > 0) {
     prompt += `\n最近交易历史（最近10笔交易，最旧 → 最新）：\n`;
-    prompt += `使用此信息分析您的交易策略有效性和优化决策。\n\n`;
+    prompt += `⚠️ 重要说明：以下仅为最近10条交易的统计，用于分析近期策略表现，不代表账户总盈亏。\n`;
+    prompt += `使用此信息评估近期交易质量、识别策略问题、优化决策方向。\n\n`;
     
     let totalProfit = 0;
     let profitCount = 0;
@@ -444,7 +445,13 @@ export function generateTradingPrompt(data: {
     
     if (profitCount > 0 || lossCount > 0) {
       const winRate = profitCount / (profitCount + lossCount) * 100;
-      prompt += `交易统计: 胜率: ${winRate.toFixed(1)}%, 盈利交易: ${profitCount}, 亏损交易: ${lossCount}, 净盈亏: ${totalProfit >= 0 ? '+' : ''}${totalProfit.toFixed(2)} USDT\n\n`;
+      prompt += `最近10条交易统计（仅供参考）:\n`;
+      prompt += `  - 胜率: ${winRate.toFixed(1)}%\n`;
+      prompt += `  - 盈利交易: ${profitCount}笔\n`;
+      prompt += `  - 亏损交易: ${lossCount}笔\n`;
+      prompt += `  - 最近10条净盈亏: ${totalProfit >= 0 ? '+' : ''}${totalProfit.toFixed(2)} USDT\n`;
+      prompt += `\n⚠️ 注意：此数值仅为最近10笔交易统计，用于评估近期策略有效性，不是账户总盈亏。\n`;
+      prompt += `账户真实盈亏请参考上方"当前账户状态"中的收益率和总资产变化。\n\n`;
     }
   }
 

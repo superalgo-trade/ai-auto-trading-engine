@@ -448,6 +448,19 @@ export class GateClient {
   }
 
   /**
+   * 获取所有合约列表
+   */
+  async getAllContracts() {
+    try {
+      const result = await this.futuresApi.listFuturesContracts(this.settle);
+      return result.body;
+    } catch (error) {
+      logger.error("获取合约列表失败:", error as any);
+      throw error;
+    }
+  }
+
+  /**
    * 获取订单簿
    */
   async getOrderBook(contract: string, limit: number = 10) {

@@ -47,12 +47,14 @@ async function recordAccountAssets() {
     const account = await gateClient.getFuturesAccount();
     
     // Extract account data
+    // Gate.io 的 account.total 不包含未实现盈亏
+    // 需要主动加上 unrealisedPnl 才是真实的总资产
     const accountTotal = Number.parseFloat(account.total || "0");
     const availableBalance = Number.parseFloat(account.available || "0");
     const unrealisedPnl = Number.parseFloat(account.unrealisedPnl || "0");
     
-    // Total balance
-    const totalBalance = accountTotal;
+    // Total balance = account.total + unrealisedPnl (包含未实现盈亏的总资产)
+    const totalBalance = accountTotal + unrealisedPnl;
     
     // Get initial balance from database
     const initialResult = await dbClient.execute(

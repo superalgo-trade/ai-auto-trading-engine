@@ -40,14 +40,19 @@ async function syncFromGate() {
     const gateClient = createGateClient();
     const account = await gateClient.getFuturesAccount();
     
-    const currentBalance = Number.parseFloat(account.total || "0");
+    const accountTotal = Number.parseFloat(account.total || "0");
     const availableBalance = Number.parseFloat(account.available || "0");
     const unrealizedPnl = Number.parseFloat(account.unrealisedPnl || "0");
     
+    // Gate.io 的 account.total 不包含未实现盈亏
+    // 真实总资产 = account.total + unrealisedPnl
+    const currentBalance = accountTotal + unrealizedPnl;
+    
     logger.info(`\n📊 Gate.io 当前账户状态:`);
-    logger.info(`   总资产: ${currentBalance} USDT`);
+    logger.info(`   账户余额: ${accountTotal} USDT`);
+    logger.info(`   未实现盈亏: ${unrealizedPnl >= 0 ? '+' : ''}${unrealizedPnl} USDT`);
+    logger.info(`   总资产(含盈亏): ${currentBalance} USDT`);
     logger.info(`   可用资金: ${availableBalance} USDT`);
-    logger.info(`   未实现盈亏: ${unrealizedPnl} USDT`);
     
     // 2. 获取持仓信息
     const positions = await gateClient.getPositions();

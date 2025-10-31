@@ -44,14 +44,15 @@ export function createApiRoutes() {
    * 获取账户总览
    * 
    * Gate.io 账户结构：
-   * - account.total = available + positionMargin + unrealisedPnl
-   * - account.total 包含未实现盈亏
+   * - account.total = available + positionMargin
+   * - account.total 不包含未实现盈亏
+   * - 真实总资产 = account.total + unrealisedPnl
    * 
-   * 总资产计算：
-   * - totalBalance = total - unrealisedPnl = available + positionMargin
-   * - 总资产不包含未实现盈亏
+   * API返回说明：
+   * - totalBalance: 不包含未实现盈亏的总资产（用于计算已实现收益）
+   * - unrealisedPnl: 当前持仓的未实现盈亏
    * 
-   * 监控页面显示：
+   * 前端显示：
    * - 总资产显示 = totalBalance + unrealisedPnl（实时反映持仓盈亏）
    */
   app.get("/api/account", async (c) => {
@@ -67,10 +68,10 @@ export function createApiRoutes() {
         ? Number.parseFloat(initialResult.rows[0].total_value as string)
         : 100;
       
-      // Gate.io 的 account.total 包含了未实现盈亏
-      // 总资产 = total - unrealisedPnl = available + positionMargin
+      // Gate.io 的 account.total 不包含未实现盈亏
+      // 总资产（不含未实现盈亏）= account.total
       const unrealisedPnl = Number.parseFloat(account.unrealisedPnl || "0");
-      const totalBalance = Number.parseFloat(account.total || "0") - unrealisedPnl;
+      const totalBalance = Number.parseFloat(account.total || "0");
       
       // 收益率 = (总资产 - 初始资金) / 初始资金 * 100
       // 总资产不包含未实现盈亏，收益率反映已实现盈亏

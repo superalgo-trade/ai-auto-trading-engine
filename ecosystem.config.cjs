@@ -16,6 +16,9 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
+// 加载 .env 文件
+require('dotenv').config();
+
 module.exports = {
   apps: [
     {
@@ -30,6 +33,8 @@ module.exports = {
       max_memory_restart: "500M",
       env: {
         NODE_ENV: "production",
+        // 从 .env 文件加载所有环境变量
+        ...process.env,
       },
       error_file: "./logs/pm2-error.log",
       out_file: "./logs/pm2-out.log",

@@ -126,7 +126,7 @@ async function loadAccountData() {
         // 更新总资产
         // API 返回的 totalBalance 不包含未实现盈亏
         // 显示的总资产需要加上未实现盈亏，以便实时反映持仓盈亏
-        const totalBalanceWithPnl = data.totalBalance + data.unrealisedPnl * 2;
+        const totalBalanceWithPnl = data.totalBalance + data.unrealisedPnl;
         updateValueWithAnimation('totalBalance', totalBalanceWithPnl.toFixed(2));
 
         // 更新收益率（带符号和颜色）
