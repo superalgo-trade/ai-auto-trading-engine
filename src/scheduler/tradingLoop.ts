@@ -1363,7 +1363,7 @@ async function executeTradingDecision() {
     try {
       const response = await agent.generateText(prompt);
       
-      // 从响应中提取AI的最终决策结果，排除工具调用细节
+      // 从响应中提取AI的完整回复，不进行任何切分
       let decisionText = "";
       
       if (typeof response === 'string') {
@@ -1371,19 +1371,22 @@ async function executeTradingDecision() {
       } else if (response && typeof response === 'object') {
         const steps = (response as any).steps || [];
         
-        // 查找最后一次AI的文本回复（这是真正的决策结果）
-        for (let i = steps.length - 1; i >= 0; i--) {
-          const step = steps[i];
+        // 收集所有AI的文本回复（完整保存，不切分）
+        const allTexts: string[] = [];
+        
+        for (const step of steps) {
           if (step.content) {
-            for (let j = step.content.length - 1; j >= 0; j--) {
-              const item = step.content[j];
-              if (item.type === 'text' && item.text) {
-                decisionText = item.text;
-                break;
+            for (const item of step.content) {
+              if (item.type === 'text' && item.text && item.text.trim()) {
+                allTexts.push(item.text.trim());
               }
             }
           }
-          if (decisionText) break;
+        }
+        
+        // 完整合并所有文本，用双换行分隔
+        if (allTexts.length > 0) {
+          decisionText = allTexts.join('\n\n');
         }
         
         // 如果没有找到文本消息，尝试其他字段
