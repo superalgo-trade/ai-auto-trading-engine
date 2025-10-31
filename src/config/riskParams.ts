@@ -44,7 +44,14 @@ export const RISK_PARAMS = {
     return this.MAX_HOLDING_HOURS * 6;
   },
   
-  // 账户最大回撤百分比（触发后停止交易）
-  ACCOUNT_MAX_DRAWDOWN_PERCENT: Number.parseInt(process.env.ACCOUNT_MAX_DRAWDOWN_PERCENT || '15', 10),
+  // 账户回撤风控阈值
+  // 禁止新开仓的回撤阈值（达到此阈值时，只允许平仓不允许开仓）
+  ACCOUNT_DRAWDOWN_NO_NEW_POSITION_PERCENT: Number.parseInt(process.env.ACCOUNT_DRAWDOWN_NO_NEW_POSITION_PERCENT || '15', 10),
+  
+  // 强制平仓的回撤阈值（达到此阈值时，立即平仓所有持仓并停止交易）
+  ACCOUNT_DRAWDOWN_FORCE_CLOSE_PERCENT: Number.parseInt(process.env.ACCOUNT_DRAWDOWN_FORCE_CLOSE_PERCENT || '20', 10),
+  
+  // 警告提醒的回撤阈值（达到此阈值时，提醒谨慎交易）
+  ACCOUNT_DRAWDOWN_WARNING_PERCENT: Number.parseInt(process.env.ACCOUNT_DRAWDOWN_WARNING_PERCENT || '10', 10),
 } as const;
 

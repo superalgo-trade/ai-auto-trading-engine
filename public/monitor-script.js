@@ -201,7 +201,7 @@ class TradingMonitor {
                     const leverage = pos.leverage || '-';
                     
                     return `
-                        <div class="position-card ${sideClass}">
+                        <div class="position-card ${sideClass} ${pnlClass}">
                             <span class="position-card-symbol">${pos.symbol} ${leverage}x</span>
                             <span class="position-card-pnl ${pnlClass}">
                                 ${sideText} ${pos.unrealizedPnl >= 0 ? '+' : ''}$${pos.unrealizedPnl.toFixed(2)} (${pos.unrealizedPnl >= 0 ? '+' : ''}${profitPercent}%)

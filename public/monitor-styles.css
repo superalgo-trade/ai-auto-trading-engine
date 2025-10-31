@@ -474,19 +474,19 @@ body {
     top: 0;
     bottom: 0;
     width: 3px;
-    background-color: var(--accent-green);
-}
-
-.position-card.short::before {
     background-color: var(--accent-red);
 }
 
-.position-card:hover {
-    border-color: var(--accent-green);
+.position-card.negative::before {
+    background-color: var(--accent-green);
 }
 
-.position-card.short:hover {
+.position-card:hover {
     border-color: var(--accent-red);
+}
+
+.position-card.negative:hover {
+    border-color: var(--accent-green);
 }
 
 .position-card-symbol {
@@ -700,11 +700,11 @@ body {
 }
 
 .trades-table .side.long {
-    color: var(--accent-green);
+    color: var(--accent-red);
 }
 
 .trades-table .side.short {
-    color: var(--accent-red);
+    color: var(--accent-green);
 }
 
 .trades-table .profit {

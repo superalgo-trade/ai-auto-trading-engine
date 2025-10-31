@@ -273,6 +273,9 @@ open-nof1.ai/
 | `OPENAI_API_KEY` | OpenAI 兼容的 API 密钥 | - | 是 |
 | `OPENAI_BASE_URL` | API 基础地址 | https://openrouter.ai/api/v1 | 否 |
 | `AI_MODEL_NAME` | 模型名称 | deepseek/deepseek-v3.2-exp | 否 |
+| `ACCOUNT_DRAWDOWN_WARNING_PERCENT` | 账户回撤警告阈值(%) | 10 | 否 |
+| `ACCOUNT_DRAWDOWN_NO_NEW_POSITION_PERCENT` | 禁止新开仓的回撤阈值(%) | 15 | 否 |
+| `ACCOUNT_DRAWDOWN_FORCE_CLOSE_PERCENT` | 强制平仓的回撤阈值(%) | 20 | 否 |
 
 ### AI 模型配置
 

@@ -274,6 +274,9 @@ open-nof1.ai/
 | `OPENAI_API_KEY` | OpenAI compatible API key | - | Yes |
 | `OPENAI_BASE_URL` | API base URL | https://openrouter.ai/api/v1 | No |
 | `AI_MODEL_NAME` | Model name | deepseek/deepseek-v3.2-exp | No |
+| `ACCOUNT_DRAWDOWN_WARNING_PERCENT` | Account drawdown warning threshold (%) | 10 | No |
+| `ACCOUNT_DRAWDOWN_NO_NEW_POSITION_PERCENT` | Drawdown threshold to stop opening new positions (%) | 15 | No |
+| `ACCOUNT_DRAWDOWN_FORCE_CLOSE_PERCENT` | Drawdown threshold to force close all positions (%) | 20 | No |
 
 ### AI Model Configuration
 

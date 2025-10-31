@@ -745,13 +745,40 @@ async function getPositions(cachedGatePositions?: any[]) {
     // 如果提供了缓存数据，使用缓存；否则重新获取
     const gatePositions = cachedGatePositions || await gateClient.getPositions();
     
+    // 从数据库获取持仓的开仓时间（数据库中保存了正确的开仓时间）
+    const dbResult = await dbClient.execute("SELECT symbol, opened_at FROM positions");
+    const dbOpenedAtMap = new Map(
+      dbResult.rows.map((row: any) => [row.symbol, row.opened_at])
+    );
+    
     // 过滤并格式化持仓
     const positions = gatePositions
       .filter((p: any) => Number.parseInt(p.size || "0") !== 0)
       .map((p: any) => {
         const size = Number.parseInt(p.size || "0");
+        const symbol = p.contract.replace("_USDT", "");
+        
+        // 🔥 优先从数据库读取开仓时间，确保时间准确
+        let openedAt = dbOpenedAtMap.get(symbol);
+        
+        // 如果数据库中没有，尝试从Gate.io的create_time获取
+        if (!openedAt && p.create_time) {
+          // Gate.io的create_time是UNIX时间戳（秒），需要转换为ISO字符串
+          if (typeof p.create_time === 'number') {
+            openedAt = new Date(p.create_time * 1000).toISOString();
+          } else {
+            openedAt = p.create_time;
+          }
+        }
+        
+        // 如果还是没有，使用当前时间（这种情况不应该发生）
+        if (!openedAt) {
+          openedAt = getChinaTimeISO();
+          logger.warn(`${symbol} 持仓的开仓时间缺失，使用当前时间`);
+        }
+        
         return {
-          symbol: p.contract.replace("_USDT", ""),
+          symbol,
           contract: p.contract,
           quantity: Math.abs(size),
           side: size > 0 ? "long" : "short",
@@ -761,7 +788,7 @@ async function getPositions(cachedGatePositions?: any[]) {
           unrealized_pnl: Number.parseFloat(p.unrealisedPnl || "0"),
           leverage: Number.parseInt(p.leverage || "1"),
           margin: Number.parseFloat(p.margin || "0"),
-          opened_at: p.create_time || getChinaTimeISO(),
+          opened_at: openedAt,
         };
       });
     
