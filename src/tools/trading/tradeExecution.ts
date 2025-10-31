@@ -673,6 +673,35 @@ export const closePositionTool = createTool({
       // 总手续费
       const totalFee = dbOpenFee + dbCloseFee;
       
+      // 🔥 关键验证：检查盈亏计算是否正确
+      const notionalValue = actualExitPrice * actualCloseSize * dbQuantoMultiplier;
+      const priceChangeCheck = side === "long" 
+        ? (actualExitPrice - entryPrice) 
+        : (entryPrice - actualExitPrice);
+      const expectedPnl = priceChangeCheck * actualCloseSize * dbQuantoMultiplier - totalFee;
+      
+      // 检测盈亏是否被错误地设置为名义价值
+      if (Math.abs(pnl - notionalValue) < Math.abs(pnl - expectedPnl)) {
+        logger.error(`🚨 检测到盈亏计算异常！`);
+        logger.error(`  当前pnl: ${pnl.toFixed(2)} USDT 接近名义价值 ${notionalValue.toFixed(2)} USDT`);
+        logger.error(`  预期pnl: ${expectedPnl.toFixed(2)} USDT`);
+        logger.error(`  开仓价: ${entryPrice}, 平仓价: ${actualExitPrice}, 数量: ${actualCloseSize}, 合约乘数: ${dbQuantoMultiplier}`);
+        logger.error(`  价格变动: ${priceChangeCheck.toFixed(4)}, 手续费: ${totalFee.toFixed(4)}`);
+        
+        // 强制修正为正确值
+        pnl = expectedPnl;
+        logger.warn(`  已自动修正pnl为: ${pnl.toFixed(2)} USDT`);
+      }
+      
+      // 详细日志记录（用于debug）
+      logger.info(`【平仓盈亏详情】${symbol} ${side}`);
+      logger.info(`  开仓价: ${entryPrice.toFixed(4)}, 平仓价: ${actualExitPrice.toFixed(4)}, 数量: ${actualCloseSize}张`);
+      logger.info(`  价格变动: ${priceChangeCheck.toFixed(4)}, 合约乘数: ${dbQuantoMultiplier}`);
+      logger.info(`  毛盈亏: ${(priceChangeCheck * actualCloseSize * dbQuantoMultiplier).toFixed(2)} USDT`);
+      logger.info(`  开仓手续费: ${dbOpenFee.toFixed(4)} USDT, 平仓手续费: ${dbCloseFee.toFixed(4)} USDT`);
+      logger.info(`  总手续费: ${totalFee.toFixed(4)} USDT`);
+      logger.info(`  净盈亏: ${pnl.toFixed(2)} USDT`);
+      
       // 记录平仓交易
       // side: 原持仓方向（long/short）
       // 实际执行方向: long平仓=卖出, short平仓=买入

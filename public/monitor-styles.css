@@ -84,6 +84,33 @@ body {
     box-shadow: 0 0 5px var(--accent-green);
 }
 
+.github-link {
+    display: flex;
+    align-items: center;
+}
+
+.github-stars {
+    display: inline-flex;
+    align-items: center;
+    background-color: var(--bg-tertiary);
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 0.8rem;
+    margin-left: 8px;
+    border: 1px solid var(--border-color);
+    transition: all 0.3s;
+}
+
+.github-link:hover .github-stars {
+    border-color: var(--accent-green);
+    box-shadow: 0 0 5px var(--accent-green);
+}
+
+#stars-count {
+    min-width: 20px;
+    text-align: center;
+}
+
 .btn-waitlist {
     background-color: transparent;
     border: 1px solid var(--accent-green);

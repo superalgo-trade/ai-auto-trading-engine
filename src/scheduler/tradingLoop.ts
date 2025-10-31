@@ -1223,6 +1223,33 @@ async function executeTradingDecision() {
           
           // 3. 记录到trades表（无论是否成功获取详细信息都要记录）
           try {
+            // 🔥 关键验证：检查盈亏计算是否正确
+            const finalPrice = actualExitPrice || pos.current_price;
+            const quantoMultiplier = await getQuantoMultiplier(contract);
+            const notionalValue = finalPrice * actualQuantity * quantoMultiplier;
+            const priceChangeCheck = side === "long" 
+              ? (finalPrice - pos.entry_price) 
+              : (pos.entry_price - finalPrice);
+            const expectedPnl = priceChangeCheck * actualQuantity * quantoMultiplier - totalFee;
+            
+            // 检测盈亏是否被错误地设置为名义价值
+            if (Math.abs(pnl - notionalValue) < Math.abs(pnl - expectedPnl)) {
+              logger.error(`🚨 【强制平仓】检测到盈亏计算异常！`);
+              logger.error(`  当前pnl: ${pnl.toFixed(2)} USDT 接近名义价值 ${notionalValue.toFixed(2)} USDT`);
+              logger.error(`  预期pnl: ${expectedPnl.toFixed(2)} USDT`);
+              logger.error(`  开仓价: ${pos.entry_price}, 平仓价: ${finalPrice}, 数量: ${actualQuantity}, 合约乘数: ${quantoMultiplier}`);
+              
+              // 强制修正为正确值
+              pnl = expectedPnl;
+              logger.warn(`  已自动修正pnl为: ${pnl.toFixed(2)} USDT`);
+            }
+            
+            // 详细日志
+            logger.info(`【强制平仓盈亏详情】${symbol} ${side}`);
+            logger.info(`  原因: ${closeReason}`);
+            logger.info(`  开仓价: ${pos.entry_price.toFixed(4)}, 平仓价: ${finalPrice.toFixed(4)}, 数量: ${actualQuantity}张`);
+            logger.info(`  净盈亏: ${pnl.toFixed(2)} USDT, 手续费: ${totalFee.toFixed(4)} USDT`);
+            
             await dbClient.execute({
               sql: `INSERT INTO trades (order_id, symbol, side, type, price, quantity, leverage, pnl, fee, timestamp, status)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -1231,10 +1258,10 @@ async function executeTradingDecision() {
                 symbol,
                 side,
                 "close",
-                actualExitPrice || pos.current_price, // 如果没获取到成交价，使用当前价
+                finalPrice, // 使用验证后的价格
                 actualQuantity,
                 pos.leverage || 1,
-                pnl, // 如果没计算出来就是0
+                pnl, // 已验证和修正的盈亏
                 totalFee,
                 getChinaTimeISO(),
                 orderFilled ? "filled" : "pending",
