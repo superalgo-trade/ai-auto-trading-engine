@@ -1080,12 +1080,12 @@ body {
     
     /* 资产曲线保持一定高度 */
     .chart-section:first-child {
-        min-height: 250px;
+        min-height: 350px;
     }
 
     .chart-container {
         height: auto;
-        min-height: 200px;
+        min-height: 280px;
         padding: 0.4rem;
         max-width: 100%;
         overflow: hidden;
@@ -1297,7 +1297,7 @@ body {
     
     /* 资产曲线保持一定高度 */
     .chart-section:first-child {
-        min-height: 220px;
+        min-height: 300px;
     }
 
     .account-section {
@@ -1315,7 +1315,7 @@ body {
 
     .chart-container {
         height: auto;
-        min-height: 180px;
+        min-height: 240px;
         padding: 0.3rem;
         max-width: 100%;
         overflow: hidden;

@@ -145,15 +145,27 @@ export function createApiRoutes() {
    */
   app.get("/api/history", async (c) => {
     try {
-      const limit = c.req.query("limit") || "100";
+      const limitParam = c.req.query("limit");
       
-      const result = await dbClient.execute({
-        sql: `SELECT timestamp, total_value, unrealized_pnl, return_percent 
-              FROM account_history 
-              ORDER BY timestamp DESC 
-              LIMIT ?`,
-        args: [Number.parseInt(limit)],
-      });
+      let result;
+      if (limitParam) {
+        // 如果传递了 limit 参数，使用 LIMIT 子句
+        const limit = Number.parseInt(limitParam);
+        result = await dbClient.execute({
+          sql: `SELECT timestamp, total_value, unrealized_pnl, return_percent 
+                FROM account_history 
+                ORDER BY timestamp DESC 
+                LIMIT ?`,
+          args: [limit],
+        });
+      } else {
+        // 如果没有传递 limit 参数，返回全部数据
+        result = await dbClient.execute(
+          `SELECT timestamp, total_value, unrealized_pnl, return_percent 
+           FROM account_history 
+           ORDER BY timestamp DESC`
+        );
+      }
       
       const history = result.rows.map((row: any) => ({
         timestamp: row.timestamp,

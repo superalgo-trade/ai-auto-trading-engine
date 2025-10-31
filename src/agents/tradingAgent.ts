@@ -83,19 +83,43 @@ export interface StrategyParams {
 }
 
 /**
- * 获取策略参数
+ * 获取策略参数（基于 MAX_LEVERAGE 动态计算）
  */
 export function getStrategyParams(strategy: TradingStrategy): StrategyParams {
+  const maxLeverage = RISK_PARAMS.MAX_LEVERAGE;
+  
+  // 根据 MAX_LEVERAGE 动态计算各策略的杠杆范围
+  // 保守策略：30%-60% 的最大杠杆
+  const conservativeLevMin = Math.max(1, Math.ceil(maxLeverage * 0.3));
+  const conservativeLevMax = Math.max(2, Math.ceil(maxLeverage * 0.6));
+  const conservativeLevNormal = conservativeLevMin;
+  const conservativeLevGood = Math.ceil((conservativeLevMin + conservativeLevMax) / 2);
+  const conservativeLevStrong = conservativeLevMax;
+  
+  // 平衡策略：60%-85% 的最大杠杆
+  const balancedLevMin = Math.max(2, Math.ceil(maxLeverage * 0.6));
+  const balancedLevMax = Math.max(3, Math.ceil(maxLeverage * 0.85));
+  const balancedLevNormal = balancedLevMin;
+  const balancedLevGood = Math.ceil((balancedLevMin + balancedLevMax) / 2);
+  const balancedLevStrong = balancedLevMax;
+  
+  // 激进策略：85%-100% 的最大杠杆
+  const aggressiveLevMin = Math.max(3, Math.ceil(maxLeverage * 0.85));
+  const aggressiveLevMax = maxLeverage;
+  const aggressiveLevNormal = aggressiveLevMin;
+  const aggressiveLevGood = Math.ceil((aggressiveLevMin + aggressiveLevMax) / 2);
+  const aggressiveLevStrong = aggressiveLevMax;
+  
   const strategyConfigs: Record<TradingStrategy, StrategyParams> = {
     "conservative": {
       name: "稳健",
       description: "低风险低杠杆，严格入场条件，适合保守投资者",
-      leverageMin: 15,
-      leverageMax: 18,
+      leverageMin: conservativeLevMin,
+      leverageMax: conservativeLevMax,
       leverageRecommend: {
-        normal: "15倍",
-        good: "16倍",
-        strong: "17-18倍",
+        normal: `${conservativeLevNormal}倍`,
+        good: `${conservativeLevGood}倍`,
+        strong: `${conservativeLevStrong}倍`,
       },
       positionSizeMin: 15,
       positionSizeMax: 22,
@@ -116,12 +140,12 @@ export function getStrategyParams(strategy: TradingStrategy): StrategyParams {
     "balanced": {
       name: "平衡",
       description: "中等风险杠杆，合理入场条件，适合大多数投资者",
-      leverageMin: 18,
-      leverageMax: 22,
+      leverageMin: balancedLevMin,
+      leverageMax: balancedLevMax,
       leverageRecommend: {
-        normal: "18-19倍",
-        good: "20倍",
-        strong: "21-22倍",
+        normal: `${balancedLevNormal}倍`,
+        good: `${balancedLevGood}倍`,
+        strong: `${balancedLevStrong}倍`,
       },
       positionSizeMin: 20,
       positionSizeMax: 27,
@@ -142,12 +166,12 @@ export function getStrategyParams(strategy: TradingStrategy): StrategyParams {
     "aggressive": {
       name: "激进",
       description: "高风险高杠杆，宽松入场条件，适合激进投资者",
-      leverageMin: 22,
-      leverageMax: 25,
+      leverageMin: aggressiveLevMin,
+      leverageMax: aggressiveLevMax,
       leverageRecommend: {
-        normal: "22-23倍",
-        good: "23-24倍",
-        strong: "24-25倍",
+        normal: `${aggressiveLevNormal}倍`,
+        good: `${aggressiveLevGood}倍`,
+        strong: `${aggressiveLevStrong}倍`,
       },
       positionSizeMin: 25,
       positionSizeMax: 32,

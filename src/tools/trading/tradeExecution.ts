@@ -159,12 +159,12 @@ export const openPositionTool = createTool({
       
       const newExposure = amountUsdt * leverage;
       const totalExposure = currentTotalExposure + newExposure;
-      const maxAllowedExposure = totalBalance * 15; // 提升到15倍
+      const maxAllowedExposure = totalBalance * RISK_PARAMS.MAX_LEVERAGE; // 使用配置的最大杠杆
       
       if (totalExposure > maxAllowedExposure) {
         return {
           success: false,
-          message: `新开仓将导致总敞口 ${totalExposure.toFixed(2)} USDT 超过限制 ${maxAllowedExposure.toFixed(2)} USDT（账户净值的15倍），拒绝开仓`,
+          message: `新开仓将导致总敞口 ${totalExposure.toFixed(2)} USDT 超过限制 ${maxAllowedExposure.toFixed(2)} USDT（账户净值的${RISK_PARAMS.MAX_LEVERAGE}倍），拒绝开仓`,
         };
       }
       

@@ -565,11 +565,8 @@ class TradingMonitor {
     // 加载资产历史数据
     async loadEquityHistory() {
         try {
-            // 固定获取最近24小时的数据
-            // 假设每10分钟一个数据点，24小时 = 144个数据点
-            const limit = 144;
-            
-            const response = await fetch(`/api/history?limit=${limit}`);
+            // 获取全部历史数据
+            const response = await fetch(`/api/history`);
             const data = await response.json();
             
             if (data.error) {
