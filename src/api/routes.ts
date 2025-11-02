@@ -318,8 +318,9 @@ export function createApiRoutes() {
    */
   app.get("/api/prices", async (c) => {
     try {
-      const symbolsParam = c.req.query("symbols") || "BTC,ETH,SOL,BNB,DOGE,XRP";
-      const symbols = symbolsParam.split(",").map(s => s.trim());
+      const DEFAULT_TRADING_SYMBOLS = 'BTC,ETH,SOL,XRP,BNB,BCH';
+      const tradingSymbolsStr = process.env.TRADING_SYMBOLS || DEFAULT_TRADING_SYMBOLS;
+      const symbols = tradingSymbolsStr.split(",").map(s => s.trim());
       
       const gateClient = createGateClient();
       const prices: Record<string, number> = {};

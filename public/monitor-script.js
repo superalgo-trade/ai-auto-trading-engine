@@ -353,7 +353,10 @@ class TradingMonitor {
     // 加载顶部 Ticker 价格（从 API 获取）
     async loadTickerPrices() {
         try {
-            const response = await fetch('/api/prices?symbols=BTC,ETH,SOL,BNB,DOGE,XRP');
+            // 从 HTML 中获取所有需要显示价格的币种
+            const tickerItems = document.querySelectorAll('.ticker-item .crypto-name');
+            const symbols = Array.from(tickerItems).map(el => el.textContent.trim()).join(',');
+            const response = await fetch(`/api/prices?symbols=${symbols}`);
             const data = await response.json();
             
             if (data.error) {
