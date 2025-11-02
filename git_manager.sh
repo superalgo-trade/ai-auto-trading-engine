@@ -161,13 +161,12 @@ show_menu() {
     echo -e "${CYAN}│ 1. 从上游源仓库获取更新 (upstream pull)   │${NC}"
     echo -e "${CYAN}│ 2. 推送到个人仓库 (origin push)           │${NC}"
     echo -e "${CYAN}│ 3. 从个人仓库拉取 (origin pull)           │${NC}"
-    echo -e "${CYAN}│ 4. 同步:从上游获取并推送到个人仓库        │${NC}"
-    echo -e "${CYAN}│ 5. 查看状态和历史                         │${NC}"
-    echo -e "${CYAN}│ 6. 分支管理                               │${NC}"
-    echo -e "${CYAN}│ 7. 远程仓库管理                           │${NC}"
+    echo -e "${CYAN}│ 4. 查看状态和历史                         │${NC}"
+    echo -e "${CYAN}│ 5. 分支管理                               │${NC}"
+    echo -e "${CYAN}│ 6. 远程仓库管理                           │${NC}"
     echo -e "${CYAN}│ 0. 退出                                   │${NC}"
     echo -e "${CYAN}└────────────────────────────────────────────┘${NC}"
-    echo -e "${YELLOW}请输入选项 [0-7]: ${NC}"
+    echo -e "${YELLOW}请输入选项 [0-6]: ${NC}"
     read -n 1 option
     echo
     return $option
@@ -287,15 +286,6 @@ pull_from_upstream() {
         else
             echo -e "${RED}应用存储的更改时出现冲突。请手动解决冲突。${NC}"
         fi
-    fi
-    
-    # 询问是否推送到个人仓库
-    echo
-    echo -e "${YELLOW}是否将更新推送到个人仓库? (Y/n)${NC}"
-    read -n 1 push_to_origin
-    echo
-    if [ "$push_to_origin" != "n" ] && [ "$push_to_origin" != "N" ]; then
-        push_to_origin_repo
     fi
     
     return 0
@@ -464,26 +454,6 @@ pull_from_origin() {
         return 0
     else
         echo -e "${RED}获取失败。请检查您的网络连接和凭据。${NC}"
-        return 1
-    fi
-}
-
-# 同步:从上游获取并推送到个人仓库
-sync_upstream_to_origin() {
-    echo -e "${BLUE}===== 同步:从上游获取并推送到个人仓库 =====${NC}"
-    echo -e "${CYAN}上游源: $(git remote get-url upstream)${NC}"
-    echo -e "${CYAN}个人仓库: $(git remote get-url origin)${NC}"
-    echo
-    
-    # 从上游获取
-    if pull_from_upstream; then
-        echo
-        echo -e "${GREEN}从上游获取成功，现在推送到个人仓库...${NC}"
-        # 推送到个人仓库（这里会自动调用）
-        # push_to_origin_repo 已在 pull_from_upstream 中被调用
-        return 0
-    else
-        echo -e "${RED}从上游获取失败，同步中止${NC}"
         return 1
     fi
 }
@@ -990,15 +960,12 @@ while true; do
             pull_from_origin
             ;;
         4)
-            sync_upstream_to_origin
-            ;;
-        5)
             view_status_history
             ;;
-        6)
+        5)
             branch_management
             ;;
-        7)
+        6)
             remote_management
             ;;
         0)
