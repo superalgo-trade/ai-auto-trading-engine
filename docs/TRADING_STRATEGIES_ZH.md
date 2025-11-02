@@ -1,6 +1,6 @@
 # 交易策略配置指南
 
-本文档详细说明 open-nof1.ai 系统支持的所有交易策略及其配置方法。
+本文档详细说明 ai-auto-trading 系统支持的所有交易策略及其配置方法。
 
 ## 策略概览
 
@@ -363,14 +363,14 @@ GATE_USE_TESTNET=true                  # 使用测试网
 
 如有问题或建议，请通过以下方式联系：
 
-- **GitHub Issues**: [https://github.com/195440/open-nof1.ai/issues](https://github.com/195440/open-nof1.ai/issues)
-- **讨论区**: [https://github.com/195440/open-nof1.ai/discussions](https://github.com/195440/open-nof1.ai/discussions)
+- **GitHub Issues**: [https://github.com/losesky/ai-auto-trading/issues](https://github.com/losesky/ai-auto-trading/issues)
+- **讨论区**: [https://github.com/losesky/ai-auto-trading/discussions](https://github.com/losesky/ai-auto-trading/discussions)
 
 ---
 
 ## 版权声明
 
-Copyright (C) 2025 195440
+Copyright (C) 2025 losesky
 
 本文档遵循 GNU Affero General Public License v3.0 协议。
 

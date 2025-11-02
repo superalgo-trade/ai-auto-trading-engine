@@ -1,4 +1,4 @@
-# open-nof1.ai
+# ai-auto-trading
 
 <div align="center">
 
@@ -16,11 +16,11 @@
 
 ## 系统概述
 
-open-nof1.ai 是一个 AI 驱动的加密货币自动交易系统，将大语言模型智能与量化交易实践深度融合。系统基于 Agent 框架构建，通过赋予 AI 完全的市场分析和交易决策自主权，实现真正的智能化交易。
+ai-auto-trading 是一个 AI 驱动的加密货币自动交易系统，将大语言模型智能与量化交易实践深度融合。系统基于 Agent 框架构建，通过赋予 AI 完全的市场分析和交易决策自主权，实现真正的智能化交易。
 
 本系统采用**最小人工干预**的设计理念，摒弃传统的硬编码交易规则，让 AI 模型基于原始市场数据进行自主学习和决策。
 
-![open-nof1.ai](./public/image.png)
+![ai-auto-trading](./public/image.png)
 
 ## 系统架构
 
@@ -94,7 +94,7 @@ open-nof1.ai 是一个 AI 驱动的加密货币自动交易系统，将大语言
 ```bash
 # 克隆仓库
 git clone <repository-url>
-cd open-nof1.ai
+cd ai-auto-trading
 
 # 安装依赖
 npm install
@@ -259,6 +259,6 @@ npm run trading:start
 
 <div align="center">
 
-[![Star History Chart](https://api.star-history.com/svg?repos=195440/open-nof1.ai&type=Date)](https://star-history.com/#195440/open-nof1.ai&Date)
+[![Star History Chart](https://api.star-history.com/svg?repos=losesky/ai-auto-trading&type=Date)](https://star-history.com/#losesky/ai-auto-trading&Date)
 
 </div>

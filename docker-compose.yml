@@ -5,7 +5,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: open-nof1.ai
+    container_name: ai-auto-trading
     restart: unless-stopped
     ports:
       - "${PORT:-3100}:3100"

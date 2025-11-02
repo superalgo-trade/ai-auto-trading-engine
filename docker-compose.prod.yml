@@ -2,8 +2,8 @@ version: '3.8'
 
 services:
   open-nof1-ai:
-    image: open-nof1.ai:latest
-    container_name: open-nof1.ai-prod
+    image: ai-auto-trading:latest
+    container_name: ai-auto-trading-prod
     restart: always
     ports:
       - "${PORT:-3100}:3100"

@@ -5,7 +5,7 @@
 
 set -e
 
-echo "📋 open-nof1.ai Docker 日志查看"
+echo "📋 ai-auto-trading Docker 日志查看"
 echo "================================"
 
 # 检查 Docker Compose 是否可用
@@ -18,7 +18,7 @@ fi
 RUNNING_CONTAINERS=$(docker ps --filter "name=open-nof1" --format "{{.Names}}")
 
 if [ -z "$RUNNING_CONTAINERS" ]; then
-    echo "ℹ️  没有运行中的 open-nof1.ai 容器"
+    echo "ℹ️  没有运行中的 ai-auto-trading 容器"
     echo ""
     echo "💡 启动容器: ./scripts/docker-start.sh"
     exit 0

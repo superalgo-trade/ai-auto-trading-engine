@@ -1,4 +1,4 @@
-# open-nof1.ai
+# ai-auto-trading
 
 > 📖 **完整文档** | 这是完整的中文文档。如需快速了解，请查看[主说明文件](./README.md)。
 
@@ -18,11 +18,11 @@
 
 ## 系统概述
 
-open-nof1.ai 是一个 AI 驱动的加密货币自动交易系统，将大语言模型智能与量化交易实践深度融合。系统基于 Agent 框架构建，通过赋予 AI 完全的市场分析和交易决策自主权，实现真正的智能化交易。
+ai-auto-trading 是一个 AI 驱动的加密货币自动交易系统，将大语言模型智能与量化交易实践深度融合。系统基于 Agent 框架构建，通过赋予 AI 完全的市场分析和交易决策自主权，实现真正的智能化交易。
 
 本系统采用**最小人工干预**的设计理念，摒弃传统的硬编码交易规则，让 AI 模型基于原始市场数据进行自主学习和决策。系统集成 Gate.io 交易所（支持测试网和正式网），提供完整的永续合约交易能力，覆盖 BTC、ETH、SOL 等主流加密货币，支持从数据采集、智能分析、风险管理到交易执行的全流程自动化。
 
-![open-nof1.ai](./public/image.png)
+![ai-auto-trading](./public/image.png)
 
 ## 目录
 
@@ -153,7 +153,7 @@ open-nof1.ai 是一个 AI 驱动的加密货币自动交易系统，将大语言
 ```bash
 # 克隆仓库
 git clone <repository-url>
-cd open-nof1.ai
+cd ai-auto-trading
 
 # 安装依赖
 npm install
@@ -220,7 +220,7 @@ npm run trading:start
 ## 项目结构
 
 ```
-open-nof1.ai/
+ai-auto-trading/
 ├── src/
 │   ├── index.ts                      # 应用入口
 │   ├── agents/
@@ -484,7 +484,7 @@ npm run pm2:logs
 module.exports = {
   apps: [
     {
-      name: 'open-nof1.ai',
+      name: 'ai-auto-trading',
       script: 'tsx',
       args: '--env-file=.env ./src',
       instances: 1,
@@ -506,26 +506,26 @@ module.exports = {
 
 ```bash
 # 构建 Docker 镜像
-docker build -t open-nof1.ai:latest .
+docker build -t ai-auto-trading:latest .
 
 # 运行容器
 docker run -d \
-  --name open-nof1.ai \
+  --name ai-auto-trading \
   -p 3100:3100 \
   --env-file .env \
   --restart unless-stopped \
   -v ./voltagent-data:/app/.voltagent \
   -v ./logs:/app/logs \
-  open-nof1.ai:latest
+  ai-auto-trading:latest
 
 # 查看日志
-docker logs -f open-nof1.ai
+docker logs -f ai-auto-trading
 
 # 停止容器
-docker stop open-nof1.ai
+docker stop ai-auto-trading
 
 # 删除容器
-docker rm open-nof1.ai
+docker rm ai-auto-trading
 ```
 
 **Docker Compose**(推荐):
@@ -858,6 +858,6 @@ npm run trading:start
 ---
 <div align="center">
 
-[![Star History Chart](https://api.star-history.com/svg?repos=195440/open-nof1.ai&type=Date)](https://star-history.com/#195440/open-nof1.ai&Date)
+[![Star History Chart](https://api.star-history.com/svg?repos=losesky/ai-auto-trading&type=Date)](https://star-history.com/#losesky/ai-auto-trading&Date)
 
 </div>

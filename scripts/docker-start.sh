@@ -5,7 +5,7 @@
 
 set -e
 
-echo "🐋 open-nof1.ai Docker 启动脚本"
+echo "🐋 ai-auto-trading Docker 启动脚本"
 echo "================================"
 
 # 检查 Docker 是否安装

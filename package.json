@@ -1,9 +1,9 @@
 {
-  "name": "open-nof1.ai",
+  "name": "ai-auto-trading",
   "version": "0.1.0",
-  "description": "nof1.ai Agent 自动交易系统",
+  "description": "ai-auto-trading Agent 自动交易系统",
   "type": "module",
-  "author": "195440",
+  "author": "losesky",
   "license": "AGPL-3.0",
   "keywords": [
     "bitcoin",
@@ -16,12 +16,12 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/yourusername/open-nof1.ai.git"
+    "url": "https://github.com/yourusername/ai-auto-trading.git"
   },
   "bugs": {
-    "url": "https://github.com/yourusername/open-nof1.ai/issues"
+    "url": "https://github.com/yourusername/ai-auto-trading/issues"
   },
-  "homepage": "https://github.com/yourusername/open-nof1.ai#readme",
+  "homepage": "https://github.com/yourusername/ai-auto-trading#readme",
   "scripts": {
     "dev": "tsx watch --env-file=.env ./src",
     "build": "tsdown",
@@ -44,21 +44,21 @@
     "db:migrate:peak-pnl": "tsx --env-file=.env ./src/database/add-peak-pnl-column.ts",
     "db:migrate:partial-close": "tsx --env-file=.env ./src/database/migrate-add-partial-close.ts",
     "demo:calculate-pnl": "tsx ./scripts/calculate-pnl-demo.ts",
-    "pm2:start": "pm2 start ecosystem.config.cjs --only open-nof1.ai",
-    "pm2:start:dev": "pm2 start ecosystem.config.cjs --only open-nof1.ai-dev",
-    "pm2:stop": "pm2 stop open-nof1.ai",
-    "pm2:stop:dev": "pm2 stop open-nof1.ai-dev",
-    "pm2:restart": "pm2 restart open-nof1.ai",
-    "pm2:restart:dev": "pm2 restart open-nof1.ai-dev",
-    "pm2:delete": "pm2 delete open-nof1.ai",
-    "pm2:delete:dev": "pm2 delete open-nof1.ai-dev",
-    "pm2:logs": "pm2 logs open-nof1.ai",
-    "pm2:logs:dev": "pm2 logs open-nof1.ai-dev",
+    "pm2:start": "pm2 start ecosystem.config.cjs --only ai-auto-trading",
+    "pm2:start:dev": "pm2 start ecosystem.config.cjs --only ai-auto-trading-dev",
+    "pm2:stop": "pm2 stop ai-auto-trading",
+    "pm2:stop:dev": "pm2 stop ai-auto-trading-dev",
+    "pm2:restart": "pm2 restart ai-auto-trading",
+    "pm2:restart:dev": "pm2 restart ai-auto-trading-dev",
+    "pm2:delete": "pm2 delete ai-auto-trading",
+    "pm2:delete:dev": "pm2 delete ai-auto-trading-dev",
+    "pm2:logs": "pm2 logs ai-auto-trading",
+    "pm2:logs:dev": "pm2 logs ai-auto-trading-dev",
     "pm2:monit": "pm2 monit",
     "pm2:list": "pm2 list",
-    "pm2:status": "pm2 status open-nof1.ai",
+    "pm2:status": "pm2 status ai-auto-trading",
     "pm2:flush": "pm2 flush",
-    "docker:build": "docker build -t open-nof1.ai:latest .",
+    "docker:build": "docker build -t ai-auto-trading:latest .",
     "docker:start": "bash scripts/docker-start.sh",
     "docker:stop": "bash scripts/docker-stop.sh",
     "docker:logs": "bash scripts/docker-logs.sh",

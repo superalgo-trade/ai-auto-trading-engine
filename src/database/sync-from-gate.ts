@@ -1,6 +1,6 @@
 /**
- * open-nof1.ai - AI 加密货币自动交易系统
- * Copyright (C) 2025 195440
+ * ai-auto-trading - AI 加密货币自动交易系统
+ * Copyright (C) 2025 losesky
  * 
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as published by
