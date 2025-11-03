@@ -1699,6 +1699,12 @@ body {
         margin-bottom: 0.6rem;
         padding-bottom: 0.4rem;
     }
+    
+    /* 统一各区块标题的间距 */
+    .stats-header {
+        margin-bottom: 0.8rem;
+        padding-bottom: 0.4rem;
+    }
 
     .timeframe-select {
         font-size: 0.7rem;
@@ -1802,7 +1808,7 @@ body {
     }
     
     .account-header {
-        margin-bottom: 0.6rem;
+        margin-bottom: 0.8rem;
         padding-bottom: 0.4rem;
     }
     
@@ -1810,6 +1816,24 @@ body {
         margin-top: 0.8rem;
         padding-top: 0.8rem;
         gap: 0.6rem;
+    }
+    
+    /* 移动端盈亏信息换行显示 */
+    .balance-info {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0.5rem;
+    }
+    
+    .balance-change {
+        flex-direction: row;
+        align-items: baseline;
+        gap: 0.3rem;
+    }
+    
+    .balance-pnl,
+    .balance-percent {
+        font-size: 0.85rem;
     }
 
     /* Tables */
@@ -2019,6 +2043,21 @@ body {
 
     .account-section {
         padding: 0.6rem;
+    }
+    
+    .account-header {
+        margin-bottom: 0.6rem;
+        padding-bottom: 0.4rem;
+    }
+    
+    .balance-change {
+        flex-direction: row;
+        gap: 0.3rem;
+    }
+    
+    .balance-pnl,
+    .balance-percent {
+        font-size: 0.8rem;
     }
     
     /* 超小屏幕表格优化 */
