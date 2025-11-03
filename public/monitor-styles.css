@@ -542,7 +542,7 @@ body {
 }
 
 .currency-label {
-    font-size: 0.9rem;
+    font-size: 1.8rem;
     color: var(--text-dim);
     font-weight: 500;
 }
@@ -1492,15 +1492,16 @@ body {
     .trades-table th,
     .trades-table td {
         padding: 0.75rem 0.4rem;
+        font-size: 0.85rem;
     }
 
     /* 调整表格最小宽度 */
     .trades-table {
-        min-width: 600px;
+        min-width: 500px;
     }
 
     .positions-table {
-        min-width: 550px;
+        min-width: 450px;
     }
 }
 
@@ -1511,17 +1512,17 @@ body {
     .positions-table td,
     .trades-table th,
     .trades-table td {
-        padding: 0.6rem 0.3rem;
-        font-size: 0.85rem;
+        padding: 0.6rem 0.25rem;
+        font-size: 0.75rem;
     }
 
     /* 进一步减小表格最小宽度 */
     .trades-table {
-        min-width: 500px;
+        min-width: 100%;
     }
 
     .positions-table {
-        min-width: 450px;
+        min-width: 100%;
     }
     
     /* 交易统计网格 - 改为2列 */
@@ -1827,26 +1828,27 @@ body {
 
     .positions-table,
     .trades-table {
-        font-size: 0.7rem;
+        font-size: 0.65rem;
+        min-width: 100%;
     }
 
     .positions-table th,
     .positions-table td,
     .trades-table th,
     .trades-table td {
-        padding: 0.35rem 0.2rem;
+        padding: 0.4rem 0.15rem;
+        font-size: 0.65rem;
+        white-space: nowrap;
+    }
+    
+    /* 进一步缩小表头字体 */
+    .positions-table th,
+    .trades-table th {
+        font-size: 0.6rem;
+        letter-spacing: 0.3px;
     }
 
-    /* 小屏幕上减小表格最小宽度，避免出现横向滚动 */
-    .trades-table {
-        min-width: 400px;
-    }
-
-    .positions-table {
-        min-width: 350px;
-    }
-
-    /* 移动端隐藏持仓表格的一些列 */
+    /* 移动端隐藏持仓表格的列 - 只保留: 币种、方向、当前价格、未实现盈亏、收益率 */
     .positions-table th:nth-child(3),
     .positions-table td:nth-child(3),
     .positions-table th:nth-child(4),
@@ -1856,14 +1858,30 @@ body {
         display: none;
     }
 
-    /* 移动端隐藏交易历史表格的非关键列 - 隐藏开仓价格、平仓价格、数量 */
+    /* 移动端隐藏交易历史表格的列 - 只保留: 平仓时间、币种、方向、杠杆、持仓时间、净盈亏 */
     .trades-table th:nth-child(5),
     .trades-table td:nth-child(5),
     .trades-table th:nth-child(6),
     .trades-table td:nth-child(6),
     .trades-table th:nth-child(7),
-    .trades-table td:nth-child(7) {
+    .trades-table td:nth-child(7),
+    .trades-table th:nth-child(9),
+    .trades-table td:nth-child(9) {
         display: none;
+    }
+    
+    /* 优化币种名称和标签的显示 */
+    .positions-table .symbol,
+    .trades-table .symbol {
+        font-size: 0.7rem;
+        font-weight: 700;
+    }
+    
+    .positions-table .side,
+    .trades-table .side {
+        padding: 0.15rem 0.25rem;
+        font-size: 0.58rem;
+        min-width: 36px;
     }
 
     .trades-container {
@@ -2000,6 +2018,48 @@ body {
 
     .account-section {
         padding: 0.6rem;
+    }
+    
+    /* 超小屏幕表格优化 */
+    .positions-section,
+    .trades-section {
+        padding: 0.6rem;
+    }
+    
+    .positions-table,
+    .trades-table {
+        font-size: 0.6rem;
+        min-width: 100%;
+    }
+
+    .positions-table th,
+    .positions-table td,
+    .trades-table th,
+    .trades-table td {
+        padding: 0.35rem 0.1rem;
+        font-size: 0.6rem;
+    }
+    
+    .positions-table th,
+    .trades-table th {
+        font-size: 0.55rem;
+        letter-spacing: 0.2px;
+    }
+    
+    .positions-table .symbol,
+    .trades-table .symbol {
+        font-size: 0.7rem;
+    }
+    
+    .positions-table .side,
+    .trades-table .side {
+        padding: 0.1rem 0.25rem;
+        font-size: 0.55rem;
+        min-width: 35px;
+    }
+    
+    .section-header {
+        font-size: 0.75rem;
     }
 }
 
