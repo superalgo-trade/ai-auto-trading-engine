@@ -1557,9 +1557,15 @@ body {
     }
     
     .stat-pairs {
+        font-size: 0.75rem;
         white-space: normal;
         overflow: visible;
         text-overflow: clip;
+        line-height: 1.4;
+    }
+    
+    .stat-distribution {
+        font-size: 0.75rem;
     }
 }
 
@@ -1977,10 +1983,11 @@ body {
     
     .stat-distribution {
         gap: 0.5rem;
-        font-size: 0.75rem;
+        font-size: 0.7rem;
     }
     
     .stat-pairs {
+        font-size: 0.7rem;
         white-space: normal;
         overflow: visible;
         text-overflow: clip;
