@@ -13,7 +13,7 @@ NC="\033[0m" # No Color
 # 显示欢迎标题
 clear
 echo -e "${BLUE}==========================================${NC}"
-echo -e "${BLUE}  NOF1.AI 交易项目 - 双远程Git管理脚本  ${NC}"
+echo -e "${BLUE}  AI-Auto-Trading 交易项目 - 双远程Git管理脚本  ${NC}"
 echo -e "${BLUE}==========================================${NC}"
 echo
 
@@ -155,9 +155,9 @@ echo -e "${GREEN}upstream (上游源): $(git remote get-url upstream)${NC}"
 # 显示菜单
 show_menu() {
     echo
-    echo -e "${CYAN}┌────────────────────────────────────────────┐${NC}"
+    echo -e "${CYAN}┌───────────────────────────────────────────┐${NC}"
     echo -e "${CYAN}│         请选择您要执行的操作              │${NC}"
-    echo -e "${CYAN}├────────────────────────────────────────────┤${NC}"
+    echo -e "${CYAN}├───────────────────────────────────────────┤${NC}"
     echo -e "${CYAN}│ 1. 从上游源仓库获取更新 (upstream pull)   │${NC}"
     echo -e "${CYAN}│ 2. 推送到个人仓库 (origin push)           │${NC}"
     echo -e "${CYAN}│ 3. 从个人仓库拉取 (origin pull)           │${NC}"
@@ -165,7 +165,7 @@ show_menu() {
     echo -e "${CYAN}│ 5. 分支管理                               │${NC}"
     echo -e "${CYAN}│ 6. 远程仓库管理                           │${NC}"
     echo -e "${CYAN}│ 0. 退出                                   │${NC}"
-    echo -e "${CYAN}└────────────────────────────────────────────┘${NC}"
+    echo -e "${CYAN}└───────────────────────────────────────────┘${NC}"
     echo -e "${YELLOW}请输入选项 [0-6]: ${NC}"
     read -n 1 option
     echo
@@ -317,7 +317,7 @@ push_to_origin_repo() {
             
             # 提交更改
             echo -e "${YELLOW}提交更改...${NC}"
-            default_commit_message="更新NOF1.AI交易项目 - $(date '+%Y-%m-%d %H:%M:%S')"
+            default_commit_message="更新AI-Auto-Trading交易项目 - $(date '+%Y-%m-%d %H:%M:%S')"
             echo -e "${YELLOW}默认提交信息: $default_commit_message${NC}"
             echo -e "${YELLOW}是否自定义提交信息? (y/N)${NC}"
             read -n 1 custom_msg
