@@ -1361,6 +1361,9 @@ body {
     color: var(--text-dim);
     font-size: 0.75rem;
     margin-bottom: 0.5rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .stat-value {
@@ -1412,6 +1415,9 @@ body {
 .stat-pairs {
     font-size: 0.85rem;
     line-height: 1.4;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 /* Responsive */

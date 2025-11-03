@@ -821,6 +821,35 @@ class TradingMonitor {
             document.getElementById('stat-short-percent').textContent = `${shortPercent}%`;
             document.getElementById('stat-neutral-percent').textContent = `${neutralPercent}%`;
             
+            // 计算 HHI（赫芬达尔-赫希曼指数）来衡量交易集中度
+            // HHI = Σ(市场份额%)^2，范围0-10000
+            // 0-1500: 低集中度（分散）
+            // 1500-2500: 中等集中度
+            // 2500+: 高集中度
+            let hhi = 0;
+            if (totalTrades > 0) {
+                Object.values(symbolCounts).forEach(count => {
+                    const marketShare = (count / totalTrades) * 100;
+                    hhi += marketShare * marketShare;
+                });
+            }
+            
+            // 判断集中度级别
+            let concentrationLevel = '';
+            if (hhi < 1500) {
+                concentrationLevel = '分散';
+            } else if (hhi < 2500) {
+                concentrationLevel = '中等';
+            } else {
+                concentrationLevel = '集中';
+            }
+            
+            // 更新 HHI 标签
+            const hhiLabelEl = document.getElementById('stat-hhi-label');
+            if (hhiLabelEl) {
+                hhiLabelEl.textContent = ` · HHI ${(hhi / 100).toFixed(2)} · ${concentrationLevel}`;
+            }
+            
             // 更新交易对偏好（TOP 5）
             const topPairs = Object.entries(symbolCounts)
                 .sort((a, b) => b[1] - a[1])
