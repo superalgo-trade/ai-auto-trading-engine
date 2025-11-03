@@ -1445,6 +1445,7 @@ body {
     .trading-stats-section {
         grid-column: 1 / 2;
         grid-row: 3 / 4;
+        padding: 0.8rem;
     }
     
     /* 交易统计网格 - 在小屏幕上改为3列 */
@@ -1808,7 +1809,7 @@ body {
     }
     
     .account-header {
-        margin-bottom: 0.8rem;
+        margin-bottom: 0rem;
         padding-bottom: 0.4rem;
     }
     
