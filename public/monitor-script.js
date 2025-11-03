@@ -29,7 +29,6 @@ class TradingMonitor {
     async init() {
         await this.loadInitialData();
         this.initEquityChart();
-        this.initTimeframeSelector();
         this.startDataUpdates();
         this.initTabs();
         this.initChat();
