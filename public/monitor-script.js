@@ -475,18 +475,18 @@ class TradingMonitor {
             await this.loadTickerPrices();
         }, 10000);
 
-        // 每30秒更新交易记录和日志
+        // 每5秒更新交易记录和日志
         setInterval(async () => {
             await Promise.all([
                 this.loadTradesData(),
                 this.loadLogsData()
             ]);
-        }, 30000);
+        }, 5000);
 
-        // 每30秒更新资产曲线图表
+        // 每10秒更新资产曲线图表
         setInterval(async () => {
             await this.updateEquityChart();
-        }, 30000);
+        }, 10000);
     }
 
     // 复制ticker内容实现无缝滚动
