@@ -1841,11 +1841,12 @@ body {
         white-space: nowrap;
     }
     
-    /* 进一步缩小表头字体 */
+    /* 表头字体略微放大 */
     .positions-table th,
     .trades-table th {
-        font-size: 0.6rem;
+        font-size: 0.68rem;
         letter-spacing: 0.3px;
+        font-weight: 700;
     }
 
     /* 移动端隐藏持仓表格的列 - 只保留: 币种、方向、当前价格、未实现盈亏、收益率 */
@@ -2059,7 +2060,16 @@ body {
     }
     
     .section-header {
-        font-size: 0.75rem;
+        font-size: 0.85rem;
+        margin-bottom: 0.6rem;
+        padding-bottom: 0.4rem;
+    }
+    
+    /* 超小屏幕表头字体略微放大 */
+    .positions-table th,
+    .trades-table th {
+        font-size: 0.65rem;
+        font-weight: 700;
     }
 }
 
