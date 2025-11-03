@@ -2044,6 +2044,7 @@ body {
 
     .account-section {
         padding: 0.6rem;
+        gap: 0.5rem;
     }
     
     .account-header {
