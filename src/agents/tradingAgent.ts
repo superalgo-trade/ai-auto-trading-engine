@@ -281,9 +281,12 @@ export function getStrategyParams(strategy: TradingStrategy): StrategyParams {
         strong: "25-27%",
       },
       stopLoss: {
-        low: -3,
-        mid: -2.5,
-        high: -2,
+        // low: -3,
+        // mid: -2.5,
+        // high: -2,
+        mid: - balancedLevGood / 2.5,
+        high: - balancedLevStrong / 3,
+        low: - balancedLevNormal / 2,
       },
       trailingStop: {
         // 平衡策略：适中的移动止盈（基准：15倍杠杆）
