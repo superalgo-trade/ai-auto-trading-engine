@@ -304,7 +304,7 @@ export function getStrategyParams(strategy: TradingStrategy): StrategyParams {
         normalVolatility: { leverageFactor: 1.0, positionFactor: 1.0 }, // 正常波动：不调整
         lowVolatility: { leverageFactor: 1.1, positionFactor: 1.0 },    // 低波动：略微提高杠杆
       },
-      entryCondition: "至少2个关键时间框架信号一致，3个或更多更佳",
+      entryCondition: "至少3个关键时间框架信号一致，4个或更多更佳",
       riskTolerance: "单笔交易风险控制在20-27%之间，平衡风险与收益",
       tradingStyle: "在风险可控前提下积极把握机会，追求稳健增长",
     },
