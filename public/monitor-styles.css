@@ -1344,10 +1344,10 @@ body {
     transition: all 0.3s;
 }
 
-.stat-card:hover {
+/* .stat-card:hover {
     border-color: var(--accent-green);
     box-shadow: 0 0 8px rgba(0, 255, 170, 0.2);
-}
+} */
 
 .stat-card-wide {
     grid-column: span 2;
