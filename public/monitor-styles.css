@@ -180,7 +180,7 @@ body {
     padding: 2rem;
     display: grid;
     grid-template-columns: 2fr 1fr;
-    grid-template-rows: auto auto auto;
+    grid-template-rows: auto auto auto auto auto;
     gap: 2rem;
     width: 100%;
     box-sizing: border-box;
@@ -203,10 +203,16 @@ body {
     grid-row: 1 / 2;
 }
 
-/* AI 决策区域 - 占据第二行，跨两列 */
-.chart-section:nth-child(2) {
+/* 交易统计区域 - 占据第二行，跨两列 */
+.trading-stats-section {
     grid-column: 1 / 3;
     grid-row: 2 / 3;
+}
+
+/* AI 决策区域 - 占据第三行，跨两列 */
+.chart-section:nth-child(3) {
+    grid-column: 1 / 3;
+    grid-row: 3 / 4;
 }
 
 .chart-header {
@@ -827,7 +833,7 @@ body {
 /* Positions Section */
 .positions-section {
     grid-column: 1 / 3;
-    grid-row: 3 / 4;
+    grid-row: 4 / 5;
     background-color: var(--bg-secondary);
     border: 1px solid var(--border-color);
     padding: 1.5rem;
@@ -943,7 +949,7 @@ body {
 /* Trades Section */
 .trades-section {
     grid-column: 1 / 3;
-    grid-row: 4 / 5;
+    grid-row: 5 / 6;
     background-color: var(--bg-secondary);
     border: 1px solid var(--border-color);
     padding: 1.5rem;
@@ -1301,11 +1307,118 @@ body {
     white-space: pre-wrap;
 }
 
+/* Trading Statistics Section */
+.trading-stats-section {
+    background-color: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    padding: 1.5rem;
+    grid-column: 1 / 3;
+    grid-row: 2 / 3;
+    max-width: 100%;
+    overflow: hidden;
+}
+
+.stats-header {
+    margin-bottom: 1rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.stats-title {
+    font-size: 1rem;
+    color: var(--text-primary);
+    margin: 0;
+}
+
+.stats-grid {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 1rem;
+}
+
+.stat-card {
+    background-color: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    padding: 1rem;
+    border-radius: 4px;
+    transition: all 0.3s;
+}
+
+.stat-card:hover {
+    border-color: var(--accent-green);
+    box-shadow: 0 0 8px rgba(0, 255, 170, 0.2);
+}
+
+.stat-card-wide {
+    grid-column: span 2;
+}
+
+.stat-card-triple {
+    grid-column: span 3;
+}
+
+.stat-label {
+    color: var(--text-dim);
+    font-size: 0.75rem;
+    margin-bottom: 0.5rem;
+}
+
+.stat-value {
+    color: var(--text-primary);
+    font-size: 1.1rem;
+    font-weight: bold;
+}
+
+.stat-value.positive {
+    color: var(--accent-red);
+}
+
+.stat-value.negative {
+    color: var(--accent-green);
+}
+
+.stat-distribution {
+    display: flex;
+    gap: 1rem;
+    font-size: 0.85rem;
+    flex-wrap: wrap;
+}
+
+.dist-item {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+}
+
+.dist-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    display: inline-block;
+}
+
+.dist-dot.long {
+    background-color: var(--accent-red);
+}
+
+.dist-dot.short {
+    background-color: var(--accent-green);
+}
+
+.dist-dot.neutral {
+    background-color: var(--accent-yellow);
+}
+
+.stat-pairs {
+    font-size: 0.85rem;
+    line-height: 1.4;
+}
+
 /* Responsive */
 @media (max-width: 1024px) {
     .main-content {
         grid-template-columns: 1fr;
-        grid-template-rows: auto auto auto auto;
+        grid-template-rows: auto auto auto auto auto auto;
     }
 
     /* 资产曲线 */
@@ -1322,23 +1435,39 @@ body {
         min-height: auto;
     }
 
-    /* AI 决策 */
-    .chart-section:nth-child(2) {
+    /* 交易统计 */
+    .trading-stats-section {
         grid-column: 1 / 2;
         grid-row: 3 / 4;
+    }
+    
+    /* 交易统计网格 - 在小屏幕上改为3列 */
+    .stats-grid {
+        grid-template-columns: repeat(3, 1fr);
+    }
+    
+    /* 在3列布局下，最后一行的两个triple卡片各占1.5列，使其平分空间 */
+    .stat-card-triple {
+        grid-column: span 3;
+    }
+
+    /* AI 决策 */
+    .chart-section:nth-child(3) {
+        grid-column: 1 / 2;
+        grid-row: 4 / 5;
         min-height: 400px;
     }
 
     /* 持仓 */
     .positions-section {
         grid-column: 1 / 2;
-        grid-row: 4 / 5;
+        grid-row: 5 / 6;
     }
 
     /* 交易历史 */
     .trades-section {
         grid-column: 1 / 2;
-        grid-row: 5 / 6;
+        grid-row: 6 / 7;
     }
 
     /* 中等屏幕也隐藏交易历史表格的部分非关键列 - 只隐藏数量列 */
@@ -1387,6 +1516,28 @@ body {
 
     .positions-table {
         min-width: 450px;
+    }
+    
+    /* 交易统计网格 - 改为2列 */
+    .stats-grid {
+        grid-template-columns: repeat(2, 1fr);
+        gap: 0.8rem;
+    }
+    
+    .stat-card {
+        padding: 0.8rem;
+    }
+    
+    .stat-card-triple {
+        grid-column: span 2;
+    }
+    
+    .stat-label {
+        font-size: 0.7rem;
+    }
+    
+    .stat-value {
+        font-size: 1rem;
     }
 }
 
@@ -1764,118 +1915,28 @@ body {
     .chart-section:first-child {
         min-height: 300px;
     }
+    
+    /* 交易统计网格 - 在超小屏幕改为1列 */
+    .stats-grid {
+        grid-template-columns: 1fr;
+        gap: 0.6rem;
+    }
+    
+    .stat-card {
+        padding: 0.6rem;
+    }
+    
+    .stat-card-wide,
+    .stat-card-triple {
+        grid-column: span 1;
+    }
+    
+    .trading-stats-section {
+        padding: 0.8rem;
+    }
 
     .account-section {
         padding: 0.6rem;
-    }
-
-    .account-value {
-        font-size: 1.5rem;
-        margin: 0.5rem 0;
-    }
-
-    .currency-symbol {
-        font-size: 1.2rem;
-    }
-
-    .chart-container {
-        height: auto;
-        min-height: 240px;
-        padding: 0.3rem;
-        max-width: 100%;
-        overflow: hidden;
-    }
-    
-    .chart-container canvas {
-        height: auto !important;
-        width: 100% !important;
-    }
-    
-    .decision-container {
-        height: auto;
-        min-height: 120px;
-        max-height: 350px;
-        padding: 0.5rem;
-    }
-
-    .positions-table,
-    .trades-table {
-        min-width: auto;
-        font-size: 0.65rem;
-    }
-
-    .positions-table th,
-    .positions-table td,
-    .trades-table th,
-    .trades-table td {
-        font-size: 0.65rem;
-        padding: 0.3rem 0.15rem;
-        white-space: nowrap;
-    }
-    
-    .positions-section,
-    .trades-section {
-        padding: 0.6rem;
-    }
-    
-    .section-header {
-        font-size: 0.8rem;
-        margin-bottom: 0.6rem;
-        padding-bottom: 0.4rem;
-    }
-
-    /* 继承768px的列隐藏规则 */
-    .positions-table th:nth-child(3),
-    .positions-table td:nth-child(3),
-    .positions-table th:nth-child(4),
-    .positions-table td:nth-child(4),
-    .positions-table th:nth-child(5),
-    .positions-table td:nth-child(5) {
-        display: none;
-    }
-
-    /* 移动端隐藏交易历史表格的非关键列 - 隐藏开仓价格、平仓价格、数量 */
-    .trades-table th:nth-child(5),
-    .trades-table td:nth-child(5),
-    .trades-table th:nth-child(6),
-    .trades-table td:nth-child(6),
-    .trades-table th:nth-child(7),
-    .trades-table td:nth-child(7) {
-        display: none;
-    }
-    
-    .trades-container {
-        max-height: 350px;
-    }
-    
-    .trade-item {
-        padding: 0.6rem;
-    }
-    
-    .trade-header {
-        margin-bottom: 0.6rem;
-        padding-bottom: 0.6rem;
-    }
-    
-    .trade-symbol {
-        font-size: 0.85rem;
-    }
-    
-    .trade-info {
-        grid-template-columns: 1fr;
-        gap: 0.5rem;
-    }
-    
-    .trade-field {
-        padding: 0.3rem;
-    }
-    
-    .trade-field .label {
-        font-size: 0.6rem;
-    }
-    
-    .trade-field .value {
-        font-size: 0.8rem;
     }
 }
 

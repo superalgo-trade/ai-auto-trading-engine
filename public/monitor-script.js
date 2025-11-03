@@ -45,7 +45,8 @@ class TradingMonitor {
                 this.loadPositionsData(),
                 this.loadTradesData(),
                 this.loadLogsData(),
-                this.loadTickerPrices()
+                this.loadTickerPrices(),
+                this.loadTradingStats()
             ]);
         } catch (error) {
             console.error('加载初始数据失败:', error);
@@ -712,6 +713,233 @@ class TradingMonitor {
             riskStatusEl.classList.add('danger');
             statusLabelEl.textContent = '风险状态：危险';
             statusDescEl.textContent = '保证金比率超过180%，强烈建议降低仓位！';
+        }
+    }
+
+    // 加载交易统计数据
+    async loadTradingStats() {
+        try {
+            // 同时获取统计数据和交易历史（用于计算更多指标）
+            const [statsResponse, tradesResponse, accountResponse] = await Promise.all([
+                fetch('/api/stats'),
+                fetch('/api/completed-trades?limit=1000'), // 获取所有交易用于详细分析
+                fetch('/api/account')
+            ]);
+            
+            const stats = await statsResponse.json();
+            const trades = await tradesResponse.json();
+            const account = await accountResponse.json();
+            
+            if (stats.error || trades.error || account.error) {
+                console.error('API错误:', stats.error || trades.error || account.error);
+                return;
+            }
+            
+            // 基础统计
+            this.updateStatValue('stat-win-rate', `${stats.winRate.toFixed(1)}%`);
+            this.updateStatValue('stat-total-trades', stats.totalTrades);
+            this.updateStatValue('stat-max-loss', this.formatPnl(stats.maxLoss));
+            
+            // 计算单笔平均盈亏
+            const avgPnl = stats.totalTrades > 0 ? stats.totalPnl / stats.totalTrades : 0;
+            this.updateStatValue('stat-avg-pnl', this.formatPnl(avgPnl));
+            
+            // 计算累计盈利和亏损
+            let totalProfit = 0;
+            let totalLoss = 0;
+            let totalFee = 0;
+            let totalLeverage = 0;
+            let leverageCount = 0;
+            let totalDurationSeconds = 0;
+            const symbolCounts = {};
+            const directionCounts = { long: 0, short: 0 };
+            
+            if (trades.trades && trades.trades.length > 0) {
+                trades.trades.forEach(trade => {
+                    if (trade.pnl > 0) {
+                        totalProfit += trade.pnl;
+                    } else if (trade.pnl < 0) {
+                        totalLoss += Math.abs(trade.pnl);
+                    }
+                    
+                    totalFee += trade.totalFee || 0;
+                    
+                    if (trade.leverage) {
+                        totalLeverage += trade.leverage;
+                        leverageCount++;
+                    }
+                    
+                    // 统计持仓时长（将字符串转换为秒数）
+                    if (trade.holdingTime) {
+                        const duration = this.parseDuration(trade.holdingTime);
+                        totalDurationSeconds += duration;
+                    }
+                    
+                    // 统计交易对
+                    symbolCounts[trade.symbol] = (symbolCounts[trade.symbol] || 0) + 1;
+                    
+                    // 统计方向
+                    if (trade.side === 'long') {
+                        directionCounts.long++;
+                    } else if (trade.side === 'short') {
+                        directionCounts.short++;
+                    }
+                });
+            }
+            
+            this.updateStatValue('stat-total-profit', `+$${totalProfit.toFixed(2)}`);
+            this.updateStatValue('stat-total-loss', `-$${totalLoss.toFixed(2)}`);
+            this.updateStatValue('stat-total-fee', `$${totalFee.toFixed(2)}`);
+            
+            // 计算平均杠杆
+            const avgLeverage = leverageCount > 0 ? totalLeverage / leverageCount : 0;
+            this.updateStatValue('stat-avg-leverage', `${avgLeverage.toFixed(1)}x`);
+            
+            // 计算利润因子
+            const profitFactor = totalLoss > 0 ? totalProfit / totalLoss : 0;
+            this.updateStatValue('stat-profit-factor', profitFactor.toFixed(2));
+            
+            // 计算平均持仓时长
+            const avgDuration = trades.trades.length > 0 ? totalDurationSeconds / trades.trades.length : 0;
+            this.updateStatValue('stat-avg-duration', this.formatDuration(avgDuration));
+            
+            // 计算夏普比率（简化版）
+            const sharpeRatio = this.calculateSharpe(trades.trades, account.initialBalance);
+            this.updateStatValue('stat-sharpe', sharpeRatio.toFixed(2));
+            
+            // 计算最大回撤
+            const maxDrawdown = this.calculateMaxDrawdown(trades.trades, account.initialBalance);
+            this.updateStatValue('stat-max-drawdown', `${maxDrawdown.toFixed(1)}%`);
+            
+            // 更新方向分布
+            const totalTrades = directionCounts.long + directionCounts.short;
+            const longPercent = totalTrades > 0 ? (directionCounts.long / totalTrades * 100).toFixed(1) : '0.0';
+            const shortPercent = totalTrades > 0 ? (directionCounts.short / totalTrades * 100).toFixed(1) : '0.0';
+            const neutralPercent = (100 - parseFloat(longPercent) - parseFloat(shortPercent)).toFixed(1);
+            
+            document.getElementById('stat-long-percent').textContent = `${longPercent}%`;
+            document.getElementById('stat-short-percent').textContent = `${shortPercent}%`;
+            document.getElementById('stat-neutral-percent').textContent = `${neutralPercent}%`;
+            
+            // 更新交易对偏好（TOP 5）
+            const topPairs = Object.entries(symbolCounts)
+                .sort((a, b) => b[1] - a[1])
+                .slice(0, 5)
+                .map(([symbol, count]) => {
+                    const percent = totalTrades > 0 ? (count / totalTrades * 100).toFixed(1) : '0.0';
+                    return `${symbol} ${percent}%`;
+                })
+                .join('  ');
+            
+            this.updateStatValue('stat-top-pairs', topPairs || '暂无数据');
+            
+        } catch (error) {
+            console.error('加载交易统计失败:', error);
+        }
+    }
+    
+    // 辅助方法：格式化盈亏显示
+    formatPnl(value) {
+        if (value >= 0) {
+            return `+$${value.toFixed(2)}`;
+        } else {
+            return `-$${Math.abs(value).toFixed(2)}`;
+        }
+    }
+    
+    // 辅助方法：解析持仓时长字符串为秒数
+    parseDuration(durationStr) {
+        let seconds = 0;
+        const dayMatch = durationStr.match(/(\d+)天/);
+        const hourMatch = durationStr.match(/(\d+)小时/);
+        const minMatch = durationStr.match(/(\d+)分/);
+        
+        if (dayMatch) seconds += parseInt(dayMatch[1]) * 86400;
+        if (hourMatch) seconds += parseInt(hourMatch[1]) * 3600;
+        if (minMatch) seconds += parseInt(minMatch[1]) * 60;
+        
+        return seconds;
+    }
+    
+    // 辅助方法：格式化秒数为可读时长
+    formatDuration(seconds) {
+        const hours = Math.floor(seconds / 3600);
+        const minutes = Math.floor((seconds % 3600) / 60);
+        
+        if (hours >= 24) {
+            const days = Math.floor(hours / 24);
+            const remainHours = hours % 24;
+            return `${days}天${remainHours}小时${minutes}分`;
+        } else if (hours > 0) {
+            return `${hours}小时${minutes}分`;
+        } else {
+            return `${minutes}分`;
+        }
+    }
+    
+    // 辅助方法：计算夏普比率
+    calculateSharpe(trades, initialBalance) {
+        if (!trades || trades.length < 2) return 0;
+        
+        // 计算每笔交易的收益率
+        const returns = trades.map(t => (t.pnl || 0) / initialBalance);
+        
+        // 计算平均收益率
+        const avgReturn = returns.reduce((sum, r) => sum + r, 0) / returns.length;
+        
+        // 计算标准差
+        const variance = returns.reduce((sum, r) => sum + Math.pow(r - avgReturn, 2), 0) / returns.length;
+        const stdDev = Math.sqrt(variance);
+        
+        // 夏普比率 = 平均收益 / 标准差（假设无风险收益率为0）
+        return stdDev > 0 ? avgReturn / stdDev : 0;
+    }
+    
+    // 辅助方法：计算最大回撤
+    calculateMaxDrawdown(trades, initialBalance) {
+        if (!trades || trades.length === 0) return 0;
+        
+        let equity = initialBalance;
+        let peak = initialBalance;
+        let maxDrawdown = 0;
+        
+        // 按时间排序
+        const sortedTrades = [...trades].sort((a, b) => 
+            new Date(a.closeTime) - new Date(b.closeTime)
+        );
+        
+        sortedTrades.forEach(trade => {
+            equity += (trade.pnl || 0);
+            
+            if (equity > peak) {
+                peak = equity;
+            }
+            
+            const drawdown = peak > 0 ? ((peak - equity) / peak) * 100 : 0;
+            if (drawdown > maxDrawdown) {
+                maxDrawdown = drawdown;
+            }
+        });
+        
+        return maxDrawdown;
+    }
+    
+    // 辅助方法：更新统计值
+    updateStatValue(elementId, value) {
+        const element = document.getElementById(elementId);
+        if (element) {
+            element.textContent = value;
+            
+            // 根据值添加颜色类
+            if (typeof value === 'string') {
+                if (value.startsWith('+') && !value.includes('%')) {
+                    element.classList.add('positive');
+                    element.classList.remove('negative');
+                } else if (value.startsWith('-')) {
+                    element.classList.add('negative');
+                    element.classList.remove('positive');
+                }
+            }
         }
     }
 }

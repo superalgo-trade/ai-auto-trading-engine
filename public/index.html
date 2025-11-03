@@ -189,6 +189,89 @@
       </div>
     </section>
 
+    <!-- Trading Statistics Section -->
+    <section class="trading-stats-section">
+      <div class="stats-header">
+        <h3 class="stats-title">交易统计</h3>
+      </div>
+      <div class="stats-grid">
+        <!-- Row 1 -->
+        <div class="stat-card">
+          <div class="stat-label">胜率</div>
+          <div class="stat-value" id="stat-win-rate">-</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">夏普比率</div>
+          <div class="stat-value" id="stat-sharpe">-</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">交易次数</div>
+          <div class="stat-value" id="stat-total-trades">-</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">最大回撤</div>
+          <div class="stat-value" id="stat-max-drawdown">-</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">单笔平均盈亏</div>
+          <div class="stat-value" id="stat-avg-pnl">-</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">单笔最大亏损</div>
+          <div class="stat-value" id="stat-max-loss">-</div>
+        </div>
+
+        <!-- Row 2 -->
+        <div class="stat-card">
+          <div class="stat-label">平均杠杆</div>
+          <div class="stat-value" id="stat-avg-leverage">-</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">总手续费</div>
+          <div class="stat-value" id="stat-total-fee">-</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">累计盈利</div>
+          <div class="stat-value positive" id="stat-total-profit">-</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">累计亏损</div>
+          <div class="stat-value negative" id="stat-total-loss">-</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">平均持仓时长</div>
+          <div class="stat-value" id="stat-avg-duration">-</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">利润因子</div>
+          <div class="stat-value" id="stat-profit-factor">-</div>
+        </div>
+
+        <!-- Row 3: Direction Distribution and Top Pairs -->
+        <div class="stat-card stat-card-triple">
+          <div class="stat-label">方向分布</div>
+          <div class="stat-value stat-distribution" id="stat-direction-dist">
+            <span class="dist-item">
+              <span class="dist-dot long"></span>
+              <span>做多 <span id="stat-long-percent">0.0%</span></span>
+            </span>
+            <span class="dist-item">
+              <span class="dist-dot short"></span>
+              <span>做空 <span id="stat-short-percent">0.0%</span></span>
+            </span>
+            <span class="dist-item">
+              <span class="dist-dot neutral"></span>
+              <span>空仓 <span id="stat-neutral-percent">0.0%</span></span>
+            </span>
+          </div>
+        </div>
+        <div class="stat-card stat-card-triple">
+          <div class="stat-label">交易对偏好 (TOP 5)</div>
+          <div class="stat-value stat-pairs" id="stat-top-pairs">-</div>
+        </div>
+      </div>
+    </section>
+
     <!-- AI Decision Section -->
     <section class="chart-section">
       <div class="chart-header">
