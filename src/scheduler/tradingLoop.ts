@@ -1650,13 +1650,13 @@ export function startTradingLoop() {
   // 立即执行一次
   executeTradingDecision();
   
-  // 设置定时任务
-  const cronExpression = `*/${intervalMinutes} * * * *`;
-  cron.schedule(cronExpression, () => {
+  // 使用 setInterval 而不是 cron，确保固定间隔执行
+  setInterval(() => {
+    logger.info(`定时任务触发 - ${new Date().toISOString()}`);
     executeTradingDecision();
-  });
+  }, intervalMinutes * 60 * 1000);
   
-  logger.info(`定时任务已设置: ${cronExpression}`);
+  logger.info(`定时任务已设置: 每 ${intervalMinutes} 分钟执行一次`);
 }
 
 /**
