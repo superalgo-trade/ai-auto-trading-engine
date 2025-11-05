@@ -224,9 +224,19 @@ export async function analyzeTimeframe(
   }
   
   // 提取价格和成交量数据
-  const closes = candles.map((c: any) => Number.parseFloat(c.c)).filter((n: number) => Number.isFinite(n));
+  // 🔧 兼容两种数据格式：
+  // - GateExchangeClient 返回: { close, volume }
+  // - BinanceExchangeClient 可能返回: { c, v }
+  const closes = candles.map((c: any) => {
+    const closeVal = c.close || c.c;
+    return Number.parseFloat(closeVal || "0");
+  }).filter((n: number) => Number.isFinite(n));
+  
+  // 🔧 成交量数据处理：兼容不同字段名和数据格式
   const volumes = candles.map((c: any) => {
-    const vol = Number.parseFloat(c.v);
+    // 支持多种字段名：volume (标准), v (简写)
+    const volStr = c.volume || c.v || "0";
+    const vol = Number.parseFloat(volStr);
     return Number.isFinite(vol) && vol >= 0 ? vol : 0;
   }).filter((n: number) => n >= 0);
   

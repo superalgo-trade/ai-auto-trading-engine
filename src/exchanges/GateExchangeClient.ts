@@ -101,15 +101,18 @@ export class GateExchangeClient implements IExchangeClient {
           contract,
         });
         const ticker = result.body[0];
+        
+        // 🔧 Gate.io API 字段映射修复
+        // Gate.io 返回的字段是下划线命名（snake_case），需要正确映射
         return {
           contract: ticker.contract,
           last: ticker.last || "0",
-          markPrice: ticker.markPrice || ticker.last || "0",
-          indexPrice: ticker.indexPrice,
-          volume24h: ticker.volume24h,
-          high24h: ticker.high24h,
-          low24h: ticker.low24h,
-          change24h: ticker.changePercentage,
+          markPrice: ticker.mark_price || ticker.last || "0", // mark_price 而不是 markPrice
+          indexPrice: ticker.index_price || "0", // index_price 而不是 indexPrice
+          volume24h: ticker.volume_24h || ticker.total || "0", // volume_24h 或 total
+          high24h: ticker.high_24h || "0", // high_24h 而不是 high24h
+          low24h: ticker.low_24h || "0", // low_24h 而不是 low24h
+          change24h: ticker.change_percentage || "0", // change_percentage 而不是 changePercentage
         };
       } catch (error) {
         lastError = error;
@@ -142,7 +145,7 @@ export class GateExchangeClient implements IExchangeClient {
             limit,
           }
         );
-        return result.body.map((candle: any) => ({
+        const candles = result.body.map((candle: any) => ({
           timestamp: Number.parseInt(candle.t) * 1000,
           open: candle.o,
           high: candle.h,
@@ -150,6 +153,14 @@ export class GateExchangeClient implements IExchangeClient {
           close: candle.c,
           volume: candle.v,
         }));
+        
+        // 🔧 调试日志：检查成交量数据
+        if (candles.length > 0) {
+          const lastCandle = candles[candles.length - 1];
+          logger.debug(`${contract} 最新K线: close=${lastCandle.close}, volume=${lastCandle.volume} (类型: ${typeof lastCandle.volume})`);
+        }
+        
+        return candles;
       } catch (error) {
         lastError = error;
         if (i < retries) {
