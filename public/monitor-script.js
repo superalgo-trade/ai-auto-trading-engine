@@ -902,38 +902,23 @@ class TradingMonitor {
         return maxDrawdown;
     }
     
-    // 辅助方法：更新统计值（带动画效果）
+    // 辅助方法：更新统计值
     updateStatValue(elementId, value) {
         const element = document.getElementById(elementId);
-        if (!element) return;
-        
-        const oldValue = element.textContent;
-        
-        // 如果值没有变化，不更新
-        if (oldValue === value) return;
-        
-        // 添加闪烁效果表示数据更新
-        element.style.transition = 'background-color 0.3s ease';
-        element.style.backgroundColor = 'rgba(59, 130, 246, 0.2)';
-        
-        // 更新数值
-        element.textContent = value;
-        
-        // 根据值添加颜色类
-        if (typeof value === 'string') {
-            if (value.startsWith('+') && !value.includes('%')) {
-                element.classList.add('positive');
-                element.classList.remove('negative');
-            } else if (value.startsWith('-')) {
-                element.classList.add('negative');
-                element.classList.remove('positive');
+        if (element) {
+            element.textContent = value;
+            
+            // 根据值添加颜色类
+            if (typeof value === 'string') {
+                if (value.startsWith('+') && !value.includes('%')) {
+                    element.classList.add('positive');
+                    element.classList.remove('negative');
+                } else if (value.startsWith('-')) {
+                    element.classList.add('negative');
+                    element.classList.remove('positive');
+                }
             }
         }
-        
-        // 恢复背景色
-        setTimeout(() => {
-            element.style.backgroundColor = '';
-        }, 300);
     }
 }
 
