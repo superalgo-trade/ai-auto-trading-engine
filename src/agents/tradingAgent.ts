@@ -149,9 +149,9 @@ export function getStrategyParams(strategy: TradingStrategy): StrategyParams {
         strong: "23-25%",
       },
       stopLoss: {
-        low: -2.5,
-        mid: -2,
-        high: -1.5,
+        low: - balancedLevNormal / 1.5,
+        mid: - balancedLevGood / 2,
+        high: - balancedLevStrong / 2.5,
       },
       trailingStop: {
         // 超短线策略：快速锁利（5分钟周期）
@@ -193,9 +193,9 @@ export function getStrategyParams(strategy: TradingStrategy): StrategyParams {
         strong: "18-20%",
       },
       stopLoss: {
-        low: -10,   // 低杠杆(2-3倍)：-10%止损（给趋势足够空间）
-        mid: -8,    // 中杠杆(3-4倍)：-8%止损
-        high: -6,   // 高杠杆(4-5倍)：-6%止损
+        low: - balancedLevNormal / 1.5,
+        mid: - balancedLevGood / 2,
+        high: - balancedLevStrong / 2.5,
       },
       trailingStop: {
         // 波段策略：给趋势更多空间，较晚锁定利润
@@ -237,9 +237,9 @@ export function getStrategyParams(strategy: TradingStrategy): StrategyParams {
         strong: "20-22%",
       },
       stopLoss: {
-        low: -3.5,
-        mid: -3,
-        high: -2.5,
+        low: - balancedLevNormal / 2.5,
+        mid: - balancedLevGood / 3,
+        high: - balancedLevStrong / 3.5,
       },
       trailingStop: {
         // 保守策略：较早锁定利润（基准：15倍杠杆）
@@ -282,12 +282,9 @@ export function getStrategyParams(strategy: TradingStrategy): StrategyParams {
         strong: "25-27%",
       },
       stopLoss: {
-        // low: -3,
-        // mid: -2.5,
-        // high: -2,
+        low: - balancedLevNormal / 2,
         mid: - balancedLevGood / 2.5,
         high: - balancedLevStrong / 3,
-        low: - balancedLevNormal / 2,
       },
       trailingStop: {
         // 平衡策略：适中的移动止盈（基准：15倍杠杆）
@@ -330,9 +327,9 @@ export function getStrategyParams(strategy: TradingStrategy): StrategyParams {
         strong: "30-32%",
       },
       stopLoss: {
-        low: -2.5,
-        mid: -2,
-        high: -1.5,
+        low: - balancedLevNormal / 1.5,
+        mid: - balancedLevGood / 2,
+        high: - balancedLevStrong / 2.5,
       },
       trailingStop: {
         // 激进策略：更晚锁定，追求更高利润（基准：15倍杠杆）
