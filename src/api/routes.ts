@@ -20,6 +20,7 @@
  * API 路由
  */
 import { Hono } from "hono";
+import { parsePositionSize } from "../utils";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { createClient } from "@libsql/client";
 import { getExchangeClient } from "../exchanges";
@@ -116,9 +117,9 @@ export function createApiRoutes() {
       
       // 过滤并格式化持仓
       const positions = exchangePositions
-        .filter((p: any) => Number.parseInt(p.size || "0") !== 0)
+        .filter((p: any) => parsePositionSize(p.size) !== 0)
         .map((p: any) => {
-          const size = Number.parseInt(p.size || "0");
+          const size = parsePositionSize(p.size);
           const symbol = exchangeClient.extractSymbol(p.contract);
           const dbPos = dbPositionsMap.get(symbol);
           const entryPrice = Number.parseFloat(p.entryPrice || "0");

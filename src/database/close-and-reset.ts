@@ -21,6 +21,7 @@
  * 用于在运行时快速重置系统状态
  */
 import { createClient } from "@libsql/client";
+import { parsePositionSize } from "../utils";
 import { createPinoLogger } from "@voltagent/logger";
 import { getExchangeClient } from "../exchanges";
 import "dotenv/config";
@@ -115,7 +116,18 @@ async function closeAllPositions(): Promise<void> {
     logger.info("📊 获取当前持仓...");
     
     const positions = await exchangeClient.getPositions();
-    const activePositions = positions.filter((p: any) => Number.parseInt(p.size || "0") !== 0);
+    
+    // 使用 parseFloat 而不是 parseInt，并检查原始数据
+    logger.info(`原始持仓数据: ${JSON.stringify(positions.map(p => ({
+      contract: p.contract,
+      size: p.size,
+      entryPrice: p.entryPrice
+    })))}`);
+    
+    const activePositions = positions.filter((p: any) => {
+      const size = parseFloat(p.size || "0");
+      return size !== 0 && !isNaN(size);
+    });
     
     if (activePositions.length === 0) {
       logger.info("✅ 当前无持仓，跳过平仓");
@@ -125,28 +137,40 @@ async function closeAllPositions(): Promise<void> {
     logger.warn(`⚠️  发现 ${activePositions.length} 个持仓，开始平仓...`);
     
     for (const pos of activePositions) {
-      const size = Number.parseInt(pos.size || "0");
+      const sizeStr = pos.size || "0";
+      const size = parseFloat(sizeStr);
       const contract = pos.contract;
       const symbol = exchangeClient.extractSymbol(contract);
+      
+      // 判断方向：size 为正=多头，为负=空头
       const side = size > 0 ? "多头" : "空头";
-      const quantity = Math.abs(size);
+      const absSize = Math.abs(size);
       
       // 获取合约类型以显示正确的单位
       const contractType = exchangeClient.getContractType();
-      const unit = contractType === 'inverse' ? '张' : ''; // Gate.io 显示"张"，Binance 不显示
+      const unit = contractType === 'inverse' ? '张' : symbol; // Binance 显示币种
       
       try {
-        logger.info(`🔄 平仓中: ${symbol} ${side} ${quantity}${unit}`);
+        logger.info(`🔄 平仓中: ${symbol} ${side} ${absSize} ${unit}, 合约: ${contract}`);
         
+        // 对于 Binance，平仓需要反向下单
+        // 通过 reduceOnly 参数确保只平仓不开新仓
         await exchangeClient.placeOrder({
           contract,
-          size: -size, // 反向平仓
-          price: 0, // 市价单
+          size: -size, // 反向平仓：多头用负数，空头用正数
+          reduceOnly: true, // 仅减仓
         });
         
-        logger.info(`✅ 已平仓: ${symbol} ${side} ${quantity}${unit}`);
+        logger.info(`✅ 已平仓: ${symbol} ${side} ${absSize} ${unit}`);
+        
+        // 等待一下确保订单执行
+        await new Promise(resolve => setTimeout(resolve, 1000));
       } catch (error: any) {
         logger.error(`❌ 平仓失败: ${symbol} - ${error.message}`);
+        logger.error(`错误详情: ${JSON.stringify(error)}`);
+        
+        // 即使失败也继续尝试平其他仓位
+        continue;
       }
     }
     
@@ -248,7 +272,7 @@ async function syncPositions(): Promise<void> {
     
     // 从交易所获取持仓（兼容 Gate.io 和 Binance）
     const positions = await exchangeClient.getPositions();
-    const activePositions = positions.filter((p: any) => Number.parseInt(p.size || "0") !== 0);
+    const activePositions = positions.filter((p: any) => parsePositionSize(p.size) !== 0);
     
     logger.info(`📊 ${exchangeName} 当前持仓数: ${activePositions.length}`);
     
@@ -265,7 +289,7 @@ async function syncPositions(): Promise<void> {
       logger.info(`🔄 同步 ${activePositions.length} 个持仓到数据库...`);
       
       for (const pos of activePositions) {
-        const size = Number.parseInt(pos.size || "0");
+        const size = parsePositionSize(pos.size);
         if (size === 0) continue;
         
         const symbol = exchangeClient.extractSymbol(pos.contract);

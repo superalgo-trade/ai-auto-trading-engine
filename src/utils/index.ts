@@ -20,3 +20,27 @@
  * 工具函数导出
  */
 export * from './timeUtils';
+
+/**
+ * 解析持仓或订单的 size 字段
+ * 支持整数和小数，兼容 Gate.io（张数）和 Binance（币数量）
+ * @param sizeValue - size 字段的值（可能是字符串或数字）
+ * @returns 解析后的数值
+ */
+export function parsePositionSize(sizeValue: string | number | undefined | null): number {
+  if (sizeValue === undefined || sizeValue === null || sizeValue === '') {
+    return 0;
+  }
+  
+  const parsed = Number.parseFloat(sizeValue.toString());
+  return isNaN(parsed) ? 0 : parsed;
+}
+
+/**
+ * 检查持仓或订单是否有效（size 不为 0）
+ * @param sizeValue - size 字段的值
+ * @returns 是否有效
+ */
+export function isValidPosition(sizeValue: string | number | undefined | null): boolean {
+  return parsePositionSize(sizeValue) !== 0;
+}

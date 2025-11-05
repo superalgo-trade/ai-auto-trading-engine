@@ -21,6 +21,7 @@
  * 从交易所（Gate.io/Binance）同步持仓到本地数据库
  */
 import "dotenv/config";
+import { parsePositionSize } from "../utils";
 import { createClient } from "@libsql/client";
 import { createPinoLogger } from "@voltagent/logger";
 import { getExchangeClient } from "../exchanges";
@@ -82,7 +83,7 @@ async function syncPositionsOnly() {
     
     // 3. 从交易所获取持仓
     const positions = await exchangeClient.getPositions();
-    const activePositions = positions.filter((p: any) => Number.parseInt(p.size || "0") !== 0);
+    const activePositions = positions.filter((p: any) => parsePositionSize(p.size) !== 0);
     
     logger.info(`\n📊 ${exchangeName} 当前持仓数: ${activePositions.length}`);
     
@@ -95,7 +96,7 @@ async function syncPositionsOnly() {
       logger.info(`\n🔄 同步 ${activePositions.length} 个持仓到数据库...`);
       
       for (const pos of activePositions) {
-        const size = Number.parseInt(pos.size || "0");
+        const size = parsePositionSize(pos.size);
         if (size === 0) continue;
         
         const symbol = exchangeClient.extractSymbol(pos.contract);

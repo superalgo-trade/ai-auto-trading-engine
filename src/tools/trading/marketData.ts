@@ -340,21 +340,37 @@ export const getOrderBookTool = createTool({
     
     const orderBook = await client.getOrderBook(contract, limit);
     
-    const bids = orderBook.bids?.slice(0, limit).map((b: any) => ({
-      price: Number.parseFloat(b.p),
-      size: Number.parseFloat(b.s),
-    })) || [];
+    // 🔧 带 NaN 防护的订单簿数据处理
+    const bids = orderBook.bids?.slice(0, limit)
+      .map((b: any) => {
+        const price = Number.parseFloat(b.p || '0');
+        const size = Number.parseFloat(b.s || '0');
+        return { price, size };
+      })
+      .filter((b: any) => Number.isFinite(b.price) && Number.isFinite(b.size) && b.price > 0 && b.size > 0) || [];
     
-    const asks = orderBook.asks?.slice(0, limit).map((a: any) => ({
-      price: Number.parseFloat(a.p),
-      size: Number.parseFloat(a.s),
-    })) || [];
+    const asks = orderBook.asks?.slice(0, limit)
+      .map((a: any) => {
+        const price = Number.parseFloat(a.p || '0');
+        const size = Number.parseFloat(a.s || '0');
+        return { price, size };
+      })
+      .filter((a: any) => Number.isFinite(a.price) && Number.isFinite(a.size) && a.price > 0 && a.size > 0) || [];
+    
+    // 计算价差，带 NaN 防护
+    let spread = 0;
+    if (asks.length > 0 && bids.length > 0 && asks[0]?.price && bids[0]?.price) {
+      spread = asks[0].price - bids[0].price;
+      if (!Number.isFinite(spread)) {
+        spread = 0;
+      }
+    }
     
     return {
       symbol,
       bids,
       asks,
-      spread: asks[0]?.price - bids[0]?.price || 0,
+      spread,
       timestamp: new Date().toISOString(),
     };
   },

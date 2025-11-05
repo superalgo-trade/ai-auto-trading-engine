@@ -20,6 +20,7 @@
  * 交易循环 - 定时执行交易决策
  */
 import cron from "node-cron";
+import { parsePositionSize } from "../utils";
 import { createPinoLogger } from "@voltagent/logger";
 import { createClient } from "@libsql/client";
 import { createTradingAgent, generateTradingPrompt, getAccountRiskConfig, getTradingStrategy, getStrategyParams } from "../agents/tradingAgent";
@@ -713,7 +714,7 @@ async function syncPositionsFromGate(cachedPositions?: any[]) {
     );
     
     // 检查交易所是否有持仓（可能 API 有延迟）
-    const activeExchangePositions = exchangePositions.filter((p: any) => Number.parseInt(p.size || "0") !== 0);
+    const activeExchangePositions = exchangePositions.filter((p: any) => parsePositionSize(p.size) !== 0);
     
     // 如果交易所返回0个持仓但数据库有持仓，可能是 API 延迟，不清空数据库
     if (activeExchangePositions.length === 0 && dbResult.rows.length > 0) {
@@ -726,7 +727,7 @@ async function syncPositionsFromGate(cachedPositions?: any[]) {
     let syncedCount = 0;
     
     for (const pos of exchangePositions) {
-      const size = Number.parseInt(pos.size || "0");
+      const size = parsePositionSize(pos.size);
       if (size === 0) continue;
       
       const symbol = exchangeClient.extractSymbol(pos.contract);
@@ -791,7 +792,7 @@ async function syncPositionsFromGate(cachedPositions?: any[]) {
       syncedCount++;
     }
     
-    const activePositionsCount = exchangePositions.filter((p: any) => Number.parseInt(p.size || "0") !== 0).length;
+    const activePositionsCount = exchangePositions.filter((p: any) => parsePositionSize(p.size) !== 0).length;
     if (activePositionsCount > 0 && syncedCount === 0) {
       logger.error(`交易所有 ${activePositionsCount} 个持仓，但数据库同步失败！`);
     }
@@ -821,9 +822,9 @@ async function getPositions(cachedExchangePositions?: any[]) {
     
     // 过滤并格式化持仓
     const positions = exchangePositions
-      .filter((p: any) => Number.parseInt(p.size || "0") !== 0)
+      .filter((p: any) => parsePositionSize(p.size) !== 0)
       .map((p: any) => {
-        const size = Number.parseInt(p.size || "0");
+        const size = parsePositionSize(p.size);
         const symbol = exchangeClient.extractSymbol(p.contract);
         
         // 优先从数据库读取开仓时间，确保时间准确
@@ -1104,14 +1105,14 @@ async function closeAllPositions(reason: string): Promise<void> {
     logger.warn(`清仓所有持仓，原因: ${reason}`);
     
     const positions = await exchangeClient.getPositions();
-    const activePositions = positions.filter((p: any) => Number.parseInt(p.size || "0") !== 0);
+    const activePositions = positions.filter((p: any) => parsePositionSize(p.size) !== 0);
     
     if (activePositions.length === 0) {
       return;
     }
     
     for (const pos of activePositions) {
-      const size = Number.parseInt(pos.size || "0");
+      const size = parsePositionSize(pos.size);
       const contract = pos.contract;
       const symbol = exchangeClient.extractSymbol(contract);
       

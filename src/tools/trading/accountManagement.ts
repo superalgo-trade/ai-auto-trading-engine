@@ -28,6 +28,7 @@
  * 账户管理工具
  */
 import { createTool } from "@voltagent/core";
+import { parsePositionSize } from "../../utils";
 import { z } from "zod";
 import { getExchangeClient } from "../../exchanges";
 import { createClient } from "@libsql/client";
@@ -130,11 +131,11 @@ export const getOpenOrdersTool = createTool({
       const formattedOrders = orders.map((o: any) => ({
         orderId: o.id?.toString(),
         contract: o.contract,
-        size: Number.parseInt(o.size || "0"),
+        size: parsePositionSize(o.size),
         price: Number.parseFloat(o.price || "0"),
         left: Number.parseInt(o.left || "0"),
         status: o.status,
-        side: Number.parseInt(o.size || "0") > 0 ? "long" : "short",
+        side: parsePositionSize(o.size) > 0 ? "long" : "short",
         isReduceOnly: o.is_reduce_only,
         createdAt: o.create_time,
       }));
@@ -168,7 +169,7 @@ export const checkOrderStatusTool = createTool({
     try {
       const orderDetail = await client.getOrder(orderId);
       
-      const totalSize = Math.abs(Number.parseInt(orderDetail.size || "0"));
+      const totalSize = Math.abs(parsePositionSize(orderDetail.size));
       const leftSize = Math.abs(Number.parseInt(orderDetail.left || "0"));
       const filledSize = totalSize - leftSize;
       const fillPrice = Number.parseFloat(orderDetail.fill_price || orderDetail.price || "0");

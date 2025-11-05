@@ -20,6 +20,7 @@
  * 交易执行工具
  */
 import { createTool } from "@voltagent/core";
+import { parsePositionSize } from "../../utils";
 import { z } from "zod";
 import { getExchangeClient } from "../../exchanges";
 import { createClient } from "@libsql/client";
@@ -76,7 +77,7 @@ export const openPositionTool = createTool({
       
       // 1. 检查持仓数量（最多5个）
       const allPositions = await exchangeClient.getPositions();
-      const activePositions = allPositions.filter((p: any) => Math.abs(Number.parseInt(p.size || "0")) !== 0);
+      const activePositions = allPositions.filter((p: any) => Math.abs(parsePositionSize(p.size)) !== 0);
       
       if (activePositions.length >= RISK_PARAMS.MAX_POSITIONS) {
         return {
@@ -92,7 +93,7 @@ export const openPositionTool = createTool({
       });
       
       if (existingPosition) {
-        const existingSize = Number.parseInt(existingPosition.size || "0");
+        const existingSize = parsePositionSize(existingPosition.size);
         const existingSide = existingSize > 0 ? "long" : "short";
         
         if (existingSide !== side) {
@@ -111,11 +112,24 @@ export const openPositionTool = createTool({
       const unrealisedPnl = Number.parseFloat(account.unrealisedPnl || "0");
       const totalBalance = Number.parseFloat(account.total || "0") - unrealisedPnl;
       const availableBalance = Number.parseFloat(account.available || "0");
+      const positionMargin = Number.parseFloat(account.positionMargin || "0");
+      
+      // 🔧 详细日志：账户状态
+      logger.info(`💰 账户状态: 总资产=${totalBalance.toFixed(2)} USDT, 可用=${availableBalance.toFixed(2)} USDT, 持仓保证金=${positionMargin.toFixed(2)} USDT, 未实现盈亏=${unrealisedPnl.toFixed(2)} USDT`);
       
       if (!Number.isFinite(availableBalance) || availableBalance <= 0) {
         return {
           success: false,
           message: `账户可用资金异常: ${availableBalance} USDT`,
+        };
+      }
+      
+      // 🔧 检查保证金是否充足（预留 1% 作为手续费缓冲）
+      const requiredMargin = amountUsdt * 1.01; // 加 1% 手续费缓冲
+      if (requiredMargin > availableBalance) {
+        return {
+          success: false,
+          message: `保证金不足: 需要 ${requiredMargin.toFixed(2)} USDT（含手续费），可用 ${availableBalance.toFixed(2)} USDT。建议降低开仓金额或平仓释放保证金。`,
         };
       }
       
@@ -149,7 +163,7 @@ export const openPositionTool = createTool({
       // 5. 检查总敞口（不超过账户净值的15倍）
       let currentTotalExposure = 0;
       for (const pos of activePositions) {
-        const posSize = Math.abs(Number.parseInt(pos.size || "0"));
+        const posSize = Math.abs(parsePositionSize(pos.size));
         const entryPrice = Number.parseFloat(pos.entryPrice || "0");
         const posLeverage = Number.parseInt(pos.leverage || "1");
         // 获取合约乘数
@@ -200,24 +214,38 @@ export const openPositionTool = createTool({
         const orderBook = await exchangeClient.getOrderBook(contract, 5); // 获取前5档订单
         
         if (orderBook && orderBook.bids && orderBook.bids.length > 0) {
-          // 计算买单深度（前5档）
+          // 🔧 计算买单深度（前5档），带 NaN 防护
           const bidDepth = orderBook.bids.slice(0, 5).reduce((sum: number, bid: any) => {
-            const price = Number.parseFloat(bid.p);
-            const size = Number.parseFloat(bid.s);
-            return sum + price * size;
+            const price = Number.parseFloat(bid.p || '0');
+            const size = Number.parseFloat(bid.s || '0');
+            
+            // 验证数据有效性
+            if (!Number.isFinite(price) || !Number.isFinite(size) || price <= 0 || size <= 0) {
+              logger.warn(`⚠️  订单簿数据异常: price=${bid.p}, size=${bid.s}`);
+              return sum;
+            }
+            
+            return sum + (price * size);
           }, 0);
           
-          // 要求订单簿深度至少是开仓金额的5倍
-          const requiredDepth = amountUsdt * leverage * 5;
-          
-          if (bidDepth < requiredDepth) {
-            return {
-              success: false,
-              message: `流动性不足：订单簿深度 ${bidDepth.toFixed(2)} USDT < 所需 ${requiredDepth.toFixed(2)} USDT`,
-            };
+          // 🔧 验证深度计算结果
+          if (!Number.isFinite(bidDepth) || bidDepth <= 0) {
+            logger.warn(`⚠️  订单簿深度计算异常: ${bidDepth}，跳过流动性检查`);
+          } else {
+            // 要求订单簿深度至少是开仓金额的5倍
+            const requiredDepth = amountUsdt * leverage * 5;
+            
+            if (bidDepth < requiredDepth) {
+              return {
+                success: false,
+                message: `流动性不足：订单簿深度 ${bidDepth.toFixed(2)} USDT < 所需 ${requiredDepth.toFixed(2)} USDT`,
+              };
+            }
+            
+            logger.info(`✅ 流动性检查通过：订单簿深度 ${bidDepth.toFixed(2)} USDT >= 所需 ${requiredDepth.toFixed(2)} USDT`);
           }
-          
-          logger.info(`✅ 流动性检查通过：订单簿深度 ${bidDepth.toFixed(2)} USDT >= 所需 ${requiredDepth.toFixed(2)} USDT`);
+        } else {
+          logger.warn(`⚠️  订单簿数据为空或无效`);
         }
       } catch (error) {
         logger.warn(`获取订单簿失败: ${error}`);
@@ -363,7 +391,11 @@ export const openPositionTool = createTool({
           try {
             const orderDetail = await exchangeClient.getOrder(order.id.toString());
             finalOrderStatus = orderDetail.status;
-            actualFillSize = Math.abs(Number.parseInt(orderDetail.size || "0") - Number.parseInt(orderDetail.left || "0"));
+            
+            // 使用 parseFloat 而不是 parseInt 以支持小数
+            const totalSize = Math.abs(Number.parseFloat(orderDetail.size || "0"));
+            const leftSize = Math.abs(Number.parseFloat(orderDetail.left || "0"));
+            actualFillSize = totalSize - leftSize;
             
             //  获取实际成交价格（fill_price 或 average price）
             if (orderDetail.fill_price && Number.parseFloat(orderDetail.fill_price) > 0) {
@@ -372,7 +404,10 @@ export const openPositionTool = createTool({
               actualFillPrice = Number.parseFloat(orderDetail.price);
             }
             
-            logger.info(`成交: ${actualFillSize}张 @ ${actualFillPrice.toFixed(2)} USDT`);
+            // 根据交易所类型显示不同单位
+            const contractType = exchangeClient.getContractType();
+            const unit = contractType === 'inverse' ? '张' : symbol;
+            logger.info(`成交: ${actualFillSize.toFixed(6)}${unit} @ ${actualFillPrice.toFixed(2)} USDT`);
             
             //  验证成交价格的合理性（滑点保护）
             const priceDeviation = Math.abs(actualFillPrice - currentPrice) / currentPrice;
@@ -484,7 +519,7 @@ export const openPositionTool = createTool({
           
           const gatePosition = positions.find((p: any) => p.contract === contract);
           if (gatePosition) {
-            gatePositionSize = Number.parseInt(gatePosition.size || "0");
+            gatePositionSize = parsePositionSize(gatePosition.size);
             
             if (gatePositionSize !== 0) {
               if (gatePosition.liqPrice) {
@@ -635,7 +670,7 @@ export const closePositionTool = createTool({
       const allPositions = await exchangeClient.getPositions();
       const gatePosition = allPositions.find((p: any) => p.contract === contract);
       
-      if (!gatePosition || Number.parseInt(gatePosition.size || "0") === 0) {
+      if (!gatePosition || parsePositionSize(gatePosition.size) === 0) {
         return {
           success: false,
           message: `没有找到 ${symbol} 的持仓`,
@@ -676,7 +711,7 @@ export const closePositionTool = createTool({
       }
       
       // 从 Gate.io 获取实时数据
-      const gateSize = Number.parseInt(gatePosition.size || "0");
+      const gateSize = parsePositionSize(gatePosition.size);
       const side = gateSize > 0 ? "long" : "short";
       const quantity = Math.abs(gateSize);
       let entryPrice = Number.parseFloat(gatePosition.entryPrice || "0");
@@ -769,7 +804,11 @@ export const closePositionTool = createTool({
           try {
             const orderDetail = await exchangeClient.getOrder(order.id.toString());
             finalOrderStatus = orderDetail.status;
-            const filled = Math.abs(Number.parseInt(orderDetail.size || "0") - Number.parseInt(orderDetail.left || "0"));
+            
+            // 使用 parseFloat 而不是 parseInt 以支持小数
+            const totalSize = Math.abs(Number.parseFloat(orderDetail.size || "0"));
+            const leftSize = Math.abs(Number.parseFloat(orderDetail.left || "0"));
+            const filled = totalSize - leftSize;
             
             if (filled > 0) {
               actualCloseSize = filled;

@@ -191,7 +191,10 @@ class TradingMonitor {
             // 更新持仓表格
             if (positionsBody) {
                 positionsBody.innerHTML = data.positions.map(pos => {
-                    const profitPercent = ((pos.unrealizedPnl / pos.openValue) * 100);
+                    // 🔧 收益率计算，带除零保护
+                    const profitPercent = pos.openValue > 0 
+                        ? ((pos.unrealizedPnl / pos.openValue) * 100) 
+                        : 0;
                     
                     // 方向显示 - 与交易历史统一样式
                     const sideText = pos.side === 'long' ? 'LONG' : 'SHORT';
@@ -222,7 +225,10 @@ class TradingMonitor {
             // 更新持仓小卡片
             if (positionsCardsContainer) {
                 positionsCardsContainer.innerHTML = data.positions.map(pos => {
-                    const profitPercent = ((pos.unrealizedPnl / pos.openValue) * 100);
+                    // 🔧 收益率计算，带除零保护
+                    const profitPercent = pos.openValue > 0 
+                        ? ((pos.unrealizedPnl / pos.openValue) * 100) 
+                        : 0;
                     const sideClass = pos.side;
                     const sideText = pos.side === 'long' ? '多' : '空';
                     const pnlClass = pos.unrealizedPnl >= 0 ? 'positive' : 'negative';
