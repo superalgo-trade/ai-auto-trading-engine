@@ -9,6 +9,7 @@
  */
 import { createClient } from "@libsql/client";
 import { getQuantoMultiplier } from "../src/utils/contractUtils.js";
+import { getExchangeClient } from "../src/exchanges/index.js";
 
 const dbClient = createClient({
   url: process.env.DATABASE_URL || "file:./.voltagent/trading.db",
@@ -62,18 +63,34 @@ async function fixHistoricalPnl() {
       const openTrade = openResult.rows[0];
       const openPrice = Number.parseFloat(openTrade.price as string);
 
-      // 获取合约乘数
-      const contract = `${symbol}_USDT`;
-      const quantoMultiplier = await getQuantoMultiplier(contract);
+      // 获取交易所客户端和合约名称（适配多交易所）
+      const exchangeClient = getExchangeClient();
+      const contract = exchangeClient.normalizeContract(symbol);
 
-      // 重新计算正确的盈亏
-      const priceChange = side === "long" 
-        ? (closePrice - openPrice) 
-        : (openPrice - closePrice);
+      // 使用 exchangeClient 统一计算盈亏（兼容Gate.io和Binance）
+      const grossPnl = await exchangeClient.calculatePnl(
+        openPrice,
+        closePrice,
+        quantity,
+        side as 'long' | 'short',
+        contract
+      );
       
-      const grossPnl = priceChange * quantity * quantoMultiplier;
-      const openFee = openPrice * quantity * quantoMultiplier * 0.0005;
-      const closeFee = closePrice * quantity * quantoMultiplier * 0.0005;
+      // 计算手续费（开仓 + 平仓，假设 0.05% taker 费率）
+      const contractType = exchangeClient.getContractType();
+      let openFee: number, closeFee: number;
+      
+      if (contractType === 'inverse') {
+        // Gate.io: 反向合约，费用以币计价
+        const quantoMultiplier = await getQuantoMultiplier(contract);
+        openFee = openPrice * quantity * quantoMultiplier * 0.0005;
+        closeFee = closePrice * quantity * quantoMultiplier * 0.0005;
+      } else {
+        // Binance: 正向合约，费用直接以USDT计价
+        openFee = openPrice * quantity * 0.0005;
+        closeFee = closePrice * quantity * 0.0005;
+      }
+      
       const totalFee = openFee + closeFee;
       const correctPnl = grossPnl - totalFee;
 

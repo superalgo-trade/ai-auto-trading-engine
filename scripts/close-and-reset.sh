@@ -62,12 +62,28 @@ source .env
 # 检查必需的环境变量
 MISSING_VARS=()
 
-if [ -z "$GATE_API_KEY" ]; then
-    MISSING_VARS+=("GATE_API_KEY")
-fi
+# 检查交易所配置
+EXCHANGE_NAME=${EXCHANGE_NAME:-gate}
+EXCHANGE_NAME=$(echo "$EXCHANGE_NAME" | tr '[:upper:]' '[:lower:]')
 
-if [ -z "$GATE_API_SECRET" ]; then
-    MISSING_VARS+=("GATE_API_SECRET")
+if [ "$EXCHANGE_NAME" = "gate" ]; then
+    if [ -z "$GATE_API_KEY" ]; then
+        MISSING_VARS+=("GATE_API_KEY")
+    fi
+    if [ -z "$GATE_API_SECRET" ]; then
+        MISSING_VARS+=("GATE_API_SECRET")
+    fi
+elif [ "$EXCHANGE_NAME" = "binance" ]; then
+    if [ -z "$BINANCE_API_KEY" ]; then
+        MISSING_VARS+=("BINANCE_API_KEY")
+    fi
+    if [ -z "$BINANCE_API_SECRET" ]; then
+        MISSING_VARS+=("BINANCE_API_SECRET")
+    fi
+else
+    echo -e "${RED}❌ 错误: 不支持的交易所 ${EXCHANGE_NAME}${NC}"
+    echo -e "${YELLOW}支持的交易所: gate, binance${NC}"
+    exit 1
 fi
 
 if [ ${#MISSING_VARS[@]} -gt 0 ]; then
@@ -79,6 +95,8 @@ if [ ${#MISSING_VARS[@]} -gt 0 ]; then
     echo "请在 .env 文件中配置这些变量"
     exit 1
 fi
+
+echo -e "${GREEN}✅ 交易所配置: ${EXCHANGE_NAME}${NC}"
 
 # 二次确认
 echo -e "${YELLOW}⚠️  警告: 此操作将执行以下内容：${NC}"

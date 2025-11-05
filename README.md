@@ -5,6 +5,7 @@
 [![VoltAgent](https://img.shields.io/badge/Framework-VoltAgent-purple.svg)](https://voltagent.dev)
 [![OpenAI Compatible](https://img.shields.io/badge/AI-OpenAI_Compatible-orange.svg)](https://openrouter.ai)
 [![Gate.io](https://img.shields.io/badge/Exchange-Gate.io-00D4AA.svg)](https://www.gatesite.org/signup/VQBEAwgL?ref_type=103)
+[![Binance](https://img.shields.io/badge/Exchange-Binance-F0B90B.svg)](https://www.binance.com)
 [![TypeScript](https://img.shields.io/badge/Language-TypeScript-3178C6.svg?logo=typescript&logoColor=white)](https://www.typescriptlang.org)
 [![Node.js](https://img.shields.io/badge/Runtime-Node.js%2020+-339933.svg?logo=node.js&logoColor=white)](https://nodejs.org)
 [![License](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](./LICENSE)
@@ -18,7 +19,7 @@
 
 ai-auto-trading 是一个 AI 驱动的加密货币自动交易系统，将大语言模型智能与量化交易实践深度融合。系统基于 VoltAgent 框架构建，通过赋予 AI 完全的市场分析和交易决策自主权，实现真正的智能化交易。
 
-本系统采用**AI 自主决策**的设计理念，摒弃传统的硬编码交易规则，让 AI 模型基于实时市场数据和技术指标进行自主学习和决策。系统集成 Gate.io 交易所，支持永续合约交易，覆盖 BTC、ETH、SOL 等主流加密货币。
+本系统采用**AI 自主决策**的设计理念，摒弃传统的硬编码交易规则，让 AI 模型基于实时市场数据和技术指标进行自主学习和决策。系统集成 **Gate.io** 和 **Binance** 两大主流交易所，支持永续合约交易，覆盖 BTC、ETH、SOL 等主流加密货币。
 
 ![ai-auto-trading](./public/image.png)
 
@@ -62,7 +63,7 @@ ai-auto-trading 是一个 AI 驱动的加密货币自动交易系统，将大语
 |------|------|------|
 | 框架 | [VoltAgent](https://voltagent.dev) | AI Agent 编排与工具调用 |
 | AI 模型 | OpenAI 兼容 API | DeepSeek V3.2, Grok 4, Claude 4.5, Gemini 2.5 等 |
-| 交易所 | [Gate.io](https://www.gatesite.org/signup/VQBEAwgL?ref_type=103) | 永续合约交易（测试网 & 正式网） |
+| 交易所 | [Gate.io](https://www.gatesite.org/signup/VQBEAwgL?ref_type=103) / [Binance](https://www.binance.com) | 永续合约交易（测试网 & 正式网） |
 | 数据库 | LibSQL (SQLite) | 本地数据持久化 |
 | Web 服务 | Hono | 高性能监控界面 |
 | 语言 | TypeScript | 类型安全开发 |
@@ -70,19 +71,25 @@ ai-auto-trading 是一个 AI 驱动的加密货币自动交易系统，将大语
 
 ## 快速开始
 
-### 第一步：注册交易所账户
+### 第一步：选择并注册交易所账户
 
-本项目依赖 Gate.io 交易所 API。**如果您还没有账户，请先完成注册：**
+本项目支持 **Gate.io** 和 **Binance** 两大交易所。请根据您的需求选择：
 
-**推荐注册方式：**
+#### 选项 A：Gate.io（推荐用于测试）
 
 - [立即注册 Gate.io](https://www.gatesite.org/signup/VQBEAwgL?ref_type=103)
 - 邀请码：`VQBEAwgL`
+- 优势：完善的测试网环境，适合新手学习
+
+#### 选项 B：Binance（全球最大交易所）
+
+- [立即注册 Binance](https://www.binance.com)
+- 优势：交易量大、流动性好、支持测试网
 
 ```bash
-> 通过上方邀请码注册，您可享受交易返佣优惠，同时为开源项目的持续发展提供支持。
-
-> **新手建议**：先注册并使用[测试网](https://testnet.gate.com/)环境学习，零风险体验完整功能。
+> **新手建议**：先使用测试网环境学习，零风险体验完整功能。
+> - Gate.io 测试网: https://testnet.gate.com/
+> - Binance 测试网: https://testnet.binancefuture.com/
 ```
 
 ### 第二步：环境准备
@@ -127,10 +134,18 @@ INITIAL_BALANCE=1000                         # 初始资金
 ACCOUNT_STOP_LOSS_USDT=50                    # 止损线
 ACCOUNT_TAKE_PROFIT_USDT=20000               # 止盈线
 
-# Gate.io（建议先用测试网）
+# 交易所选择（gate 或 binance）
+EXCHANGE_NAME=gate
+
+# Gate.io 配置（当 EXCHANGE_NAME=gate 时必需）
 GATE_API_KEY=your_api_key_here
 GATE_API_SECRET=your_api_secret_here
 GATE_USE_TESTNET=true
+
+# Binance 配置（当 EXCHANGE_NAME=binance 时必需）
+BINANCE_API_KEY=your_api_key_here
+BINANCE_API_SECRET=your_api_secret_here
+BINANCE_USE_TESTNET=true
 
 # AI 模型（OpenAI 兼容）
 OPENAI_API_KEY=your_api_key_here
@@ -140,13 +155,18 @@ AI_MODEL_NAME=deepseek/deepseek-v3.2-exp
 
 **API 密钥获取**：
 
+**AI 模型：**
+
 - OpenRouter: <https://openrouter.ai/keys>
 - OpenAI: <https://platform.openai.com/api-keys>
 - DeepSeek: <https://platform.deepseek.com/api_keys>
-- Gate.io 测试网: <https://www.gate.io/testnet>
-- Gate.io 正式网: <https://www.gatesite.org/signup/VQBEAwgL?ref_type=103>
 
-> **提示**：通过邀请码 `VQBEAwgL` 注册 Gate.io 可获交易返佣。
+**交易所：**
+
+- Gate.io 测试网: <https://www.gate.io/testnet>
+- Gate.io 正式网: <https://www.gatesite.org/signup/VQBEAwgL?ref_type=103> （邀请码 `VQBEAwgL` 可获返佣）
+- Binance 测试网: <https://testnet.binancefuture.com/>
+- Binance 正式网: <https://www.binance.com/zh-CN/my/settings/api-management>
 
 ### 第五步：数据库初始化
 
@@ -196,8 +216,9 @@ npm run trading:start
 
 ### 💹 完整交易功能
 
+- **支持交易所**：Gate.io、Binance（自动适配合约计价方式）
 - **支持币种**：BTC、ETH、SOL、BNB、XRP、DOGE、BCH、HYPE、SUI、ADA、AVAX、LTC、LINK 等
-- **合约类型**：USDT 结算永续合约
+- **合约类型**：永续合约（Gate.io 币本位/Binance USDT本位 自动适配）
 - **杠杆范围**：1-15倍（可配置）
 - **风险管理**：止损、止盈、移动止盈、分批止盈、峰值回撤保护
 

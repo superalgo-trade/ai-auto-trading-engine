@@ -21,7 +21,7 @@
  */
 import { createTool } from "@voltagent/core";
 import { z } from "zod";
-import { createGateClient } from "../../services/gateClient";
+import { getExchangeClient } from "../../exchanges";
 import { createClient } from "@libsql/client";
 import { createPinoLogger } from "@voltagent/logger";
 import { getChinaTimeISO } from "../../utils/timeUtils";
@@ -53,8 +53,8 @@ export const openPositionTool = createTool({
     // 开仓时不设置止盈止损，由 AI 在每个周期主动决策
     const stopLoss = undefined;
     const takeProfit = undefined;
-    const client = createGateClient();
-    const contract = `${symbol}_USDT`;
+    const exchangeClient = getExchangeClient();
+    const contract = exchangeClient.normalizeContract(symbol);
     
     try {
       //  参数验证
@@ -75,7 +75,7 @@ export const openPositionTool = createTool({
       // ====== 开仓前强制风控检查 ======
       
       // 1. 检查持仓数量（最多5个）
-      const allPositions = await client.getPositions();
+      const allPositions = await exchangeClient.getPositions();
       const activePositions = allPositions.filter((p: any) => Math.abs(Number.parseInt(p.size || "0")) !== 0);
       
       if (activePositions.length >= RISK_PARAMS.MAX_POSITIONS) {
@@ -87,7 +87,7 @@ export const openPositionTool = createTool({
       
       // 2. 检查该币种是否已有持仓（禁止双向持仓）
       const existingPosition = activePositions.find((p: any) => {
-        const posSymbol = p.contract.replace("_USDT", "");
+        const posSymbol = exchangeClient.extractSymbol(p.contract);
         return posSymbol === symbol;
       });
       
@@ -107,7 +107,7 @@ export const openPositionTool = createTool({
       }
       
       // 3. 获取账户信息
-      const account = await client.getFuturesAccount();
+      const account = await exchangeClient.getFuturesAccount();
       const unrealisedPnl = Number.parseFloat(account.unrealisedPnl || "0");
       const totalBalance = Number.parseFloat(account.total || "0") - unrealisedPnl;
       const availableBalance = Number.parseFloat(account.available || "0");
@@ -197,7 +197,7 @@ export const openPositionTool = createTool({
       
       // 2. 检查订单簿深度（确保有足够流动性）
       try {
-        const orderBook = await client.getOrderBook(contract, 5); // 获取前5档订单
+        const orderBook = await exchangeClient.getOrderBook(contract, 5); // 获取前5档订单
         
         if (orderBook && orderBook.bids && orderBook.bids.length > 0) {
           // 计算买单深度（前5档）
@@ -242,18 +242,18 @@ export const openPositionTool = createTool({
       try {
         // 获取市场数据（包含ATR）
         const marketDataModule = await import("../trading/marketData.js");
-        const ticker = await client.getFuturesTicker(contract);
+        const ticker = await exchangeClient.getFuturesTicker(contract);
         const currentPrice = Number.parseFloat(ticker.last || "0");
         
         // 获取1小时K线计算ATR
-        const candles1h = await client.getFuturesCandles(contract, "1h", 24);
+        const candles1h = await exchangeClient.getFuturesCandles(contract, "1h", 24);
         if (candles1h && candles1h.length > 14) {
           // 计算ATR14
           const trs = [];
           for (let i = 1; i < candles1h.length; i++) {
-            const high = Number.parseFloat(candles1h[i].h);
-            const low = Number.parseFloat(candles1h[i].l);
-            const prevClose = Number.parseFloat(candles1h[i - 1].c);
+            const high = Number.parseFloat(candles1h[i].high);
+            const low = Number.parseFloat(candles1h[i].low);
+            const prevClose = Number.parseFloat(candles1h[i - 1].close);
             const tr = Math.max(high - low, Math.abs(high - prevClose), Math.abs(low - prevClose));
             trs.push(tr);
           }
@@ -289,30 +289,25 @@ export const openPositionTool = createTool({
       // ====== 风控检查通过，继续开仓 ======
       
       // 设置杠杆（使用调整后的杠杆）
-      await client.setLeverage(contract, adjustedLeverage);
+      await exchangeClient.setLeverage(contract, adjustedLeverage);
       
       // 获取当前价格和合约信息
-      const ticker = await client.getFuturesTicker(contract);
+      const ticker = await exchangeClient.getFuturesTicker(contract);
       const currentPrice = Number.parseFloat(ticker.last || "0");
-      const contractInfo = await client.getContractInfo(contract);
+      const contractInfo = await exchangeClient.getContractInfo(contract);
       
-      // Gate.io 永续合约的保证金计算
-      // 注意：Gate.io 使用"张数"作为单位，每张合约代表一定数量的币
-      // 对于 BTC_USDT: 1张 = 0.0001 BTC
-      // 保证金计算：保证金 = (张数 * quantoMultiplier * 价格) / 杠杆
+      // 🔧 使用交易所特定的计算方法
+      // Gate.io (反向合约): 张数 = (保证金 * 杠杆) / (quantoMultiplier * 价格)
+      // Binance (正向合约): 数量(币) = (保证金 * 杠杆) / 价格
+      let quantity = await exchangeClient.calculateQuantity(
+        adjustedAmountUsdt,
+        currentPrice,
+        adjustedLeverage,
+        contract
+      );
       
-      // 获取合约乘数
-      const quantoMultiplier = await getQuantoMultiplier(contract);
-      const minSize = Number.parseInt(contractInfo.orderSizeMin || "1");
-      const maxSize = Number.parseInt(contractInfo.orderSizeMax || "1000000");
-      
-      // 计算可以开多少张合约
-      // adjustedAmountUsdt = (quantity * quantoMultiplier * currentPrice) / leverage
-      // => quantity = (adjustedAmountUsdt * leverage) / (quantoMultiplier * currentPrice)
-      let quantity = (adjustedAmountUsdt * leverage) / (quantoMultiplier * currentPrice);
-      
-      // 向下取整到整数张数（合约必须是整数）
-      quantity = Math.floor(quantity);
+      const minSize = contractInfo.orderSizeMin || 1;
+      const maxSize = contractInfo.orderSizeMax || 1000000;
       
       // 确保数量在允许范围内
       quantity = Math.max(quantity, minSize);
@@ -322,20 +317,30 @@ export const openPositionTool = createTool({
       
       // 最后验证：如果 size 为 0 或者太小，放弃开仓
       if (Math.abs(size) < minSize) {
-        const minMargin = (minSize * quantoMultiplier * currentPrice) / leverage;
         return {
           success: false,
-          message: `计算的数量 ${Math.abs(size)} 张小于最小限制 ${minSize} 张，需要至少 ${minMargin.toFixed(2)} USDT 保证金（当前${adjustedAmountUsdt.toFixed(2)} USDT，杠杆${leverage}x）`,
+          message: `计算的数量 ${Math.abs(size)} 小于最小限制 ${minSize}，需要更多保证金（当前${adjustedAmountUsdt.toFixed(2)} USDT，杠杆${adjustedLeverage}x）`,
         };
       }
       
-      // 计算实际使用的保证金
-      let actualMargin = (Math.abs(size) * quantoMultiplier * currentPrice) / leverage;
+      // 计算实际使用的保证金（使用交易所方法重新计算）
+      const contractType = exchangeClient.getContractType();
+      let actualMargin: number;
       
-      logger.info(`开仓 ${symbol} ${side === "long" ? "做多" : "做空"} ${Math.abs(size)}张 (杠杆${leverage}x)`);
+      if (contractType === 'inverse') {
+        // Gate.io: 保证金 = (张数 * quantoMultiplier * 价格) / 杠杆
+        const quantoMultiplier = await getQuantoMultiplier(contract);
+        actualMargin = (Math.abs(size) * quantoMultiplier * currentPrice) / adjustedLeverage;
+      } else {
+        // Binance: 保证金 = (数量 * 价格) / 杠杆
+        actualMargin = (Math.abs(size) * currentPrice) / adjustedLeverage;
+      }
+      
+      const unitName = contractType === 'inverse' ? '张' : symbol;
+      logger.info(`开仓 ${symbol} ${side === "long" ? "做多" : "做空"} ${Math.abs(size)}${unitName} (杠杆${adjustedLeverage}x)`);
       
       //  市价单开仓（不设置止盈止损）
-      const order = await client.placeOrder({
+      const order = await exchangeClient.placeOrder({
         contract,
         size,
         price: 0,  // 市价单必须传 price: 0
@@ -356,7 +361,7 @@ export const openPositionTool = createTool({
         
         while (retryCount < maxRetries) {
           try {
-            const orderDetail = await client.getOrder(order.id.toString());
+            const orderDetail = await exchangeClient.getOrder(order.id.toString());
             finalOrderStatus = orderDetail.status;
             actualFillSize = Math.abs(Number.parseInt(orderDetail.size || "0") - Number.parseInt(orderDetail.left || "0"));
             
@@ -377,7 +382,7 @@ export const openPositionTool = createTool({
               
               // 尝试平仓回滚（如果已经成交）
               try {
-                await client.placeOrder({
+                await exchangeClient.placeOrder({
                   contract,
                   size: -size,
                   price: 0,
@@ -424,10 +429,17 @@ export const openPositionTool = createTool({
       //  使用实际成交数量和价格记录到数据库
       const finalQuantity = actualFillSize > 0 ? actualFillSize : Math.abs(size);
       
-      // 计算手续费（Gate.io taker费率 0.05%）
-      // 手续费 = 合约名义价值 * 0.05%
-      // 合约名义价值 = 张数 * quantoMultiplier * 价格
-      const positionValue = finalQuantity * quantoMultiplier * actualFillPrice;
+      // 🔧 计算手续费（taker费率 0.05%）
+      // 根据合约类型计算名义价值
+      let positionValue: number;
+      if (contractType === 'inverse') {
+        // Gate.io: 名义价值 = 张数 * quantoMultiplier * 价格
+        const quantoMultiplier = await getQuantoMultiplier(contract);
+        positionValue = finalQuantity * quantoMultiplier * actualFillPrice;
+      } else {
+        // Binance: 名义价值 = 数量 * 价格
+        positionValue = finalQuantity * actualFillPrice;
+      }
       const fee = positionValue * 0.0005; // 0.05%
       
       // 记录开仓交易
@@ -468,15 +480,15 @@ export const openPositionTool = createTool({
         try {
           await new Promise(resolve => setTimeout(resolve, 1000 * (retryCount + 1))); // 递增等待时间
           
-          const positions = await client.getPositions();
+          const positions = await exchangeClient.getPositions();
           
           const gatePosition = positions.find((p: any) => p.contract === contract);
           if (gatePosition) {
             gatePositionSize = Number.parseInt(gatePosition.size || "0");
             
             if (gatePositionSize !== 0) {
-              if (gatePosition.liq_price) {
-                liquidationPrice = Number.parseFloat(gatePosition.liq_price);
+              if (gatePosition.liqPrice) {
+                liquidationPrice = Number.parseFloat(gatePosition.liqPrice);
               }
               break; // 持仓已存在，跳出循环
             }
@@ -559,18 +571,30 @@ export const openPositionTool = createTool({
         });
       }
       
-      const contractAmount = Math.abs(size) * quantoMultiplier;
-      const totalValue = contractAmount * actualFillPrice;
+      // 🔧 计算合约数量和总价值
+      let contractAmount: number;
+      let totalValue: number;
+      
+      if (contractType === 'inverse') {
+        // Gate.io: 实际币数量 = 张数 * quantoMultiplier
+        const quantoMultiplier = await getQuantoMultiplier(contract);
+        contractAmount = Math.abs(size) * quantoMultiplier;
+        totalValue = contractAmount * actualFillPrice;
+      } else {
+        // Binance: 数量就是币的数量
+        contractAmount = Math.abs(size);
+        totalValue = contractAmount * actualFillPrice;
+      }
       
       return {
         success: true,
         orderId: order.id?.toString(),
         symbol,
         side,
-        size: Math.abs(size), // 合约张数
+        size: Math.abs(size), // 数量（Gate.io=张数, Binance=币数量）
         contractAmount, // 实际币的数量
         price: actualFillPrice,
-        leverage,
+        leverage: adjustedLeverage,
         actualMargin,
         message: `✅ 成功开仓 ${symbol} ${side === "long" ? "做多" : "做空"} ${Math.abs(size)} 张 (${contractAmount.toFixed(4)} ${symbol})，成交价 ${actualFillPrice.toFixed(2)}，保证金 ${actualMargin.toFixed(2)} USDT，杠杆 ${leverage}x。⚠️ 未设置止盈止损，请在每个周期主动决策是否平仓。`,
       };
@@ -595,8 +619,8 @@ export const closePositionTool = createTool({
     percentage: z.number().min(1).max(100).default(100).describe("平仓百分比（1-100）"),
   }),
   execute: async ({ symbol, percentage }) => {
-    const client = createGateClient();
-    const contract = `${symbol}_USDT`;
+    const exchangeClient = getExchangeClient();
+    const contract = exchangeClient.normalizeContract(symbol);
     
     try {
       //  参数验证
@@ -608,7 +632,7 @@ export const closePositionTool = createTool({
       }
       
       //  直接从 Gate.io 获取最新的持仓信息（不依赖数据库）
-      const allPositions = await client.getPositions();
+      const allPositions = await exchangeClient.getPositions();
       const gatePosition = allPositions.find((p: any) => p.contract === contract);
       
       if (!gatePosition || Number.parseInt(gatePosition.size || "0") === 0) {
@@ -662,7 +686,7 @@ export const closePositionTool = createTool({
       
       //  如果价格为0，获取实时行情作为后备
       if (currentPrice === 0 || entryPrice === 0) {
-        const ticker = await client.getFuturesTicker(contract);
+        const ticker = await exchangeClient.getFuturesTicker(contract);
         if (currentPrice === 0) {
           currentPrice = Number.parseFloat(ticker.markPrice || ticker.last || "0");
           logger.warn(`持仓标记价格为0，使用行情价格: ${currentPrice}`);
@@ -674,36 +698,55 @@ export const closePositionTool = createTool({
       }
       
       // 计算平仓数量
-      const closeSize = Math.floor((quantity * percentage) / 100);
+      const contractType = exchangeClient.getContractType();
+      let closeSize: number;
+      
+      if (contractType === 'inverse') {
+        // Gate.io: 张数必须是整数
+        closeSize = Math.floor((quantity * percentage) / 100);
+      } else {
+        // Binance: 支持小数
+        closeSize = (quantity * percentage) / 100;
+      }
+      
       const size = side === "long" ? -closeSize : closeSize;
       
-      //  获取合约乘数用于计算盈亏和手续费
-      const quantoMultiplier = await getQuantoMultiplier(contract);
+      // 🔧 使用交易所特定方法计算盈亏
+      const grossPnl = await exchangeClient.calculatePnl(
+        entryPrice,
+        currentPrice,
+        closeSize,
+        side,
+        contract
+      );
       
-      // 🔥 不再依赖Gate.io返回的unrealisedPnl，始终手动计算毛盈亏
-      // 手动计算盈亏公式：
-      // 对于做多：(currentPrice - entryPrice) * quantity * quantoMultiplier
-      // 对于做空：(entryPrice - currentPrice) * quantity * quantoMultiplier
-      const priceChange = side === "long" 
-        ? (currentPrice - entryPrice) 
-        : (entryPrice - currentPrice);
+      logger.info(`预估盈亏: ${grossPnl >= 0 ? '+' : ''}${grossPnl.toFixed(2)} USDT`);
       
-      const grossPnl = priceChange * closeSize * quantoMultiplier;
+      // 🔧 计算手续费（开仓 + 平仓）
+      let openFee: number;
+      let closeFee: number;
       
-      logger.info(`预估盈亏: ${grossPnl >= 0 ? '+' : ''}${grossPnl.toFixed(2)} USDT (价格变动: ${priceChange.toFixed(4)})`);
+      if (contractType === 'inverse') {
+        // Gate.io: 手续费 = 名义价值 * 0.05%
+        const quantoMultiplier = await getQuantoMultiplier(contract);
+        openFee = entryPrice * closeSize * quantoMultiplier * 0.0005;
+        closeFee = currentPrice * closeSize * quantoMultiplier * 0.0005;
+      } else {
+        // Binance: 手续费 = 名义价值 * 0.05%
+        openFee = entryPrice * closeSize * 0.0005;
+        closeFee = currentPrice * closeSize * 0.0005;
+      }
       
-      //  计算手续费（开仓 + 平仓）
-      const openFee = entryPrice * closeSize * quantoMultiplier * 0.0005;
-      const closeFee = currentPrice * closeSize * quantoMultiplier * 0.0005;
       const totalFees = openFee + closeFee;
       
       // 净盈亏 = 毛盈亏 - 总手续费（此值为预估，平仓后会基于实际成交价重新计算）
       let pnl = grossPnl - totalFees;
       
-      logger.info(`平仓 ${symbol} ${side === "long" ? "做多" : "做空"} ${closeSize}张 (入场: ${entryPrice.toFixed(2)}, 当前: ${currentPrice.toFixed(2)})`);
+      const unitName = contractType === 'inverse' ? '张' : symbol;
+      logger.info(`平仓 ${symbol} ${side === "long" ? "做多" : "做空"} ${closeSize}${unitName} (入场: ${entryPrice.toFixed(2)}, 当前: ${currentPrice.toFixed(2)})`);
       
       //  市价单平仓（Gate.io 市价单：price 为 "0"，不设置 tif）
-      const order = await client.placeOrder({
+      const order = await exchangeClient.placeOrder({
         contract,
         size,
         price: 0,  // 市价单必须传 price: 0
@@ -724,7 +767,7 @@ export const closePositionTool = createTool({
         
         while (retryCount < maxRetries) {
           try {
-            const orderDetail = await client.getOrder(order.id.toString());
+            const orderDetail = await exchangeClient.getOrder(order.id.toString());
             finalOrderStatus = orderDetail.status;
             const filled = Math.abs(Number.parseInt(orderDetail.size || "0") - Number.parseInt(orderDetail.left || "0"));
             
@@ -739,7 +782,7 @@ export const closePositionTool = createTool({
               actualExitPrice = Number.parseFloat(orderDetail.price);
             }
             
-            logger.info(`成交: ${actualCloseSize}张 @ ${actualExitPrice.toFixed(2)} USDT`);
+            logger.info(`成交: ${actualCloseSize}${unitName} @ ${actualExitPrice.toFixed(2)} USDT`);
             
             //  验证成交价格的合理性（滑点保护）
             const priceDeviation = Math.abs(actualExitPrice - currentPrice) / currentPrice;
@@ -748,22 +791,29 @@ export const closePositionTool = createTool({
               logger.warn(`⚠️ 平仓成交价偏离超过3%: ${currentPrice.toFixed(2)} → ${actualExitPrice.toFixed(2)} (偏离 ${(priceDeviation * 100).toFixed(2)}%)`);
             }
             
-            //  重新计算实际盈亏（基于真实成交价格）
-            // 获取合约乘数
-            const quantoMultiplier = await getQuantoMultiplier(contract);
+            // 🔧 重新计算实际盈亏（基于真实成交价格）
+            const grossPnl = await exchangeClient.calculatePnl(
+              entryPrice,
+              actualExitPrice,
+              actualCloseSize,
+              side,
+              contract
+            );
             
-            const priceChange = side === "long" 
-              ? (actualExitPrice - entryPrice) 
-              : (entryPrice - actualExitPrice);
+            // 🔧 扣除手续费（开仓 + 平仓）
+            let openFee: number;
+            let closeFee: number;
             
-            // 盈亏 = 价格变化 * 张数 * 合约乘数
-            const grossPnl = priceChange * actualCloseSize * quantoMultiplier;
-            
-            //  扣除手续费（开仓 + 平仓）
-            // 开仓手续费 = 开仓名义价值 * 0.05%
-            const openFee = entryPrice * actualCloseSize * quantoMultiplier * 0.0005;
-            // 平仓手续费 = 平仓名义价值 * 0.05%
-            const closeFee = actualExitPrice * actualCloseSize * quantoMultiplier * 0.0005;
+            if (contractType === 'inverse') {
+              // Gate.io: 手续费 = 名义价值 * 0.05%
+              const quantoMultiplier = await getQuantoMultiplier(contract);
+              openFee = entryPrice * actualCloseSize * quantoMultiplier * 0.0005;
+              closeFee = actualExitPrice * actualCloseSize * quantoMultiplier * 0.0005;
+            } else {
+              // Binance: 手续费 = 名义价值 * 0.05%
+              openFee = entryPrice * actualCloseSize * 0.0005;
+              closeFee = actualExitPrice * actualCloseSize * 0.0005;
+            }
             // 总手续费
             const totalFees = openFee + closeFee;
             
@@ -783,16 +833,27 @@ export const closePositionTool = createTool({
               logger.warn(`使用预估值继续: 数量=${closeSize}, 价格=${currentPrice}`);
               actualCloseSize = closeSize;
               actualExitPrice = currentPrice;
-              // 重新计算盈亏（需要乘以合约乘数）
-              const quantoMultiplier = await getQuantoMultiplier(contract);
-              const priceChange = side === "long" 
-                ? (actualExitPrice - entryPrice) 
-                : (entryPrice - actualExitPrice);
-              const grossPnl = priceChange * actualCloseSize * quantoMultiplier;
+              
+              // 🔧 重新计算盈亏
+              const grossPnl = await exchangeClient.calculatePnl(
+                entryPrice,
+                actualExitPrice,
+                actualCloseSize,
+                side,
+                contract
+              );
+              
               // 扣除手续费
-              const openFee = entryPrice * actualCloseSize * quantoMultiplier * 0.0005;
-              const closeFee = actualExitPrice * actualCloseSize * quantoMultiplier * 0.0005;
-              pnl = grossPnl - openFee - closeFee;
+              if (contractType === 'inverse') {
+                const quantoMultiplier = await getQuantoMultiplier(contract);
+                const openFee = entryPrice * actualCloseSize * quantoMultiplier * 0.0005;
+                const closeFee = actualExitPrice * actualCloseSize * quantoMultiplier * 0.0005;
+                pnl = grossPnl - openFee - closeFee;
+              } else {
+                const openFee = entryPrice * actualCloseSize * 0.0005;
+                const closeFee = actualExitPrice * actualCloseSize * 0.0005;
+                pnl = grossPnl - openFee - closeFee;
+              }
             } else {
               logger.warn(`获取平仓订单详情失败，${retryCount}/${maxRetries} 次重试...`);
               await new Promise(resolve => setTimeout(resolve, 300));
@@ -802,34 +863,49 @@ export const closePositionTool = createTool({
       }
       
       // 获取账户信息用于记录当前总资产
-      const account = await client.getFuturesAccount();
+      const account = await exchangeClient.getFuturesAccount();
       const totalBalance = Number.parseFloat(account.total || "0");
       
-      //  计算总手续费（开仓 + 平仓）用于数据库记录
-      // 需要获取合约乘数
-      const dbQuantoMultiplier = await getQuantoMultiplier(contract);
+      // 🔧 计算总手续费（开仓 + 平仓）用于数据库记录
+      let dbOpenFee: number;
+      let dbCloseFee: number;
       
-      // 开仓手续费 = 开仓名义价值 * 0.05%
-      const dbOpenFee = entryPrice * actualCloseSize * dbQuantoMultiplier * 0.0005;
-      // 平仓手续费 = 平仓名义价值 * 0.05%
-      const dbCloseFee = actualExitPrice * actualCloseSize * dbQuantoMultiplier * 0.0005;
-      // 总手续费
+      if (contractType === 'inverse') {
+        // Gate.io
+        const dbQuantoMultiplier = await getQuantoMultiplier(contract);
+        dbOpenFee = entryPrice * actualCloseSize * dbQuantoMultiplier * 0.0005;
+        dbCloseFee = actualExitPrice * actualCloseSize * dbQuantoMultiplier * 0.0005;
+      } else {
+        // Binance
+        dbOpenFee = entryPrice * actualCloseSize * 0.0005;
+        dbCloseFee = actualExitPrice * actualCloseSize * 0.0005;
+      }
+      
       const totalFee = dbOpenFee + dbCloseFee;
       
       // 🔥 关键验证：检查盈亏计算是否正确
-      const notionalValue = actualExitPrice * actualCloseSize * dbQuantoMultiplier;
-      const priceChangeCheck = side === "long" 
-        ? (actualExitPrice - entryPrice) 
-        : (entryPrice - actualExitPrice);
-      const expectedPnl = priceChangeCheck * actualCloseSize * dbQuantoMultiplier - totalFee;
+      const expectedPnl = await exchangeClient.calculatePnl(
+        entryPrice,
+        actualExitPrice,
+        actualCloseSize,
+        side,
+        contract
+      ) - totalFee;
+      
+      // 获取名义价值用于检测异常
+      let notionalValue: number;
+      if (contractType === 'inverse') {
+        const dbQuantoMultiplier = await getQuantoMultiplier(contract);
+        notionalValue = actualExitPrice * actualCloseSize * dbQuantoMultiplier;
+      } else {
+        notionalValue = actualExitPrice * actualCloseSize;
+      }
       
       // 检测盈亏是否被错误地设置为名义价值
       if (Math.abs(pnl - notionalValue) < Math.abs(pnl - expectedPnl)) {
         logger.error(`🚨 检测到盈亏计算异常！`);
         logger.error(`  当前pnl: ${pnl.toFixed(2)} USDT 接近名义价值 ${notionalValue.toFixed(2)} USDT`);
         logger.error(`  预期pnl: ${expectedPnl.toFixed(2)} USDT`);
-        logger.error(`  开仓价: ${entryPrice}, 平仓价: ${actualExitPrice}, 数量: ${actualCloseSize}, 合约乘数: ${dbQuantoMultiplier}`);
-        logger.error(`  价格变动: ${priceChangeCheck.toFixed(4)}, 手续费: ${totalFee.toFixed(4)}`);
         
         // 强制修正为正确值
         pnl = expectedPnl;
@@ -838,9 +914,7 @@ export const closePositionTool = createTool({
       
       // 详细日志记录（用于debug）
       logger.info(`【平仓盈亏详情】${symbol} ${side}`);
-      logger.info(`  开仓价: ${entryPrice.toFixed(4)}, 平仓价: ${actualExitPrice.toFixed(4)}, 数量: ${actualCloseSize}张`);
-      logger.info(`  价格变动: ${priceChangeCheck.toFixed(4)}, 合约乘数: ${dbQuantoMultiplier}`);
-      logger.info(`  毛盈亏: ${(priceChangeCheck * actualCloseSize * dbQuantoMultiplier).toFixed(2)} USDT`);
+      logger.info(`  开仓价: ${entryPrice.toFixed(4)}, 平仓价: ${actualExitPrice.toFixed(4)}, 数量: ${actualCloseSize}${unitName}`);
       logger.info(`  开仓手续费: ${dbOpenFee.toFixed(4)} USDT, 平仓手续费: ${dbCloseFee.toFixed(4)} USDT`);
       logger.info(`  总手续费: ${totalFee.toFixed(4)} USDT`);
       logger.info(`  净盈亏: ${pnl.toFixed(2)} USDT`);
@@ -884,10 +958,10 @@ export const closePositionTool = createTool({
         if (dbPosition.sl_order_id) {
           try {
             // 先获取订单状态
-            const orderDetail = await client.getOrder(dbPosition.sl_order_id);
+            const orderDetail = await exchangeClient.getOrder(dbPosition.sl_order_id);
             // 只取消未完成的订单（open状态）
             if (orderDetail.status === 'open') {
-              await client.cancelOrder(dbPosition.sl_order_id);
+              await exchangeClient.cancelOrder(dbPosition.sl_order_id);
             }
           } catch (e: any) {
             // 订单可能已经不存在或已被取消
@@ -898,10 +972,10 @@ export const closePositionTool = createTool({
         if (dbPosition.tp_order_id) {
           try {
             // 先获取订单状态
-            const orderDetail = await client.getOrder(dbPosition.tp_order_id);
+            const orderDetail = await exchangeClient.getOrder(dbPosition.tp_order_id);
             // 只取消未完成的订单（open状态）
             if (orderDetail.status === 'open') {
-              await client.cancelOrder(dbPosition.tp_order_id);
+              await exchangeClient.cancelOrder(dbPosition.tp_order_id);
             }
           } catch (e: any) {
             // 订单可能已经不存在或已被取消
@@ -953,10 +1027,10 @@ export const cancelOrderTool = createTool({
     orderId: z.string().describe("订单ID"),
   }),
   execute: async ({ orderId }) => {
-    const client = createGateClient();
+    const exchangeClient = getExchangeClient();
     
     try {
-      await client.cancelOrder(orderId);
+      await exchangeClient.cancelOrder(orderId);
       
       return {
         success: true,

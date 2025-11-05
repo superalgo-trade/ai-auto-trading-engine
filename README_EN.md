@@ -7,6 +7,7 @@
 [![VoltAgent](https://img.shields.io/badge/Framework-VoltAgent-purple.svg)](https://voltagent.dev)
 [![OpenAI Compatible](https://img.shields.io/badge/AI-OpenAI_Compatible-orange.svg)](https://openrouter.ai)
 [![Gate.io](https://img.shields.io/badge/Exchange-Gate.io-00D4AA.svg)](https://www.gatesite.org/signup/VQBEAwgL?ref_type=103)
+[![Binance](https://img.shields.io/badge/Exchange-Binance-F0B90B.svg)](https://www.binance.com)
 [![TypeScript](https://img.shields.io/badge/Language-TypeScript-3178C6.svg?logo=typescript&logoColor=white)](https://www.typescriptlang.org)
 [![Node.js](https://img.shields.io/badge/Runtime-Node.js%2020+-339933.svg?logo=node.js&logoColor=white)](https://nodejs.org)
 [![License](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](./LICENSE)
@@ -20,7 +21,7 @@
 
 ai-auto-trading is an AI-powered cryptocurrency automated trading system that deeply integrates large language model intelligence with quantitative trading practices. Built on VoltAgent framework, the system achieves truly intelligent trading by granting AI complete autonomy in market analysis and trading decisions.
 
-The system follows an **AI autonomous decision-making** philosophy, abandoning traditional hardcoded trading rules and allowing AI models to make decisions based on real-time market data and technical indicators. It integrates with Gate.io exchange (supporting both testnet and mainnet), provides complete perpetual contract trading capabilities, covers mainstream cryptocurrencies such as BTC, ETH, SOL, and supports full automation from data collection, intelligent analysis, risk management to trade execution.
+The system follows an **AI autonomous decision-making** philosophy, abandoning traditional hardcoded trading rules and allowing AI models to make decisions based on real-time market data and technical indicators. It integrates with **Gate.io** and **Binance** exchanges (supporting both testnet and mainnet), provides complete perpetual contract trading capabilities, covers mainstream cryptocurrencies such as BTC, ETH, SOL, and supports full automation from data collection, intelligent analysis, risk management to trade execution.
 
 ![ai-auto-trading](./public/image.png)
 
@@ -79,7 +80,7 @@ The system follows an **AI autonomous decision-making** philosophy, abandoning t
 |-----------|-----------|---------|
 | Framework | [VoltAgent](https://voltagent.dev) | AI Agent orchestration and management |
 | AI Provider | OpenAI Compatible API | Supports OpenRouter, OpenAI, DeepSeek and other compatible providers |
-| Exchange | [Gate.io](https://www.gatesite.org/signup/VQBEAwgL?ref_type=103) | Cryptocurrency trading (testnet & mainnet) |
+| Exchange | [Gate.io](https://www.gatesite.org/signup/VQBEAwgL?ref_type=103) / [Binance](https://www.binance.com) | Cryptocurrency trading (testnet & mainnet) |
 | Database | LibSQL (SQLite) | Local data persistence |
 | Web Server | Hono | High-performance HTTP framework |
 | Language | TypeScript | Type-safe development |
@@ -226,38 +227,67 @@ ai-auto-trading/
 │   │   └── tradingAgent.ts           # AI trading agent implementation
 │   ├── api/
 │   │   └── routes.ts                 # HTTP API endpoints for monitoring
+│   ├── config/
+│   │   └── riskParams.ts             # Risk parameters configuration
 │   ├── database/
 │   │   ├── init.ts                   # Database initialization logic
 │   │   ├── schema.ts                 # Database schema definitions
-│   │   └── sync-from-gate.ts         # Exchange data synchronization
+│   │   ├── sync-from-exchanges.ts    # Exchange data synchronization
+│   │   ├── sync-positions-only.ts    # Sync positions only
+│   │   └── close-and-reset.ts        # Close positions and reset database
+│   ├── exchanges/                    # Exchange clients (unified interface)
+│   │   ├── IExchangeClient.ts        # Exchange interface definition
+│   │   ├── GateExchangeClient.ts     # Gate.io implementation
+│   │   ├── BinanceExchangeClient.ts  # Binance implementation
+│   │   ├── ExchangeFactory.ts        # Exchange factory (auto-selection)
+│   │   └── index.ts                  # Unified exports
 │   ├── scheduler/
-│   │   └── tradingLoop.ts            # Trading cycle orchestration
+│   │   ├── tradingLoop.ts            # Trading cycle orchestration
+│   │   └── accountRecorder.ts        # Account state recorder
 │   ├── services/
-│   │   ├── gateClient.ts             # Gate.io API client wrapper
 │   │   └── multiTimeframeAnalysis.ts # Multi-timeframe data aggregator
 │   ├── tools/
 │   │   └── trading/                  # VoltAgent tool implementations
 │   │       ├── accountManagement.ts  # Account query and management
 │   │       ├── marketData.ts         # Market data retrieval
-│   │       └── tradeExecution.ts     # Order placement and management
+│   │       ├── tradeExecution.ts     # Order placement and management
+│   │       └── index.ts              # Unified tool exports
 │   ├── types/
 │   │   └── gate.d.ts                 # TypeScript type definitions
 │   └── utils/
-│       └── timeUtils.ts              # Time/date utility functions
+│       ├── timeUtils.ts              # Time/date utility functions
+│       ├── priceFormatter.ts         # Price formatting utilities
+│       ├── contractUtils.ts          # Contract utility functions
+│       └── index.ts                  # Unified utility exports
 ├── public/                           # Web dashboard static files
 │   ├── index.html                    # Dashboard HTML
 │   ├── app.js                        # Dashboard JavaScript
-│   └── style.css                     # Dashboard styles
+│   ├── style.css                     # Dashboard styles
+│   ├── monitor-script.js             # Monitoring scripts
+│   ├── monitor-styles.css            # Monitoring styles
+│   └── price-formatter.js            # Price formatting
 ├── scripts/                          # Operational scripts
-│   ├── init-db.sh                    # Database setup script
+│   ├── init-db.sh                    # Database initialization script
+│   ├── setup.sh                      # Environment setup script
+│   ├── sync-from-exchanges.sh        # Sync data from exchanges
+│   ├── sync-positions.sh             # Sync positions data
+│   ├── close-and-reset.sh            # Close positions and reset
+│   ├── db-status.sh                  # Database status check
 │   ├── kill-port.sh                  # Service shutdown script
-│   └── sync-from-gate.sh             # Data sync script
+│   ├── docker-start.sh               # Docker start script
+│   └── docker-stop.sh                # Docker stop script
+├── docs/                             # Project documentation
+├── logs/                             # Log files directory
 ├── .env                              # Environment configuration
+├── .env.example                      # Environment configuration example
 ├── .voltagent/                       # Data storage directory
 │   └── trading.db                    # SQLite database file
 ├── ecosystem.config.cjs              # PM2 process configuration
+├── docker-compose.yml                # Docker Compose development config
+├── docker-compose.prod.yml           # Docker Compose production config
 ├── package.json                      # Node.js dependencies
 ├── tsconfig.json                     # TypeScript configuration
+├── tsdown.config.ts                  # Build configuration
 └── Dockerfile                        # Container build definition
 ```
 
@@ -272,9 +302,13 @@ ai-auto-trading/
 | `MAX_HOLDING_HOURS` | Maximum holding time in hours | 36 | No |
 | `INITIAL_BALANCE` | Initial capital in USDT | 2000 | No |
 | `DATABASE_URL` | SQLite database file path | file:./.voltagent/trading.db | No |
-| `GATE_API_KEY` | Gate.io API key | - | Yes |
-| `GATE_API_SECRET` | Gate.io API secret | - | Yes |
-| `GATE_USE_TESTNET` | Use testnet environment | true | No |
+| `EXCHANGE_NAME` | Exchange selection (gate or binance) | gate | Yes |
+| `GATE_API_KEY` | Gate.io API key | - | When EXCHANGE_NAME=gate |
+| `GATE_API_SECRET` | Gate.io API secret | - | When EXCHANGE_NAME=gate |
+| `GATE_USE_TESTNET` | Use Gate.io testnet environment | true | No |
+| `BINANCE_API_KEY` | Binance API key | - | When EXCHANGE_NAME=binance |
+| `BINANCE_API_SECRET` | Binance API secret | - | When EXCHANGE_NAME=binance |
+| `BINANCE_USE_TESTNET` | Use Binance testnet environment | true | No |
 | `OPENAI_API_KEY` | OpenAI compatible API key | - | Yes |
 | `OPENAI_BASE_URL` | API base URL | <https://openrouter.ai/api/v1> | No |
 | `AI_MODEL_NAME` | Model name | deepseek/deepseek-v3.2-exp | No |

@@ -17,15 +17,10 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 # =====================================================
-# 从 Gate.io 同步账户并重置数据库
+# 从交易所同步账户并重置数据库（兼容 Gate.io 和 Binance）
 # =====================================================
 
 set -e
-
-echo "=================================================="
-echo "  从 Gate.io 同步账户资金"
-echo "=================================================="
-echo ""
 
 # 颜色定义
 RED='\033[0;31m'
@@ -45,23 +40,50 @@ echo -e "${GREEN}✅ 找到 .env 文件${NC}"
 # 读取环境变量
 source .env
 
-# 检查 Gate.io API 配置
-if [ -z "$GATE_API_KEY" ] || [ -z "$GATE_API_SECRET" ]; then
-    echo -e "${RED}❌ 错误: 未配置 Gate.io API 密钥${NC}"
-    echo ""
-    echo "请在 .env 文件中配置："
-    echo "  GATE_API_KEY=your_key"
-    echo "  GATE_API_SECRET=your_secret"
+# 读取交易所配置
+EXCHANGE_NAME=${EXCHANGE_NAME:-gate}
+EXCHANGE_NAME=$(echo "$EXCHANGE_NAME" | tr '[:upper:]' '[:lower:]')
+EXCHANGE_DISPLAY=$(echo "$EXCHANGE_NAME" | awk '{print toupper(substr($0,1,1)) tolower(substr($0,2))}')
+
+echo "=================================================="
+echo "  从 ${EXCHANGE_DISPLAY} 同步账户资金"
+echo "=================================================="
+echo ""
+
+# 根据交易所检查 API 配置
+if [ "$EXCHANGE_NAME" = "gate" ]; then
+    if [ -z "$GATE_API_KEY" ] || [ -z "$GATE_API_SECRET" ]; then
+        echo -e "${RED}❌ 错误: 未配置 Gate.io API 密钥${NC}"
+        echo ""
+        echo "请在 .env 文件中配置："
+        echo "  GATE_API_KEY=your_key"
+        echo "  GATE_API_SECRET=your_secret"
+        exit 1
+    fi
+    echo -e "${GREEN}✅ Gate.io API 配置检查通过${NC}"
+    
+elif [ "$EXCHANGE_NAME" = "binance" ]; then
+    if [ -z "$BINANCE_API_KEY" ] || [ -z "$BINANCE_API_SECRET" ]; then
+        echo -e "${RED}❌ 错误: 未配置 Binance API 密钥${NC}"
+        echo ""
+        echo "请在 .env 文件中配置："
+        echo "  BINANCE_API_KEY=your_key"
+        echo "  BINANCE_API_SECRET=your_secret"
+        exit 1
+    fi
+    echo -e "${GREEN}✅ Binance API 配置检查通过${NC}"
+    
+else
+    echo -e "${RED}❌ 错误: 不支持的交易所 ${EXCHANGE_NAME}${NC}"
+    echo -e "${YELLOW}支持的交易所: gate, binance${NC}"
     exit 1
 fi
-
-echo -e "${GREEN}✅ Gate.io API 配置检查通过${NC}"
 echo ""
 
 # 显示警告
 echo -e "${YELLOW}⚠️  警告:${NC}"
 echo "   此操作将："
-echo "   1. 从 Gate.io 获取当前账户余额"
+echo "   1. 从 ${EXCHANGE_DISPLAY} 获取当前账户余额"
 echo "   2. 以该余额作为新的初始资金"
 echo "   3. 重置所有历史数据和收益率统计"
 echo "   4. 同步当前持仓到数据库"
@@ -82,7 +104,7 @@ echo "=================================================="
 echo ""
 
 # 执行同步脚本
-npx tsx --env-file=.env ./src/database/sync-from-gate.ts
+npx tsx --env-file=.env ./src/database/sync-from-exchanges.ts
 
 echo ""
 echo "=================================================="

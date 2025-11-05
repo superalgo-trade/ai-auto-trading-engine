@@ -5,7 +5,15 @@
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as published by
  * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
+ * (aexport const syncPositionsTool = createTool({
+  name: "syncPositions",
+  description: "同步交易所持仓数据到本地数据库",
+  parameters: z.object({}),
+  execute: async () => {
+    const exchangeClient = getExchangeClient();
+    
+    try {
+      const positions = await exchangeClient.getPositions();tion) any later version.
  * 
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -21,7 +29,7 @@
  */
 import { createTool } from "@voltagent/core";
 import { z } from "zod";
-import { createGateClient } from "../../services/gateClient";
+import { getExchangeClient } from "../../exchanges";
 import { createClient } from "@libsql/client";
 import { RISK_PARAMS } from "../../config/riskParams";
 import { getQuantoMultiplier } from "../../utils/contractUtils";
@@ -38,7 +46,7 @@ export const getAccountBalanceTool = createTool({
   description: "获取账户余额和资金信息",
   parameters: z.object({}),
   execute: async () => {
-    const client = createGateClient();
+    const client = getExchangeClient();
     
     try {
       const account = await client.getFuturesAccount();
@@ -69,7 +77,7 @@ export const getPositionsTool = createTool({
   description: "获取当前所有持仓信息",
   parameters: z.object({}),
   execute: async () => {
-    const client = createGateClient();
+    const client = getExchangeClient();
     
     try {
       const positions = await client.getPositions();
@@ -113,10 +121,10 @@ export const getOpenOrdersTool = createTool({
     symbol: z.enum(RISK_PARAMS.TRADING_SYMBOLS).optional().describe("可选：仅获取指定币种的订单"),
   }),
   execute: async ({ symbol }) => {
-    const client = createGateClient();
+    const client = getExchangeClient();
     
     try {
-      const contract = symbol ? `${symbol}_USDT` : undefined;
+      const contract = symbol ? client.normalizeContract(symbol) : undefined;
       const orders = await client.getOpenOrders(contract);
       
       const formattedOrders = orders.map((o: any) => ({
@@ -155,7 +163,7 @@ export const checkOrderStatusTool = createTool({
     orderId: z.string().describe("订单ID"),
   }),
   execute: async ({ orderId }) => {
-    const client = createGateClient();
+    const client = getExchangeClient();
     
     try {
       const orderDetail = await client.getOrder(orderId);
@@ -199,7 +207,7 @@ export const calculateRiskTool = createTool({
   description: "计算当前账户的风险敞口和仓位情况",
   parameters: z.object({}),
   execute: async () => {
-    const client = createGateClient();
+    const client = getExchangeClient();
     
     try {
       const [account, positions] = await Promise.all([
@@ -301,10 +309,10 @@ export const syncPositionsTool = createTool({
   description: "同步交易所持仓数据到本地数据库",
   parameters: z.object({}),
   execute: async () => {
-    const client = createGateClient();
+    const exchangeClient = getExchangeClient();
     
     try {
-      const positions = await client.getPositions();
+      const positions = await exchangeClient.getPositions();
       
       // 清空本地持仓表
       await dbClient.execute("DELETE FROM positions");
@@ -315,7 +323,7 @@ export const syncPositionsTool = createTool({
         const size = Number.parseFloat(pos.size || "0");
         if (size === 0) continue;
         
-        const symbol = pos.contract?.replace("_USDT", "") || "";
+        const symbol = exchangeClient.extractSymbol(pos.contract || "");
         const side = size > 0 ? "long" : "short";
         
         await dbClient.execute({

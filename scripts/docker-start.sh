@@ -39,13 +39,31 @@ fi
 
 # 检查必需的环境变量
 echo "🔍 检查环境变量配置..."
-if ! grep -q "GATE_API_KEY=your_api_key_here" .env && \
-   ! grep -q "OPENAI_API_KEY=your_openai_key_here" .env; then
+
+# 读取环境变量
+source .env
+EXCHANGE_NAME=${EXCHANGE_NAME:-gate}
+EXCHANGE_NAME=$(echo "$EXCHANGE_NAME" | tr '[:upper:]' '[:lower:]')
+
+# 检查是否为示例配置
+IS_EXAMPLE_CONFIG=false
+if grep -q "your_api_key_here" .env || grep -q "your_openai_key_here" .env; then
+    IS_EXAMPLE_CONFIG=true
+fi
+
+if [ "$IS_EXAMPLE_CONFIG" = "false" ]; then
     echo "✅ 环境变量已配置"
+    echo "   交易所: ${EXCHANGE_NAME}"
 else
     echo "⚠️  警告: 请确保已正确配置以下环境变量:"
-    echo "   - GATE_API_KEY"
-    echo "   - GATE_API_SECRET"
+    echo "   - EXCHANGE_NAME (gate 或 binance)"
+    if [ "$EXCHANGE_NAME" = "gate" ]; then
+        echo "   - GATE_API_KEY"
+        echo "   - GATE_API_SECRET"
+    elif [ "$EXCHANGE_NAME" = "binance" ]; then
+        echo "   - BINANCE_API_KEY"
+        echo "   - BINANCE_API_SECRET"
+    fi
     echo "   - OPENAI_API_KEY"
     echo ""
     read -p "是否继续? (y/N) " -n 1 -r
@@ -83,12 +101,20 @@ if [[ $REPLY == "2" ]]; then
     ENV_NAME="生产"
     
     # 检查是否使用测试网
-    if grep -q "GATE_USE_TESTNET=true" .env; then
-        echo "⚠️  警告: 生产环境检测到 GATE_USE_TESTNET=true"
+    if [ "$EXCHANGE_NAME" = "gate" ] && grep -q "GATE_USE_TESTNET=true" .env; then
+        echo "⚠️  警告: 生产环境检测到 Gate.io 测试网配置"
         read -p "是否继续使用测试网? (y/N) " -n 1 -r
         echo
         if [[ ! $REPLY =~ ^[Yy]$ ]]; then
             echo "请修改 .env 文件: GATE_USE_TESTNET=false"
+            exit 0
+        fi
+    elif [ "$EXCHANGE_NAME" = "binance" ] && grep -q "BINANCE_USE_TESTNET=true" .env; then
+        echo "⚠️  警告: 生产环境检测到 Binance 测试网配置"
+        read -p "是否继续使用测试网? (y/N) " -n 1 -r
+        echo
+        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+            echo "请修改 .env 文件: BINANCE_USE_TESTNET=false"
             exit 0
         fi
     fi

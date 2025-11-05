@@ -21,7 +21,7 @@
  */
 import { createTool } from "@voltagent/core";
 import { z } from "zod";
-import { createGateClient } from "../../services/gateClient";
+import { getExchangeClient } from "../../exchanges";
 import { RISK_PARAMS } from "../../config/riskParams";
 
 /**
@@ -101,10 +101,21 @@ function calculateATR(candles: any[], period: number) {
     let high: number, low: number, prevClose: number;
     
     // 处理对象格式（FuturesCandlestick）
-    if (candles[i] && typeof candles[i] === 'object' && 'h' in candles[i]) {
-      high = Number.parseFloat(candles[i].h);
-      low = Number.parseFloat(candles[i].l);
-      prevClose = Number.parseFloat(candles[i - 1].c);
+    if (candles[i] && typeof candles[i] === 'object') {
+      // 优先使用标准化字段
+      if ('high' in candles[i] && 'low' in candles[i] && 'close' in candles[i - 1]) {
+        high = typeof candles[i].high === 'string' ? Number.parseFloat(candles[i].high) : candles[i].high;
+        low = typeof candles[i].low === 'string' ? Number.parseFloat(candles[i].low) : candles[i].low;
+        prevClose = typeof candles[i - 1].close === 'string' ? Number.parseFloat(candles[i - 1].close) : candles[i - 1].close;
+      }
+      // 兼容原始字段
+      else if ('h' in candles[i] && 'l' in candles[i] && 'c' in candles[i - 1]) {
+        high = typeof candles[i].h === 'string' ? Number.parseFloat(candles[i].h) : candles[i].h;
+        low = typeof candles[i].l === 'string' ? Number.parseFloat(candles[i].l) : candles[i].l;
+        prevClose = typeof candles[i - 1].c === 'string' ? Number.parseFloat(candles[i - 1].c) : candles[i - 1].c;
+      } else {
+        continue;
+      }
     }
     // 处理数组格式（兼容旧代码）
     else if (Array.isArray(candles[i])) {
@@ -155,12 +166,19 @@ function calculateIndicators(candles: any[]) {
     };
   }
 
-  // 处理对象格式的K线数据（Gate.io API返回的是对象，不是数组）
+  // 处理对象格式的K线数据（统一转换为数值数组）
   const closes = candles
     .map((c) => {
       // 如果是对象格式（FuturesCandlestick）
-      if (c && typeof c === 'object' && 'c' in c) {
-        return Number.parseFloat(c.c);
+      if (c && typeof c === 'object') {
+        // 优先使用 close 字段（我们的标准化格式）
+        if ('close' in c) {
+          return typeof c.close === 'string' ? Number.parseFloat(c.close) : c.close;
+        }
+        // 兼容原始 c 字段
+        if ('c' in c) {
+          return typeof c.c === 'string' ? Number.parseFloat(c.c) : c.c;
+        }
       }
       // 如果是数组格式（兼容旧代码）
       if (Array.isArray(c)) {
@@ -173,10 +191,17 @@ function calculateIndicators(candles: any[]) {
   const volumes = candles
     .map((c) => {
       // 如果是对象格式（FuturesCandlestick）
-      if (c && typeof c === 'object' && 'v' in c) {
-        const vol = Number.parseFloat(c.v);
-        // 验证成交量：必须是有限数字且非负
-        return Number.isFinite(vol) && vol >= 0 ? vol : 0;
+      if (c && typeof c === 'object') {
+        // 优先使用 volume 字段（我们的标准化格式）
+        if ('volume' in c) {
+          const vol = typeof c.volume === 'string' ? Number.parseFloat(c.volume) : c.volume;
+          return Number.isFinite(vol) && vol >= 0 ? vol : 0;
+        }
+        // 兼容原始 v 字段
+        if ('v' in c) {
+          const vol = typeof c.v === 'string' ? Number.parseFloat(c.v) : c.v;
+          return Number.isFinite(vol) && vol >= 0 ? vol : 0;
+        }
       }
       // 如果是数组格式（兼容旧代码）
       if (Array.isArray(c)) {
@@ -229,8 +254,8 @@ export const getMarketPriceTool = createTool({
     symbol: z.enum(RISK_PARAMS.TRADING_SYMBOLS).describe("币种代码"),
   }),
   execute: async ({ symbol }) => {
-    const client = createGateClient();
-    const contract = `${symbol}_USDT`;
+    const client = getExchangeClient();
+    const contract = client.normalizeContract(symbol);
     
     const ticker = await client.getFuturesTicker(contract);
     
@@ -243,7 +268,7 @@ export const getMarketPriceTool = createTool({
       highPrice24h: Number.parseFloat(ticker.high24h || "0"),
       lowPrice24h: Number.parseFloat(ticker.low24h || "0"),
       volume24h: Number.parseFloat(ticker.volume24h || "0"),
-      change24h: Number.parseFloat(ticker.changePercentage || "0"),
+      change24h: Number.parseFloat(ticker.change24h || "0"),
     };
   },
 });
@@ -260,8 +285,8 @@ export const getTechnicalIndicatorsTool = createTool({
     limit: z.number().default(100).describe("K线数量"),
   }),
   execute: async ({ symbol, interval, limit }) => {
-    const client = createGateClient();
-    const contract = `${symbol}_USDT`;
+    const client = getExchangeClient();
+    const contract = client.normalizeContract(symbol);
     
     const candles = await client.getFuturesCandles(contract, interval, limit);
     const indicators = calculateIndicators(candles);
@@ -285,8 +310,8 @@ export const getFundingRateTool = createTool({
     symbol: z.enum(RISK_PARAMS.TRADING_SYMBOLS).describe("币种代码"),
   }),
   execute: async ({ symbol }) => {
-    const client = createGateClient();
-    const contract = `${symbol}_USDT`;
+    const client = getExchangeClient();
+    const contract = client.normalizeContract(symbol);
     
     const fundingRate = await client.getFundingRate(contract);
     
@@ -310,8 +335,8 @@ export const getOrderBookTool = createTool({
     limit: z.number().default(10).describe("深度档位数量"),
   }),
   execute: async ({ symbol, limit }) => {
-    const client = createGateClient();
-    const contract = `${symbol}_USDT`;
+    const client = getExchangeClient();
+    const contract = client.normalizeContract(symbol);
     
     const orderBook = await client.getOrderBook(contract, limit);
     
@@ -345,8 +370,8 @@ export const getOpenInterestTool = createTool({
     symbol: z.enum(RISK_PARAMS.TRADING_SYMBOLS).describe("币种代码"),
   }),
   execute: async ({ symbol }) => {
-    // Gate API 需要通过其他方式获取持仓量数据
-    // 暂时返回 0，后续可以通过其他端点获取
+    // 部分交易所需要通过专门的端点获取持仓量数据
+    // 暂时返回 0，后续可以扩展支持
     return {
       symbol,
       openInterest: 0,

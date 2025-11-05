@@ -23,7 +23,7 @@
 import cron from "node-cron";
 import { createPinoLogger } from "@voltagent/logger";
 import { createClient } from "@libsql/client";
-import { createGateClient } from "../services/gateClient";
+import { getExchangeClient } from "../exchanges";
 import { getChinaTimeISO } from "../utils/timeUtils";
 
 const logger = createPinoLogger({
@@ -41,13 +41,15 @@ const dbClient = createClient({
  */
 async function recordAccountAssets() {
   try {
-    const gateClient = createGateClient();
+    const exchangeClient = getExchangeClient();
     
-    // Get account information from Gate.io
-    const account = await gateClient.getFuturesAccount();
+    // Get account information from exchange
+    const account = await exchangeClient.getFuturesAccount();
     
     // Extract account data
-    // Gate.io 的 account.total 不包含未实现盈亏
+    // 注意：不同交易所的 account.total 处理方式可能不同
+    // Gate.io: account.total 不包含未实现盈亏
+    // Binance: 根据具体实现可能有所不同
     // 需要主动加上 unrealisedPnl 才是真实的总资产
     const accountTotal = Number.parseFloat(account.total || "0");
     const availableBalance = Number.parseFloat(account.available || "0");

@@ -21,7 +21,7 @@
  */
 
 import { createPinoLogger } from "@voltagent/logger";
-import { createGateClient } from "./gateClient";
+import { getExchangeClient } from "../exchanges";
 
 const logger = createPinoLogger({
   name: "multi-timeframe",
@@ -209,11 +209,11 @@ export async function analyzeTimeframe(
   symbol: string,
   config: TimeframeConfig
 ): Promise<TimeframeIndicators> {
-  const gateClient = createGateClient();
-  const contract = `${symbol}_USDT`;
+  const exchangeClient = getExchangeClient();
+  const contract = exchangeClient.normalizeContract(symbol);
   
   // 获取K线数据
-  const candles = await gateClient.getFuturesCandles(
+  const candles = await exchangeClient.getFuturesCandles(
     contract,
     config.interval,
     config.candleCount

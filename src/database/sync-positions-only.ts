@@ -18,12 +18,12 @@
 
 /**
  * 快速同步持仓（不重置数据库）
- * 只从 Gate.io 同步持仓到本地数据库
+ * 从交易所（Gate.io/Binance）同步持仓到本地数据库
  */
 import "dotenv/config";
 import { createClient } from "@libsql/client";
 import { createPinoLogger } from "@voltagent/logger";
-import { createGateClient } from "../services/gateClient";
+import { getExchangeClient } from "../exchanges";
 
 const logger = createPinoLogger({
   name: "sync-positions",
@@ -32,7 +32,13 @@ const logger = createPinoLogger({
 
 async function syncPositionsOnly() {
   try {
-    logger.info("🔄 从 Gate.io 同步持仓...");
+    // 初始化交易所客户端
+    const exchangeClient = getExchangeClient();
+    const contractType = exchangeClient.getContractType();
+    const exchangeName = contractType === 'inverse' ? 'Gate.io' : 'Binance';
+    const unit = contractType === 'inverse' ? '张' : '个';
+    
+    logger.info(`🔄 从 ${exchangeName} 同步持仓...`);
     
     // 1. 连接数据库
     const dbUrl = process.env.DATABASE_URL || "file:./.voltagent/trading.db";
@@ -74,12 +80,11 @@ async function syncPositionsOnly() {
       logger.info("✅ 数据库表创建完成");
     }
     
-    // 3. 从 Gate.io 获取持仓
-    const gateClient = createGateClient();
-    const positions = await gateClient.getPositions();
-    const activePositions = positions.filter(p => Number.parseInt(p.size || "0") !== 0);
+    // 3. 从交易所获取持仓
+    const positions = await exchangeClient.getPositions();
+    const activePositions = positions.filter((p: any) => Number.parseInt(p.size || "0") !== 0);
     
-    logger.info(`\n📊 Gate.io 当前持仓数: ${activePositions.length}`);
+    logger.info(`\n📊 ${exchangeName} 当前持仓数: ${activePositions.length}`);
     
     // 4. 清空本地持仓表
     await client.execute("DELETE FROM positions");
@@ -93,7 +98,7 @@ async function syncPositionsOnly() {
         const size = Number.parseInt(pos.size || "0");
         if (size === 0) continue;
         
-        const symbol = pos.contract.replace("_USDT", "");
+        const symbol = exchangeClient.extractSymbol(pos.contract);
         const entryPrice = Number.parseFloat(pos.entryPrice || "0");
         const currentPrice = Number.parseFloat(pos.markPrice || "0");
         const leverage = Number.parseInt(pos.leverage || "1");
@@ -121,7 +126,7 @@ async function syncPositionsOnly() {
           ],
         });
         
-        logger.info(`   ✅ ${symbol}: ${quantity} 张 (${side}) @ ${entryPrice} | 盈亏: ${pnl >= 0 ? '+' : ''}${pnl.toFixed(2)} USDT`);
+        logger.info(`   ✅ ${symbol}: ${quantity} ${unit} (${side}) @ ${entryPrice} | 盈亏: ${pnl >= 0 ? '+' : ''}${pnl.toFixed(2)} USDT`);
       }
     } else {
       logger.info("✅ 当前无持仓");
@@ -130,7 +135,7 @@ async function syncPositionsOnly() {
     client.close();
     logger.info("\n✅ 持仓同步完成");
     
-  } catch (error) {
+  } catch (error: any) {
     logger.error("❌ 同步失败:", error);
     process.exit(1);
   }

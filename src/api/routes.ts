@@ -22,7 +22,7 @@
 import { Hono } from "hono";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { createClient } from "@libsql/client";
-import { createGateClient } from "../services/gateClient";
+import { getExchangeClient } from "../exchanges";
 import { createPinoLogger } from "@voltagent/logger";
 import { formatPrice, formatUSDT, formatPercent, getDecimalPlacesBySymbol } from "../utils/priceFormatter";
 
@@ -44,10 +44,18 @@ export function createApiRoutes() {
   /**
    * 获取账户总览
    * 
-   * Gate.io 账户结构：
+   * 账户结构（统一接口，兼容 Gate.io 和 Binance）：
    * - account.total = available + positionMargin
    * - account.total 不包含未实现盈亏
    * - 真实总资产 = account.total + unrealisedPnl
+   * 
+   * Gate.io 特点：
+   * - 币本位反向合约，保证金以 USDT 计价
+   * - account.total 不含未实现盈亏
+   * 
+   * Binance 特点：
+   * - USDT 本位正向合约，保证金直接以 USDT 计价
+   * - account.total 不含未实现盈亏
    * 
    * API返回说明：
    * - totalBalance: 不包含未实现盈亏的总资产（用于计算已实现收益）
@@ -58,8 +66,8 @@ export function createApiRoutes() {
    */
   app.get("/api/account", async (c) => {
     try {
-      const gateClient = createGateClient();
-      const account = await gateClient.getFuturesAccount();
+      const exchangeClient = getExchangeClient();
+      const account = await exchangeClient.getFuturesAccount();
       
       // 从数据库获取初始资金
       const initialResult = await dbClient.execute(
@@ -69,7 +77,7 @@ export function createApiRoutes() {
         ? Number.parseFloat(initialResult.rows[0].total_value as string)
         : 100;
       
-      // Gate.io 的 account.total 不包含未实现盈亏
+      // 统一处理：account.total 不包含未实现盈亏（Gate.io 和 Binance 都是如此）
       // 总资产（不含未实现盈亏）= account.total
       const unrealisedPnl = Number.parseFloat(account.unrealisedPnl || "0");
       const totalBalance = Number.parseFloat(account.total || "0");
@@ -93,12 +101,12 @@ export function createApiRoutes() {
   });
 
   /**
-   * 获取当前持仓 - 从 Gate.io 获取实时数据
+   * 获取当前持仓 - 从交易所获取实时数据（兼容 Gate.io 和 Binance）
    */
   app.get("/api/positions", async (c) => {
     try {
-      const gateClient = createGateClient();
-      const gatePositions = await gateClient.getPositions();
+      const exchangeClient = getExchangeClient();
+      const exchangePositions = await exchangeClient.getPositions();
       
       // 从数据库获取止损止盈信息
       const dbResult = await dbClient.execute("SELECT symbol, stop_loss, profit_target FROM positions");
@@ -107,17 +115,17 @@ export function createApiRoutes() {
       );
       
       // 过滤并格式化持仓
-      const positions = gatePositions
+      const positions = exchangePositions
         .filter((p: any) => Number.parseInt(p.size || "0") !== 0)
         .map((p: any) => {
           const size = Number.parseInt(p.size || "0");
-          const symbol = p.contract.replace("_USDT", "");
+          const symbol = exchangeClient.extractSymbol(p.contract);
           const dbPos = dbPositionsMap.get(symbol);
           const entryPrice = Number.parseFloat(p.entryPrice || "0");
           const quantity = Math.abs(size);
           const leverage = Number.parseInt(p.leverage || "1");
           
-          // 开仓价值（保证金）: 从Gate.io API直接获取
+          // 开仓价值（保证金）: 从交易所 API 直接获取（Gate.io 和 Binance 都支持）
           const openValue = Number.parseFloat(p.margin || "0");
           
           return {
@@ -406,15 +414,15 @@ export function createApiRoutes() {
       const tradingSymbolsStr = process.env.TRADING_SYMBOLS || DEFAULT_TRADING_SYMBOLS;
       const symbols = tradingSymbolsStr.split(",").map(s => s.trim());
       
-      const gateClient = createGateClient();
+      const exchangeClient = getExchangeClient();
       const prices: Record<string, number> = {};
       
       // 并发获取所有币种价格
       await Promise.all(
         symbols.map(async (symbol) => {
           try {
-            const contract = `${symbol}_USDT`;
-            const ticker = await gateClient.getFuturesTicker(contract);
+            const contract = exchangeClient.normalizeContract(symbol);
+            const ticker = await exchangeClient.getFuturesTicker(contract);
             prices[symbol] = Number.parseFloat(ticker.last || "0");
           } catch (error: any) {
             logger.error(`获取 ${symbol} 价格失败:`, error);

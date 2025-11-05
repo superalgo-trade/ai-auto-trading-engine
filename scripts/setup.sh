@@ -76,11 +76,54 @@ if [ -z "$SKIP_ENV" ]; then
     echo "请输入必需的配置信息："
     echo ""
     
-    # Gate.io API Key
-    read -p "Gate.io API Key: " GATE_API_KEY
-    read -p "Gate.io API Secret: " GATE_API_SECRET
+    # 选择交易所
+    echo "支持的交易所："
+    echo "  1) Gate.io"
+    echo "  2) Binance"
+    read -p "请选择交易所 [1]: " EXCHANGE_CHOICE
+    EXCHANGE_CHOICE=${EXCHANGE_CHOICE:-1}
+    
+    if [ "$EXCHANGE_CHOICE" = "1" ]; then
+        EXCHANGE_NAME="gate"
+        echo -e "${GREEN}已选择: Gate.io${NC}"
+        echo ""
+        
+        # Gate.io API Key
+        read -p "Gate.io API Key: " GATE_API_KEY
+        read -p "Gate.io API Secret: " GATE_API_SECRET
+        
+        # 是否使用测试网
+        read -p "使用测试网？[Y/n]: " USE_TESTNET
+        if [[ $USE_TESTNET =~ ^[Nn]$ ]]; then
+            GATE_USE_TESTNET="false"
+        else
+            GATE_USE_TESTNET="true"
+        fi
+        
+    elif [ "$EXCHANGE_CHOICE" = "2" ]; then
+        EXCHANGE_NAME="binance"
+        echo -e "${GREEN}已选择: Binance${NC}"
+        echo ""
+        
+        # Binance API Key
+        read -p "Binance API Key: " BINANCE_API_KEY
+        read -p "Binance API Secret: " BINANCE_API_SECRET
+        
+        # 是否使用测试网
+        read -p "使用测试网？[Y/n]: " USE_TESTNET
+        if [[ $USE_TESTNET =~ ^[Nn]$ ]]; then
+            BINANCE_USE_TESTNET="false"
+        else
+            BINANCE_USE_TESTNET="true"
+        fi
+        
+    else
+        echo -e "${RED}❌ 无效选择${NC}"
+        exit 1
+    fi
     
     # OpenAI API Key (支持 OpenRouter 或其他兼容供应商)
+    echo ""
     read -p "OpenAI API Key (支持 OpenRouter): " OPENAI_API_KEY
     read -p "OpenAI Base URL (默认: https://openrouter.ai/api/v1): " OPENAI_BASE_URL
     OPENAI_BASE_URL=${OPENAI_BASE_URL:-https://openrouter.ai/api/v1}
@@ -88,14 +131,6 @@ if [ -z "$SKIP_ENV" ]; then
     # 初始资金
     read -p "初始资金 (USDT) [默认: 1000]: " INITIAL_BALANCE
     INITIAL_BALANCE=${INITIAL_BALANCE:-1000}
-    
-    # 是否使用测试网
-    read -p "使用测试网？[Y/n]: " USE_TESTNET
-    if [[ $USE_TESTNET =~ ^[Nn]$ ]]; then
-        GATE_USE_TESTNET="false"
-    else
-        GATE_USE_TESTNET="true"
-    fi
     
     # 服务器端口
     read -p "服务器端口 [默认: 3141]: " PORT
@@ -110,10 +145,16 @@ if [ -z "$SKIP_ENV" ]; then
     MAX_LEVERAGE=${MAX_LEVERAGE:-10}
     
     # 创建 .env 文件
-    cat > .env << EOF
+    if [ "$EXCHANGE_NAME" = "gate" ]; then
+        cat > .env << EOF
 # ===========================================
 # AI 加密货币自动交易系统 - 环境变量配置
 # ===========================================
+
+# ============================================
+# 交易所配置
+# ============================================
+EXCHANGE_NAME=gate
 
 # ============================================
 # 服务器配置
@@ -145,6 +186,48 @@ GATE_USE_TESTNET=$GATE_USE_TESTNET
 OPENAI_API_KEY=$OPENAI_API_KEY
 OPENAI_BASE_URL=$OPENAI_BASE_URL
 EOF
+    else
+        cat > .env << EOF
+# ===========================================
+# AI 加密货币自动交易系统 - 环境变量配置
+# ===========================================
+
+# ============================================
+# 交易所配置
+# ============================================
+EXCHANGE_NAME=binance
+
+# ============================================
+# 服务器配置
+# ============================================
+PORT=$PORT
+
+# ============================================
+# 交易配置
+# ============================================
+TRADING_INTERVAL_MINUTES=$TRADING_INTERVAL
+MAX_LEVERAGE=$MAX_LEVERAGE
+INITIAL_BALANCE=$INITIAL_BALANCE
+
+# ============================================
+# 数据库配置
+# ============================================
+DATABASE_URL=file:./.voltagent/trading.db
+
+# ============================================
+# Binance API 配置
+# ============================================
+BINANCE_API_KEY=$BINANCE_API_KEY
+BINANCE_API_SECRET=$BINANCE_API_SECRET
+BINANCE_USE_TESTNET=$BINANCE_USE_TESTNET
+
+# ============================================
+# AI 模型配置
+# ============================================
+OPENAI_API_KEY=$OPENAI_API_KEY
+OPENAI_BASE_URL=$OPENAI_BASE_URL
+EOF
+    fi
     
     echo -e "${GREEN}✅ .env 文件创建成功${NC}"
 fi

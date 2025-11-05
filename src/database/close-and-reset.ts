@@ -22,7 +22,7 @@
  */
 import { createClient } from "@libsql/client";
 import { createPinoLogger } from "@voltagent/logger";
-import { createGateClient } from "../services/gateClient";
+import { getExchangeClient } from "../exchanges";
 import "dotenv/config";
 
 const logger = createPinoLogger({
@@ -109,12 +109,12 @@ CREATE TABLE IF NOT EXISTS trade_logs (
  * 平仓所有持仓
  */
 async function closeAllPositions(): Promise<void> {
-  const gateClient = createGateClient();
+  const exchangeClient = getExchangeClient();
   
   try {
     logger.info("📊 获取当前持仓...");
     
-    const positions = await gateClient.getPositions();
+    const positions = await exchangeClient.getPositions();
     const activePositions = positions.filter((p: any) => Number.parseInt(p.size || "0") !== 0);
     
     if (activePositions.length === 0) {
@@ -127,20 +127,24 @@ async function closeAllPositions(): Promise<void> {
     for (const pos of activePositions) {
       const size = Number.parseInt(pos.size || "0");
       const contract = pos.contract;
-      const symbol = contract.replace("_USDT", "");
+      const symbol = exchangeClient.extractSymbol(contract);
       const side = size > 0 ? "多头" : "空头";
       const quantity = Math.abs(size);
       
+      // 获取合约类型以显示正确的单位
+      const contractType = exchangeClient.getContractType();
+      const unit = contractType === 'inverse' ? '张' : ''; // Gate.io 显示"张"，Binance 不显示
+      
       try {
-        logger.info(`🔄 平仓中: ${symbol} ${side} ${quantity}张`);
+        logger.info(`🔄 平仓中: ${symbol} ${side} ${quantity}${unit}`);
         
-        await gateClient.placeOrder({
+        await exchangeClient.placeOrder({
           contract,
           size: -size, // 反向平仓
           price: 0, // 市价单
         });
         
-        logger.info(`✅ 已平仓: ${symbol} ${side} ${quantity}张`);
+        logger.info(`✅ 已平仓: ${symbol} ${side} ${quantity}${unit}`);
       } catch (error: any) {
         logger.error(`❌ 平仓失败: ${symbol} - ${error.message}`);
       }
@@ -231,25 +235,30 @@ async function resetDatabase(): Promise<void> {
  * 同步持仓数据
  */
 async function syncPositions(): Promise<void> {
-  const gateClient = createGateClient();
+  const exchangeClient = getExchangeClient();
   const dbUrl = process.env.DATABASE_URL || "file:./.voltagent/trading.db";
   
   try {
-    logger.info("🔄 从 Gate.io 同步持仓...");
+    const exchangeName = exchangeClient.getExchangeName();
+    logger.info(`🔄 从 ${exchangeName} 同步持仓...`);
     
     const client = createClient({
       url: dbUrl,
     });
     
-    // 从 Gate.io 获取持仓
-    const positions = await gateClient.getPositions();
+    // 从交易所获取持仓（兼容 Gate.io 和 Binance）
+    const positions = await exchangeClient.getPositions();
     const activePositions = positions.filter((p: any) => Number.parseInt(p.size || "0") !== 0);
     
-    logger.info(`📊 Gate.io 当前持仓数: ${activePositions.length}`);
+    logger.info(`📊 ${exchangeName} 当前持仓数: ${activePositions.length}`);
     
     // 清空本地持仓表
     await client.execute("DELETE FROM positions");
     logger.info("✅ 已清空本地持仓表");
+    
+    // 获取合约类型以显示正确的单位
+    const contractType = exchangeClient.getContractType();
+    const unit = contractType === 'inverse' ? ' 张' : ''; // Gate.io 显示"张"，Binance 不显示
     
     // 同步持仓到数据库
     if (activePositions.length > 0) {
@@ -259,7 +268,7 @@ async function syncPositions(): Promise<void> {
         const size = Number.parseInt(pos.size || "0");
         if (size === 0) continue;
         
-        const symbol = pos.contract.replace("_USDT", "");
+        const symbol = exchangeClient.extractSymbol(pos.contract);
         const entryPrice = Number.parseFloat(pos.entryPrice || "0");
         const currentPrice = Number.parseFloat(pos.markPrice || "0");
         const leverage = Number.parseInt(pos.leverage || "1");
@@ -287,7 +296,7 @@ async function syncPositions(): Promise<void> {
           ],
         });
         
-        logger.info(`   ✅ ${symbol}: ${quantity} 张 (${side}) @ ${entryPrice} | 盈亏: ${pnl >= 0 ? '+' : ''}${pnl.toFixed(2)} USDT`);
+        logger.info(`   ✅ ${symbol}: ${quantity}${unit} (${side}) @ ${entryPrice} | 盈亏: ${pnl >= 0 ? '+' : ''}${pnl.toFixed(2)} USDT`);
       }
     } else {
       logger.info("✅ 当前无持仓");
@@ -330,7 +339,9 @@ async function closeAndReset() {
     logger.info("");
     
     // 步骤3：同步持仓数据
-    logger.info("【步骤 3/3】从 Gate.io 同步持仓数据");
+    const exchangeClient = getExchangeClient();
+    const exchangeName = exchangeClient.getExchangeName();
+    logger.info(`【步骤 3/3】从 ${exchangeName} 同步持仓数据`);
     logger.info("-".repeat(80));
     await syncPositions();
     logger.info("");

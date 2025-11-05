@@ -77,10 +77,10 @@ if [ ! -f .env ]; then
     echo -e "${RED}❌ 未找到 .env 文件${NC}"
     echo ""
     echo "请创建 .env 文件并配置以下变量："
-    echo "  - GATE_API_KEY"
-    echo "  - GATE_API_SECRET"
+    echo "  - EXCHANGE_NAME (gate 或 binance)"
+    echo "  - Gate.io: GATE_API_KEY, GATE_API_SECRET, GATE_USE_TESTNET"
+    echo "  - Binance: BINANCE_API_KEY, BINANCE_API_SECRET, BINANCE_USE_TESTNET"
     echo "  - OPENAI_API_KEY"
-    echo "  - GATE_USE_TESTNET=true"
     exit 1
 fi
 
@@ -89,15 +89,26 @@ echo -e "${GREEN}✓${NC} 找到 .env 文件"
 # 读取环境变量
 source .env
 
+# 检查交易所配置
+EXCHANGE_NAME=${EXCHANGE_NAME:-gate}
+EXCHANGE_NAME=$(echo "$EXCHANGE_NAME" | tr '[:upper:]' '[:lower:]')
+
 # 检查必需的环境变量
-REQUIRED_VARS=("GATE_API_KEY" "GATE_API_SECRET" "OPENAI_API_KEY")
 MISSING_VARS=()
 
-for var in "${REQUIRED_VARS[@]}"; do
-    if [ -z "${!var}" ]; then
-        MISSING_VARS+=("$var")
-    fi
-done
+if [ "$EXCHANGE_NAME" = "gate" ]; then
+    [ -z "$GATE_API_KEY" ] && MISSING_VARS+=("GATE_API_KEY")
+    [ -z "$GATE_API_SECRET" ] && MISSING_VARS+=("GATE_API_SECRET")
+elif [ "$EXCHANGE_NAME" = "binance" ]; then
+    [ -z "$BINANCE_API_KEY" ] && MISSING_VARS+=("BINANCE_API_KEY")
+    [ -z "$BINANCE_API_SECRET" ] && MISSING_VARS+=("BINANCE_API_SECRET")
+else
+    echo -e "${RED}❌ 不支持的交易所: ${EXCHANGE_NAME}${NC}"
+    echo -e "${YELLOW}支持的交易所: gate, binance${NC}"
+    exit 1
+fi
+
+[ -z "$OPENAI_API_KEY" ] && MISSING_VARS+=("OPENAI_API_KEY")
 
 if [ ${#MISSING_VARS[@]} -gt 0 ]; then
     echo -e "${RED}❌ 以下环境变量未配置：${NC}"
@@ -109,11 +120,14 @@ if [ ${#MISSING_VARS[@]} -gt 0 ]; then
     exit 1
 fi
 
+echo -e "${GREEN}✓${NC} 交易所配置: ${EXCHANGE_NAME}"
 echo -e "${GREEN}✓${NC} 环境变量检查通过"
 
 # 检查是否使用测试网
-if grep -q "GATE_USE_TESTNET=true" .env; then
-    echo -e "${GREEN}✓${NC} 当前配置: 测试网模式（推荐）"
+if [ "$EXCHANGE_NAME" = "gate" ] && grep -q "GATE_USE_TESTNET=true" .env; then
+    echo -e "${GREEN}✓${NC} 当前配置: Gate.io 测试网模式（推荐）"
+elif [ "$EXCHANGE_NAME" = "binance" ] && grep -q "BINANCE_USE_TESTNET=true" .env; then
+    echo -e "${GREEN}✓${NC} 当前配置: Binance 测试网模式（推荐）"
 else
     echo -e "${YELLOW}⚠${NC} 当前配置: 正式网模式"
 fi
@@ -128,7 +142,7 @@ echo "  3. 删除所有历史交易记录"
 echo "  4. 删除所有持仓信息"
 echo "  5. 删除所有账户历史"
 echo "  6. 重新初始化数据库"
-echo "  7. 从 Gate.io 同步持仓数据"
+echo "  7. 从交易所同步持仓数据"
 echo ""
 echo -e "${RED}此操作不可恢复！${NC}"
 echo ""
@@ -208,8 +222,10 @@ echo "⚙️  步骤 5/7：显示当前配置..."
 echo ""
 
 # 检查是否使用测试网
-if grep -q "GATE_USE_TESTNET=true" .env; then
-    echo -e "${GREEN}✓${NC} 当前配置: 测试网模式（推荐）"
+if [ "$EXCHANGE_NAME" = "gate" ] && grep -q "GATE_USE_TESTNET=true" .env; then
+    echo -e "${GREEN}✓${NC} 当前配置: Gate.io 测试网模式（推荐）"
+elif [ "$EXCHANGE_NAME" = "binance" ] && grep -q "BINANCE_USE_TESTNET=true" .env; then
+    echo -e "${GREEN}✓${NC} 当前配置: Binance 测试网模式（推荐）"
 else
     echo -e "${YELLOW}⚠${NC} 当前配置: 正式网模式"
 fi
@@ -246,7 +262,7 @@ echo -e "${YELLOW}系统已完成以下操作：${NC}"
 echo "  ✓ 已停止所有运行中的进程"
 echo "  ✓ 已平仓所有持仓"
 echo "  ✓ 已重置数据库到初始状态"
-echo "  ✓ 已从 Gate.io 同步持仓数据"
+echo "  ✓ 已从交易所同步持仓数据"
 echo ""
 echo -e "${BLUE}如需启动交易系统，请运行：${NC}"
 echo "  npm run trading:start"

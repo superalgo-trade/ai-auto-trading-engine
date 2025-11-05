@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# 查询 Gate.io 支持的合约
+# 查询交易所支持的合约
 
 # 颜色定义
 RED='\033[0;31m'
@@ -11,7 +11,7 @@ NC='\033[0m' # No Color
 
 # 显示标题
 echo -e "${BLUE}=================================${NC}"
-echo -e "${BLUE}  Gate.io 合约查询工具${NC}"
+echo -e "${BLUE}  交易所合约查询工具${NC}"
 echo -e "${BLUE}=================================${NC}"
 echo ""
 
@@ -29,21 +29,48 @@ fi
 # 加载环境变量
 export $(grep -v '^#' .env | xargs)
 
-# 检查 Gate.io API 配置
-if [ -z "$GATE_API_KEY" ] || [ -z "$GATE_API_SECRET" ]; then
-    echo -e "${RED}❌ 错误: 未配置 Gate.io API 密钥${NC}"
-    echo -e "${YELLOW}请在 .env 文件中配置 GATE_API_KEY 和 GATE_API_SECRET${NC}"
-    exit 1
-fi
+# 读取交易所配置
+EXCHANGE_NAME=${EXCHANGE_NAME:-gate}
+EXCHANGE_NAME=$(echo "$EXCHANGE_NAME" | tr '[:upper:]' '[:lower:]')
 
-echo -e "${GREEN}✅ Gate.io API 配置检查通过${NC}"
+echo -e "${BLUE}🔍 检测到交易所: ${EXCHANGE_NAME}${NC}"
 echo ""
 
-# 显示当前环境
-if [ "$GATE_USE_TESTNET" = "true" ]; then
-    echo -e "${YELLOW}⚠️  当前使用测试网环境${NC}"
+# 根据交易所检查 API 配置
+if [ "$EXCHANGE_NAME" = "gate" ]; then
+    if [ -z "$GATE_API_KEY" ] || [ -z "$GATE_API_SECRET" ]; then
+        echo -e "${RED}❌ 错误: 未配置 Gate.io API 密钥${NC}"
+        echo -e "${YELLOW}请在 .env 文件中配置 GATE_API_KEY 和 GATE_API_SECRET${NC}"
+        exit 1
+    fi
+    echo -e "${GREEN}✅ Gate.io API 配置检查通过${NC}"
+    
+    # 显示当前环境
+    if [ "$GATE_USE_TESTNET" = "true" ]; then
+        echo -e "${YELLOW}⚠️  当前使用 Gate.io 测试网环境${NC}"
+    else
+        echo -e "${BLUE}ℹ️  当前使用 Gate.io 正式网环境${NC}"
+    fi
+    
+elif [ "$EXCHANGE_NAME" = "binance" ]; then
+    if [ -z "$BINANCE_API_KEY" ] || [ -z "$BINANCE_API_SECRET" ]; then
+        echo -e "${RED}❌ 错误: 未配置 Binance API 密钥${NC}"
+        echo -e "${YELLOW}请在 .env 文件中配置 BINANCE_API_KEY 和 BINANCE_API_SECRET${NC}"
+        exit 1
+    fi
+    echo -e "${GREEN}✅ Binance API 配置检查通过${NC}"
+    
+    # 显示当前环境
+    if [ "$BINANCE_USE_TESTNET" = "true" ]; then
+        echo -e "${YELLOW}⚠️  当前使用 Binance 测试网环境${NC}"
+    else
+        echo -e "${BLUE}ℹ️  当前使用 Binance 正式网环境${NC}"
+    fi
+    
 else
-    echo -e "${BLUE}ℹ️  当前使用正式网环境${NC}"
+    echo -e "${RED}❌ 错误: 不支持的交易所 ${EXCHANGE_NAME}${NC}"
+    echo -e "${YELLOW}支持的交易所: gate, binance${NC}"
+    exit 1
 fi
 echo ""
 

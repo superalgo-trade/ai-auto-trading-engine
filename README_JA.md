@@ -7,6 +7,7 @@
 [![VoltAgent](https://img.shields.io/badge/Framework-VoltAgent-purple.svg)](https://voltagent.dev)
 [![OpenAI Compatible](https://img.shields.io/badge/AI-OpenAI_Compatible-orange.svg)](https://openrouter.ai)
 [![Gate.io](https://img.shields.io/badge/Exchange-Gate.io-00D4AA.svg)](https://www.gatesite.org/signup/VQBEAwgL?ref_type=103)
+[![Binance](https://img.shields.io/badge/Exchange-Binance-F0B90B.svg)](https://www.binance.com)
 [![TypeScript](https://img.shields.io/badge/Language-TypeScript-3178C6.svg?logo=typescript&logoColor=white)](https://www.typescriptlang.org)
 [![Node.js](https://img.shields.io/badge/Runtime-Node.js%2020+-339933.svg?logo=node.js&logoColor=white)](https://nodejs.org)
 [![License](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](./LICENSE)
@@ -20,7 +21,7 @@
 
 ai-auto-trading は、大規模言語モデルの知能と量的取引実践を深く統合した AI 駆動の暗号通貨自動取引システムです。システムは Agent フレームワーク上に構築され、AI に完全な市場分析と取引意思決定の自律権を与えることで、真の知的取引を実現します。
 
-本システムは**最小限の人的介入**という設計思想を採用し、従来のハードコードされた取引ルールを廃止し、AI モデルが生の市場データに基づいて自律的に学習し意思決定できるようにします。システムは Gate.io 取引所（テストネットと本番ネットの両方をサポート）と統合し、BTC、ETH、SOL などの主要な暗号通貨をカバーする完全なパーペチュアル（永久）契約取引機能を提供し、データ収集、インテリジェント分析、リスク管理から取引実行までの全プロセスの自動化をサポートします。
+本システムは**最小限の人的介入**という設計思想を採用し、従来のハードコードされた取引ルールを廃止し、AI モデルが生の市場データに基づいて自律的に学習し意思決定できるようにします。システムは **Gate.io** と **Binance** 取引所（テストネットと本番ネットの両方をサポート）と統合し、BTC、ETH、SOL などの主要な暗号通貨をカバーする完全なパーペチュアル（永久）契約取引機能を提供し、データ収集、インテリジェント分析、リスク管理から取引実行までの全プロセスの自動化をサポートします。
 
 ![ai-auto-trading](./public/image.png)
 
@@ -79,7 +80,7 @@ ai-auto-trading は、大規模言語モデルの知能と量的取引実践を�
 |---------------|------|------|
 | フレームワーク | [VoltAgent](https://voltagent.dev) | AI Agent オーケストレーションと管理 |
 | AI プロバイダー | OpenAI 互換 API | OpenRouter、OpenAI、DeepSeek などの互換プロバイダーをサポート |
-| 取引所 | [Gate.io](https://www.gatesite.org/signup/VQBEAwgL?ref_type=103) | 暗号通貨取引(テストネット & 本番ネット) |
+| 取引所 | [Gate.io](https://www.gatesite.org/signup/VQBEAwgL?ref_type=103) / [Binance](https://www.binance.com) | 暗号通貨取引(テストネット & 本番ネット) |
 | データベース | LibSQL (SQLite) | ローカルデータ永続化 |
 | Web サーバー | Hono | 高性能 HTTP フレームワーク |
 | 開発言語 | TypeScript | 型安全な開発 |
@@ -233,38 +234,67 @@ ai-auto-trading/
 │   │   └── tradingAgent.ts           # AI 取引 Agent 実装
 │   ├── api/
 │   │   └── routes.ts                 # 監視インターフェース HTTP API エンドポイント
+│   ├── config/
+│   │   └── riskParams.ts             # リスクパラメータ設定
 │   ├── database/
 │   │   ├── init.ts                   # データベース初期化ロジック
 │   │   ├── schema.ts                 # データベーススキーマ定義
-│   │   └── sync-from-gate.ts         # 取引所データ同期
+│   │   ├── sync-from-exchanges.ts    # 取引所データ同期
+│   │   ├── sync-positions-only.ts    # ポジションのみ同期
+│   │   └── close-and-reset.ts        # ポジション決済とデータベースリセット
+│   ├── exchanges/                    # 取引所クライアント（統一インターフェース）
+│   │   ├── IExchangeClient.ts        # 取引所インターフェース定義
+│   │   ├── GateExchangeClient.ts     # Gate.io 実装
+│   │   ├── BinanceExchangeClient.ts  # Binance 実装
+│   │   ├── ExchangeFactory.ts        # 取引所ファクトリー（自動選択）
+│   │   └── index.ts                  # 統一エクスポート
 │   ├── scheduler/
-│   │   └── tradingLoop.ts            # 取引ループオーケストレーション
+│   │   ├── tradingLoop.ts            # 取引ループオーケストレーション
+│   │   └── accountRecorder.ts        # アカウント状態記録
 │   ├── services/
-│   │   ├── gateClient.ts             # Gate.io API クライアントラッパー
 │   │   └── multiTimeframeAnalysis.ts # マルチタイムフレームデータアグリゲーター
 │   ├── tools/
 │   │   └── trading/                  # VoltAgent ツール実装
 │   │       ├── accountManagement.ts  # アカウント照会と管理
 │   │       ├── marketData.ts         # 市場データ取得
-│   │       └── tradeExecution.ts     # 注文出しと管理
+│   │       ├── tradeExecution.ts     # 注文出しと管理
+│   │       └── index.ts              # ツール統一エクスポート
 │   ├── types/
 │   │   └── gate.d.ts                 # TypeScript 型定義
 │   └── utils/
-│       └── timeUtils.ts              # 時間/日付ユーティリティ関数
+│       ├── timeUtils.ts              # 時間/日付ユーティリティ関数
+│       ├── priceFormatter.ts         # 価格フォーマットユーティリティ
+│       ├── contractUtils.ts          # 契約ユーティリティ関数
+│       └── index.ts                  # ユーティリティ統一エクスポート
 ├── public/                           # Web ダッシュボード静的ファイル
 │   ├── index.html                    # ダッシュボード HTML
 │   ├── app.js                        # ダッシュボード JavaScript
-│   └── style.css                     # ダッシュボードスタイル
+│   ├── style.css                     # ダッシュボードスタイル
+│   ├── monitor-script.js             # 監視スクリプト
+│   ├── monitor-styles.css            # 監視スタイル
+│   └── price-formatter.js            # 価格フォーマット
 ├── scripts/                          # 運用スクリプト
-│   ├── init-db.sh                    # データベース設定スクリプト
+│   ├── init-db.sh                    # データベース初期化スクリプト
+│   ├── setup.sh                      # 環境設定スクリプト
+│   ├── sync-from-exchanges.sh        # 取引所からデータ同期
+│   ├── sync-positions.sh             # ポジションデータ同期
+│   ├── close-and-reset.sh            # ポジション決済とリセット
+│   ├── db-status.sh                  # データベースステータス確認
 │   ├── kill-port.sh                  # サービス停止スクリプト
-│   └── sync-from-gate.sh             # データ同期スクリプト
+│   ├── docker-start.sh               # Docker 起動スクリプト
+│   └── docker-stop.sh                # Docker 停止スクリプト
+├── docs/                             # プロジェクトドキュメント
+├── logs/                             # ログファイルディレクトリ
 ├── .env                              # 環境設定
+├── .env.example                      # 環境設定例
 ├── .voltagent/                       # データストレージディレクトリ
 │   └── trading.db                    # SQLite データベースファイル
 ├── ecosystem.config.cjs              # PM2 プロセス設定
+├── docker-compose.yml                # Docker Compose 開発設定
+├── docker-compose.prod.yml           # Docker Compose 本番設定
 ├── package.json                      # Node.js 依存関係
 ├── tsconfig.json                     # TypeScript 設定
+├── tsdown.config.ts                  # ビルド設定
 └── Dockerfile                        # コンテナビルド定義
 ```
 
@@ -281,9 +311,13 @@ ai-auto-trading/
 | `MAX_HOLDING_HOURS` | 最大保有時間(時間) | 36 | いいえ |
 | `INITIAL_BALANCE` | 初期資金(USDT) | 2000 | いいえ |
 | `DATABASE_URL` | SQLite データベースファイルパス | file:./.voltagent/trading.db | いいえ |
-| `GATE_API_KEY` | Gate.io API キー | - | はい |
-| `GATE_API_SECRET` | Gate.io API シークレット | - | はい |
-| `GATE_USE_TESTNET` | テストネット環境を使用 | true | いいえ |
+| `EXCHANGE_NAME` | 取引所選択 (gate または binance) | gate | はい |
+| `GATE_API_KEY` | Gate.io API キー | - | EXCHANGE_NAME=gate の場合 |
+| `GATE_API_SECRET` | Gate.io API シークレット | - | EXCHANGE_NAME=gate の場合 |
+| `GATE_USE_TESTNET` | Gate.io テストネット環境を使用 | true | いいえ |
+| `BINANCE_API_KEY` | Binance API キー | - | EXCHANGE_NAME=binance の場合 |
+| `BINANCE_API_SECRET` | Binance API シークレット | - | EXCHANGE_NAME=binance の場合 |
+| `BINANCE_USE_TESTNET` | Binance テストネット環境を使用 | true | いいえ |
 | `OPENAI_API_KEY` | OpenAI 互換 API キー | - | はい |
 | `OPENAI_BASE_URL` | API ベース URL | <https://openrouter.ai/api/v1> | いいえ |
 | `AI_MODEL_NAME` | モデル名 | deepseek/deepseek-v3.2-exp | いいえ |

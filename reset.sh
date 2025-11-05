@@ -115,15 +115,34 @@ echo ""
 if [ ! -f ".env" ]; then
     echo -e "${RED}❌ 未找到 .env 文件${NC}"
     echo "请创建 .env 文件并配置以下变量："
-    echo "  - GATE_API_KEY"
-    echo "  - GATE_API_SECRET"
+    echo "  - EXCHANGE_NAME=gate 或 binance"
     echo "  - OPENAI_API_KEY"
-    echo "  - GATE_USE_TESTNET=true"
+    echo "  根据交易所选择："
+    echo "    Gate.io: GATE_API_KEY, GATE_API_SECRET, GATE_USE_TESTNET"
+    echo "    Binance: BINANCE_API_KEY, BINANCE_API_SECRET, BINANCE_USE_TESTNET"
     exit 1
 fi
 
-# 检查必需的环境变量
-REQUIRED_VARS=("GATE_API_KEY" "GATE_API_SECRET" "OPENAI_API_KEY")
+# 读取交易所名称
+EXCHANGE_NAME=$(grep "^EXCHANGE_NAME=" .env | cut -d '=' -f2 | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')
+if [ -z "$EXCHANGE_NAME" ]; then
+    EXCHANGE_NAME="gate"  # 默认使用 Gate.io
+fi
+
+echo "🔍 检测到交易所: ${EXCHANGE_NAME}"
+
+# 根据交易所检查不同的 API 密钥
+REQUIRED_VARS=("OPENAI_API_KEY")
+if [ "$EXCHANGE_NAME" = "gate" ]; then
+    REQUIRED_VARS+=("GATE_API_KEY" "GATE_API_SECRET")
+elif [ "$EXCHANGE_NAME" = "binance" ]; then
+    REQUIRED_VARS+=("BINANCE_API_KEY" "BINANCE_API_SECRET")
+else
+    echo -e "${RED}❌ 不支持的交易所: $EXCHANGE_NAME${NC}"
+    echo "支持的交易所: gate, binance"
+    exit 1
+fi
+
 MISSING_VARS=()
 
 for var in "${REQUIRED_VARS[@]}"; do
@@ -145,10 +164,18 @@ fi
 echo -e "${GREEN}✓${NC} 配置文件检查通过"
 
 # 检查是否使用测试网
-if grep -q "GATE_USE_TESTNET=true" .env; then
-    echo -e "${GREEN}✓${NC} 当前配置: 测试网模式（推荐）"
-else
-    echo -e "${YELLOW}⚠${NC} 当前配置: 正式网模式"
+if [ "$EXCHANGE_NAME" = "gate" ]; then
+    if grep -q "GATE_USE_TESTNET=true" .env; then
+        echo -e "${GREEN}✓${NC} 当前配置: Gate.io 测试网模式（推荐）"
+    else
+        echo -e "${YELLOW}⚠${NC} 当前配置: Gate.io 正式网模式"
+    fi
+elif [ "$EXCHANGE_NAME" = "binance" ]; then
+    if grep -q "BINANCE_USE_TESTNET=true" .env; then
+        echo -e "${GREEN}✓${NC} 当前配置: Binance 测试网模式（推荐）"
+    else
+        echo -e "${YELLOW}⚠${NC} 当前配置: Binance 正式网模式"
+    fi
 fi
 echo ""
 
@@ -160,7 +187,8 @@ npm run db:init
 echo ""
 
 # 步骤 7：同步持仓数据
-echo "🔄 步骤 7/8：从 Gate.io 同步持仓数据..."
+EXCHANGE_DISPLAY=$(echo "$EXCHANGE_NAME" | awk '{print toupper(substr($0,1,1)) tolower(substr($0,2))}')
+echo "🔄 步骤 7/8：从 ${EXCHANGE_DISPLAY} 同步持仓数据..."
 echo ""
 
 npm run db:sync-positions

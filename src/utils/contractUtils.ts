@@ -19,7 +19,7 @@
 /**
  * 合约工具函数
  */
-import { createGateClient } from "../services/gateClient";
+import { getExchangeClient } from "../exchanges";
 import { createPinoLogger } from "@voltagent/logger";
 
 const logger = createPinoLogger({
@@ -32,7 +32,7 @@ const quantoMultiplierCache = new Map<string, number>();
 
 /**
  * 默认合约乘数映射
- * 从 Gate.io API 获取失败时使用
+ * 从交易所 API 获取失败时使用
  */
 const DEFAULT_MULTIPLIERS: Record<string, number> = {
   'BTC': 0.0001,  // 1张 = 0.0001 BTC
@@ -50,7 +50,7 @@ const DEFAULT_MULTIPLIERS: Record<string, number> = {
  * 合约乘数表示：1张合约代表多少个币
  * 例如：BTC_USDT合约，1张 = 0.0001 BTC
  * 
- * 优先从 Gate.io API 获取，失败时使用默认值
+ * 优先从交易所 API 获取，失败时使用默认值
  * 支持缓存以减少API调用次数
  * 
  * @param contract 合约名称，如 "BTC_USDT"
@@ -69,7 +69,7 @@ export async function getQuantoMultiplier(
   }
   
   try {
-    const client = createGateClient();
+    const client = getExchangeClient();
     const contractInfo = await client.getContractInfo(contract);
     const multiplier = Number.parseFloat(contractInfo.quantoMultiplier || "0");
     
@@ -90,8 +90,9 @@ export async function getQuantoMultiplier(
   } catch (error: any) {
     logger.warn(`获取 ${contract} 合约信息失败: ${error.message}，使用默认值`);
     
-    // 使用默认值
-    const symbol = contract.replace("_USDT", "");
+    // 使用默认值 - 使用 extractSymbol 提取币种符号
+    const exchangeClient = getExchangeClient();
+    const symbol = exchangeClient.extractSymbol(contract);
     const defaultValue = DEFAULT_MULTIPLIERS[symbol] || 0.01;
     
     logger.info(`使用 ${contract} 默认合约乘数: ${defaultValue}`);

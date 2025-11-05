@@ -17,56 +17,62 @@
  */
 
 /**
- * 从 Gate.io 同步账户资金并重新初始化数据库
+ * 从交易所同步账户资金并重新初始化数据库
+ * 兼容 Gate.io 和 Binance
  */
 import "dotenv/config";
 import { createClient } from "@libsql/client";
 import { CREATE_TABLES_SQL } from "./schema";
 import { createPinoLogger } from "@voltagent/logger";
-import { createGateClient } from "../services/gateClient";
+import { getExchangeClient } from "../exchanges";
 import * as fs from "node:fs";
 import * as path from "node:path";
 
 const logger = createPinoLogger({
-  name: "sync-from-gate",
+  name: "sync-from-exchange",
   level: "info",
 });
 
 async function syncFromGate() {
   try {
-    logger.info("🔄 从 Gate.io 同步账户信息...");
+    // 1. 连接交易所获取当前账户余额（兼容 Gate.io 和 Binance）
+    const exchangeClient = getExchangeClient();
+    const exchangeName = exchangeClient.getExchangeName();
     
-    // 1. 连接 Gate.io 获取当前账户余额
-    const gateClient = createGateClient();
-    const account = await gateClient.getFuturesAccount();
+    logger.info(`🔄 从 ${exchangeName} 同步账户信息...`);
+    const account = await exchangeClient.getFuturesAccount();
     
     const accountTotal = Number.parseFloat(account.total || "0");
     const availableBalance = Number.parseFloat(account.available || "0");
     const unrealizedPnl = Number.parseFloat(account.unrealisedPnl || "0");
     
-    // Gate.io 的 account.total 不包含未实现盈亏
+    // 统一处理：account.total 不包含未实现盈亏（Gate.io 和 Binance 都是如此）
     // 真实总资产 = account.total + unrealisedPnl
     const currentBalance = accountTotal + unrealizedPnl;
     
-    logger.info(`\n📊 Gate.io 当前账户状态:`);
+    logger.info(`\n📊 交易所当前账户状态:`);
     logger.info(`   账户余额: ${accountTotal} USDT`);
     logger.info(`   未实现盈亏: ${unrealizedPnl >= 0 ? '+' : ''}${unrealizedPnl} USDT`);
     logger.info(`   总资产(含盈亏): ${currentBalance} USDT`);
     logger.info(`   可用资金: ${availableBalance} USDT`);
     
     // 2. 获取持仓信息
-    const positions = await gateClient.getPositions();
-    const activePositions = positions.filter(p => Number.parseInt(p.size || "0") !== 0);
+    const positions = await exchangeClient.getPositions();
+    const activePositions = positions.filter((p: any) => Number.parseInt(p.size || "0") !== 0);
     logger.info(`   当前持仓数: ${activePositions.length}`);
+    
+    // 获取合约类型以显示正确的单位
+    const contractType = exchangeClient.getContractType();
+    const unit = contractType === 'inverse' ? ' 张' : ''; // Gate.io 显示"张"，Binance 不显示
     
     if (activePositions.length > 0) {
       logger.info(`\n   持仓详情:`);
       for (const pos of activePositions) {
         const size = Number.parseInt(pos.size || "0");
-        const symbol = pos.contract.replace("_USDT", "");
+        const symbol = exchangeClient.extractSymbol(pos.contract);
         const side = size > 0 ? "做多" : "做空";
         const pnl = Number.parseFloat(pos.unrealisedPnl || "0");
-        logger.info(`     ${symbol}: ${Math.abs(size)} 张 (${side}) | 盈亏: ${pnl >= 0 ? '+' : ''}${pnl.toFixed(2)} USDT`);
+        logger.info(`     ${symbol}: ${Math.abs(size)}${unit} (${side}) | 盈亏: ${pnl >= 0 ? '+' : ''}${pnl.toFixed(2)} USDT`);
       }
     }
     
@@ -103,7 +109,7 @@ async function syncFromGate() {
     await client.executeMultiple(CREATE_TABLES_SQL);
     logger.info("✅ 表创建完成");
     
-    // 7. 插入初始账户记录（使用 Gate.io 的实际资金）
+    // 7. 插入初始账户记录（使用交易所的实际资金）
     logger.info(`💰 插入初始资金记录: ${currentBalance} USDT`);
     await client.execute({
       sql: `INSERT INTO account_history 
@@ -127,7 +133,7 @@ async function syncFromGate() {
         const size = Number.parseInt(pos.size || "0");
         if (size === 0) continue;
         
-        const symbol = pos.contract.replace("_USDT", "");
+        const symbol = exchangeClient.extractSymbol(pos.contract);
         const entryPrice = Number.parseFloat(pos.entryPrice || "0");
         const currentPrice = Number.parseFloat(pos.markPrice || "0");
         const leverage = Number.parseInt(pos.leverage || "1");
@@ -158,7 +164,7 @@ async function syncFromGate() {
           ],
         });
         
-        logger.info(`   ✅ ${symbol}: ${quantity} 张 (${side}) @ ${entryPrice}`);
+        logger.info(`   ✅ ${symbol}: ${quantity}${unit} (${side}) @ ${entryPrice}`);
       }
     }
     
@@ -190,7 +196,7 @@ async function syncFromGate() {
       
       fs.writeFileSync(envPath, envContent, "utf-8");
       logger.info(`✅ .env 文件已更新`);
-    } catch (error) {
+    } catch (error: any) {
       logger.warn(`⚠️  更新 .env 文件失败:`, error);
       logger.warn(`   请手动设置 INITIAL_BALANCE=${currentBalance.toFixed(2)}`);
     }

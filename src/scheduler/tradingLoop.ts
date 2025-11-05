@@ -23,7 +23,7 @@ import cron from "node-cron";
 import { createPinoLogger } from "@voltagent/logger";
 import { createClient } from "@libsql/client";
 import { createTradingAgent, generateTradingPrompt, getAccountRiskConfig, getTradingStrategy, getStrategyParams } from "../agents/tradingAgent";
-import { createGateClient } from "../services/gateClient";
+import { getExchangeClient } from "../exchanges";
 import { getChinaTimeISO } from "../utils/timeUtils";
 import { RISK_PARAMS } from "../config/riskParams";
 import { getQuantoMultiplier } from "../utils/contractUtils";
@@ -75,12 +75,12 @@ function ensureRange(value: number, min: number, max: number, defaultValue?: num
  * 优化：增加数据验证和错误处理，返回时序数据用于提示词
  */
 async function collectMarketData() {
-  const gateClient = createGateClient();
+  const exchangeClient = getExchangeClient();
   const marketData: Record<string, any> = {};
 
   for (const symbol of SYMBOLS) {
     try {
-      const contract = `${symbol}_USDT`;
+      const contract = exchangeClient.normalizeContract(symbol);
       
       // 获取价格（带重试）
       let ticker: any = null;
@@ -89,7 +89,7 @@ async function collectMarketData() {
       
       while (retryCount <= maxRetries) {
         try {
-          ticker = await gateClient.getFuturesTicker(contract);
+          ticker = await exchangeClient.getFuturesTicker(contract);
           
           // 验证价格数据有效性
           const price = Number.parseFloat(ticker.last || "0");
@@ -110,12 +110,12 @@ async function collectMarketData() {
       }
       
       // 获取所有时间框架的K线数据（优化后的配置，确保技术指标准确性）
-      const candles1m = await gateClient.getFuturesCandles(contract, "1m", 150);   // 2.5小时，EMA50有充足验证数据
-      const candles3m = await gateClient.getFuturesCandles(contract, "3m", 120);   // 6小时，覆盖半个交易日
-      const candles5m = await gateClient.getFuturesCandles(contract, "5m", 100);   // 8.3小时，日内趋势分析
-      const candles15m = await gateClient.getFuturesCandles(contract, "15m", 96);  // 24小时，完整一天
-      const candles30m = await gateClient.getFuturesCandles(contract, "30m", 120); // 2.5天，中期趋势
-      const candles1h = await gateClient.getFuturesCandles(contract, "1h", 168);   // 7天完整一周，周级别分析
+      const candles1m = await exchangeClient.getFuturesCandles(contract, "1m", 150);   // 2.5小时，EMA50有充足验证数据
+      const candles3m = await exchangeClient.getFuturesCandles(contract, "3m", 120);   // 6小时，覆盖半个交易日
+      const candles5m = await exchangeClient.getFuturesCandles(contract, "5m", 100);   // 8.3小时，日内趋势分析
+      const candles15m = await exchangeClient.getFuturesCandles(contract, "15m", 96);  // 24小时，完整一天
+      const candles30m = await exchangeClient.getFuturesCandles(contract, "30m", 120); // 2.5天，中期趋势
+      const candles1h = await exchangeClient.getFuturesCandles(contract, "1h", 168);   // 7天完整一周，周级别分析
       
       // 计算每个时间框架的指标
       const indicators1m = calculateIndicators(candles1m);
@@ -171,7 +171,7 @@ async function collectMarketData() {
       // 获取资金费率
       let fundingRate = 0;
       try {
-        const fr = await gateClient.getFundingRate(contract);
+        const fr = await exchangeClient.getFundingRate(contract);
         fundingRate = Number.parseFloat(fr.r || "0");
         if (!Number.isFinite(fundingRate)) {
           fundingRate = 0;
@@ -180,9 +180,9 @@ async function collectMarketData() {
         logger.warn(`获取 ${symbol} 资金费率失败:`, error as any);
       }
       
-      // 获取未平仓合约（Open Interest）- Gate.io ticker中没有openInterest字段，暂时跳过
+      // 获取未平仓合约（Open Interest）- 部分交易所 ticker 中没有 openInterest 字段，暂时跳过
       let openInterest = { latest: 0, average: 0 };
-      // Note: Gate.io ticker 数据中没有开放持仓量字段，如需可以使用其他API或外部数据源
+      // Note: 可以使用专门的 API 或外部数据源获取开放持仓量数据
       
       // 将各时间框架指标添加到市场数据
       marketData[symbol] = {
@@ -249,7 +249,13 @@ function calculateIntradaySeries(candles: any[]) {
   }
 
   // 提取收盘价
-  const closes = candles.map((c) => Number.parseFloat(c.c || "0")).filter(n => Number.isFinite(n));
+  const closes = candles.map((c) => {
+    if (c && typeof c === 'object') {
+      if ('close' in c) return typeof c.close === 'string' ? Number.parseFloat(c.close) : c.close;
+      if ('c' in c) return typeof c.c === 'string' ? Number.parseFloat(c.c) : c.c;
+    }
+    return NaN;
+  }).filter(n => Number.isFinite(n));
   
   if (closes.length === 0) {
     return {
@@ -314,10 +320,43 @@ function calculateLongerTermContext(candles: any[]) {
     };
   }
 
-  const closes = candles.map((c) => Number.parseFloat(c.c || "0")).filter(n => Number.isFinite(n));
-  const highs = candles.map((c) => Number.parseFloat(c.h || "0")).filter(n => Number.isFinite(n));
-  const lows = candles.map((c) => Number.parseFloat(c.l || "0")).filter(n => Number.isFinite(n));
-  const volumes = candles.map((c) => Number.parseFloat(c.v || "0")).filter(n => Number.isFinite(n));
+  const closes = candles.map((c) => {
+    if (c && typeof c === 'object') {
+      if ('close' in c) return typeof c.close === 'string' ? Number.parseFloat(c.close) : c.close;
+      if ('c' in c) return typeof c.c === 'string' ? Number.parseFloat(c.c) : c.c;
+    }
+    return NaN;
+  }).filter(n => Number.isFinite(n));
+  
+  const highs = candles.map((c) => {
+    if (c && typeof c === 'object') {
+      if ('high' in c) return typeof c.high === 'string' ? Number.parseFloat(c.high) : c.high;
+      if ('h' in c) return typeof c.h === 'string' ? Number.parseFloat(c.h) : c.h;
+    }
+    return NaN;
+  }).filter(n => Number.isFinite(n));
+  
+  const lows = candles.map((c) => {
+    if (c && typeof c === 'object') {
+      if ('low' in c) return typeof c.low === 'string' ? Number.parseFloat(c.low) : c.low;
+      if ('l' in c) return typeof c.l === 'string' ? Number.parseFloat(c.l) : c.l;
+    }
+    return NaN;
+  }).filter(n => Number.isFinite(n));
+  
+  const volumes = candles.map((c) => {
+    if (c && typeof c === 'object') {
+      if ('volume' in c) {
+        const vol = typeof c.volume === 'string' ? Number.parseFloat(c.volume) : c.volume;
+        return Number.isFinite(vol) && vol >= 0 ? vol : 0;
+      }
+      if ('v' in c) {
+        const vol = typeof c.v === 'string' ? Number.parseFloat(c.v) : c.v;
+        return Number.isFinite(vol) && vol >= 0 ? vol : 0;
+      }
+    }
+    return 0;
+  }).filter(n => Number.isFinite(n));
 
   // 计算 EMA
   const ema20 = calcEMA(closes, 20);
@@ -456,12 +495,19 @@ function calculateIndicators(candles: any[]) {
     };
   }
 
-  // 处理对象格式的K线数据（Gate.io API返回的是对象，不是数组）
+  // 处理对象格式的K线数据（统一转换为数组格式）
   const closes = candles
     .map((c) => {
       // 如果是对象格式（FuturesCandlestick）
-      if (c && typeof c === 'object' && 'c' in c) {
-        return Number.parseFloat(c.c);
+      if (c && typeof c === 'object') {
+        // 优先使用标准化字段 close
+        if ('close' in c) {
+          return typeof c.close === 'string' ? Number.parseFloat(c.close) : c.close;
+        }
+        // 兼容原始字段 c
+        if ('c' in c) {
+          return typeof c.c === 'string' ? Number.parseFloat(c.c) : c.c;
+        }
       }
       // 如果是数组格式（兼容旧代码）
       if (Array.isArray(c)) {
@@ -474,10 +520,17 @@ function calculateIndicators(candles: any[]) {
   const volumes = candles
     .map((c) => {
       // 如果是对象格式（FuturesCandlestick）
-      if (c && typeof c === 'object' && 'v' in c) {
-        const vol = Number.parseFloat(c.v);
-        // 验证成交量：必须是有限数字且非负
-        return Number.isFinite(vol) && vol >= 0 ? vol : 0;
+      if (c && typeof c === 'object') {
+        // 优先使用标准化字段 volume
+        if ('volume' in c) {
+          const vol = typeof c.volume === 'string' ? Number.parseFloat(c.volume) : c.volume;
+          return Number.isFinite(vol) && vol >= 0 ? vol : 0;
+        }
+        // 兼容原始字段 v
+        if ('v' in c) {
+          const vol = typeof c.v === 'string' ? Number.parseFloat(c.v) : c.v;
+          return Number.isFinite(vol) && vol >= 0 ? vol : 0;
+        }
       }
       // 如果是数组格式（兼容旧代码）
       if (Array.isArray(c)) {
@@ -571,19 +624,20 @@ async function calculateSharpeRatio(): Promise<number> {
 /**
  * 获取账户信息
  * 
- * Gate.io 的 account.total 不包含未实现盈亏
- * 总资产（不含未实现盈亏）= account.total = available + positionMargin
+ * 注意：不同交易所的 account.total 处理方式可能不同
+ * - Gate.io: account.total 不包含未实现盈亏
+ * - Binance: 根据具体实现可能有所不同
  * 
- * 因此：
- * - totalBalance 不包含未实现盈亏
- * - returnPercent 反映已实现盈亏
+ * 总资产计算方式：
+ * - totalBalance: account.total（不包含未实现盈亏）
+ * - returnPercent: 反映已实现盈亏
  * - 前端显示时需加上 unrealisedPnl
  */
 async function getAccountInfo() {
-  const gateClient = createGateClient();
+  const exchangeClient = getExchangeClient();
   
   try {
-    const account = await gateClient.getFuturesAccount();
+    const account = await exchangeClient.getFuturesAccount();
     
     // 从数据库获取初始资金
     const initialResult = await dbClient.execute(
@@ -601,13 +655,12 @@ async function getAccountInfo() {
       ? Number.parseFloat(peakResult.rows[0].peak as string)
       : initialBalance;
     
-    // 从 Gate.io API 返回的数据中提取字段
+    // 从交易所 API 返回的数据中提取字段
     const accountTotal = Number.parseFloat(account.total || "0");
     const availableBalance = Number.parseFloat(account.available || "0");
     const unrealisedPnl = Number.parseFloat(account.unrealisedPnl || "0");
     
-    // Gate.io 的 account.total 不包含未实现盈亏
-    // totalBalance 直接使用 account.total（不包含未实现盈亏）
+    // totalBalance 直接使用 account.total（通常不包含未实现盈亏）
     const totalBalance = accountTotal;
     
     // 实时收益率 = (总资产 - 初始资金) / 初始资金 * 100
@@ -641,30 +694,30 @@ async function getAccountInfo() {
 }
 
 /**
- * 从 Gate.io 同步持仓到数据库
+ * 从交易所同步持仓到数据库
  * 优化：确保持仓数据的准确性和完整性
  * 数据库中的持仓记录主要用于：
  * 1. 保存止损止盈订单ID等元数据
  * 2. 提供历史查询和监控页面展示
- * 实时持仓数据应该直接从 Gate.io 获取
+ * 实时持仓数据应该直接从交易所 API 获取
  */
 async function syncPositionsFromGate(cachedPositions?: any[]) {
-  const gateClient = createGateClient();
+  const exchangeClient = getExchangeClient();
   
   try {
     // 如果提供了缓存数据，使用缓存；否则重新获取
-    const gatePositions = cachedPositions || await gateClient.getPositions();
+    const exchangePositions = cachedPositions || await exchangeClient.getPositions();
     const dbResult = await dbClient.execute("SELECT symbol, sl_order_id, tp_order_id, stop_loss, profit_target, entry_order_id, opened_at, peak_pnl_percent, partial_close_percentage FROM positions");
     const dbPositionsMap = new Map(
       dbResult.rows.map((row: any) => [row.symbol, row])
     );
     
-    // 检查 Gate.io 是否有持仓（可能 API 有延迟）
-    const activeGatePositions = gatePositions.filter((p: any) => Number.parseInt(p.size || "0") !== 0);
+    // 检查交易所是否有持仓（可能 API 有延迟）
+    const activeExchangePositions = exchangePositions.filter((p: any) => Number.parseInt(p.size || "0") !== 0);
     
-    // 如果 Gate.io 返回0个持仓但数据库有持仓，可能是 API 延迟，不清空数据库
-    if (activeGatePositions.length === 0 && dbResult.rows.length > 0) {
-      logger.warn(`Gate.io 返回0个持仓，但数据库有 ${dbResult.rows.length} 个持仓，可能是 API 延迟，跳过同步`);
+    // 如果交易所返回0个持仓但数据库有持仓，可能是 API 延迟，不清空数据库
+    if (activeExchangePositions.length === 0 && dbResult.rows.length > 0) {
+      logger.warn(`交易所返回0个持仓，但数据库有 ${dbResult.rows.length} 个持仓，可能是 API 延迟，跳过同步`);
       return;
     }
     
@@ -672,11 +725,11 @@ async function syncPositionsFromGate(cachedPositions?: any[]) {
     
     let syncedCount = 0;
     
-    for (const pos of gatePositions) {
+    for (const pos of exchangePositions) {
       const size = Number.parseInt(pos.size || "0");
       if (size === 0) continue;
       
-      const symbol = pos.contract.replace("_USDT", "");
+      const symbol = exchangeClient.extractSymbol(pos.contract);
       let entryPrice = Number.parseFloat(pos.entryPrice || "0");
       let currentPrice = Number.parseFloat(pos.markPrice || "0");
       const leverage = Number.parseInt(pos.leverage || "1");
@@ -687,7 +740,7 @@ async function syncPositionsFromGate(cachedPositions?: any[]) {
       
       if (entryPrice === 0 || currentPrice === 0) {
         try {
-          const ticker = await gateClient.getFuturesTicker(pos.contract);
+          const ticker = await exchangeClient.getFuturesTicker(pos.contract);
           if (currentPrice === 0) {
             currentPrice = Number.parseFloat(ticker.markPrice || ticker.last || "0");
           }
@@ -738,9 +791,9 @@ async function syncPositionsFromGate(cachedPositions?: any[]) {
       syncedCount++;
     }
     
-    const activeGatePositionsCount = gatePositions.filter((p: any) => Number.parseInt(p.size || "0") !== 0).length;
-    if (activeGatePositionsCount > 0 && syncedCount === 0) {
-      logger.error(`Gate.io 有 ${activeGatePositionsCount} 个持仓，但数据库同步失败！`);
+    const activePositionsCount = exchangePositions.filter((p: any) => Number.parseInt(p.size || "0") !== 0).length;
+    if (activePositionsCount > 0 && syncedCount === 0) {
+      logger.error(`交易所有 ${activePositionsCount} 个持仓，但数据库同步失败！`);
     }
     
   } catch (error) {
@@ -749,16 +802,16 @@ async function syncPositionsFromGate(cachedPositions?: any[]) {
 }
 
 /**
- * 获取持仓信息 - 直接从 Gate.io 获取最新数据
- * @param cachedGatePositions 可选，已获取的原始Gate持仓数据，避免重复调用API
+ * 获取持仓信息 - 直接从交易所获取最新数据
+ * @param cachedExchangePositions 可选，已获取的原始持仓数据，避免重复调用API
  * @returns 格式化后的持仓数据
  */
-async function getPositions(cachedGatePositions?: any[]) {
-  const gateClient = createGateClient();
+async function getPositions(cachedExchangePositions?: any[]) {
+  const exchangeClient = getExchangeClient();
   
   try {
     // 如果提供了缓存数据，使用缓存；否则重新获取
-    const gatePositions = cachedGatePositions || await gateClient.getPositions();
+    const exchangePositions = cachedExchangePositions || await exchangeClient.getPositions();
     
     // 从数据库获取持仓的开仓时间（数据库中保存了正确的开仓时间）
     const dbResult = await dbClient.execute("SELECT symbol, opened_at FROM positions");
@@ -767,18 +820,18 @@ async function getPositions(cachedGatePositions?: any[]) {
     );
     
     // 过滤并格式化持仓
-    const positions = gatePositions
+    const positions = exchangePositions
       .filter((p: any) => Number.parseInt(p.size || "0") !== 0)
       .map((p: any) => {
         const size = Number.parseInt(p.size || "0");
-        const symbol = p.contract.replace("_USDT", "");
+        const symbol = exchangeClient.extractSymbol(p.contract);
         
         // 优先从数据库读取开仓时间，确保时间准确
         let openedAt = dbOpenedAtMap.get(symbol);
         
-        // 如果数据库中没有，尝试从Gate.io的create_time获取
+        // 如果数据库中没有，尝试从交易所的create_time获取
         if (!openedAt && p.create_time) {
-          // Gate.io的create_time是UNIX时间戳（秒），需要转换为ISO字符串
+          // create_time 可能是UNIX时间戳（秒），需要转换为ISO字符串
           if (typeof p.create_time === 'number') {
             openedAt = new Date(p.create_time * 1000).toISOString();
           } else {
@@ -946,6 +999,8 @@ async function loadConfigFromDatabase() {
  * 每个周期结束时自动调用，确保所有交易记录的盈亏计算正确
  */
 async function fixHistoricalPnlRecords() {
+  const exchangeClient = getExchangeClient();
+  
   try {
     // 查询所有平仓记录
     const result = await dbClient.execute({
@@ -982,18 +1037,33 @@ async function fixHistoricalPnlRecords() {
       const openTrade = openResult.rows[0];
       const openPrice = Number.parseFloat(openTrade.price as string);
 
-      // 获取合约乘数
-      const contract = `${symbol}_USDT`;
-      const quantoMultiplier = await getQuantoMultiplier(contract);
+      // 获取合约名称（适配多交易所）
+      const contract = exchangeClient.normalizeContract(symbol);
 
-      // 重新计算正确的盈亏
-      const priceChange = side === "long" 
-        ? (closePrice - openPrice) 
-        : (openPrice - closePrice);
+      // 使用 exchangeClient 统一计算盈亏（兼容Gate.io和Binance）
+      const grossPnl = await exchangeClient.calculatePnl(
+        openPrice,
+        closePrice,
+        quantity,
+        side as 'long' | 'short',
+        contract
+      );
       
-      const grossPnl = priceChange * quantity * quantoMultiplier;
-      const openFee = openPrice * quantity * quantoMultiplier * 0.0005;
-      const closeFee = closePrice * quantity * quantoMultiplier * 0.0005;
+      // 计算手续费（开仓 + 平仓，假设 0.05% taker 费率）
+      const contractType = exchangeClient.getContractType();
+      let openFee: number, closeFee: number;
+      
+      if (contractType === 'inverse') {
+        // Gate.io: 反向合约，费用以币计价
+        const quantoMultiplier = await getQuantoMultiplier(contract);
+        openFee = openPrice * quantity * quantoMultiplier * 0.0005;
+        closeFee = closePrice * quantity * quantoMultiplier * 0.0005;
+      } else {
+        // Binance: 正向合约，费用直接以USDT计价
+        openFee = openPrice * quantity * 0.0005;
+        closeFee = closePrice * quantity * 0.0005;
+      }
+      
       const totalFee = openFee + closeFee;
       const correctPnl = grossPnl - totalFee;
 
@@ -1028,12 +1098,12 @@ async function fixHistoricalPnlRecords() {
  * 清仓所有持仓
  */
 async function closeAllPositions(reason: string): Promise<void> {
-  const gateClient = createGateClient();
+  const exchangeClient = getExchangeClient();
   
   try {
     logger.warn(`清仓所有持仓，原因: ${reason}`);
     
-    const positions = await gateClient.getPositions();
+    const positions = await exchangeClient.getPositions();
     const activePositions = positions.filter((p: any) => Number.parseInt(p.size || "0") !== 0);
     
     if (activePositions.length === 0) {
@@ -1043,10 +1113,10 @@ async function closeAllPositions(reason: string): Promise<void> {
     for (const pos of activePositions) {
       const size = Number.parseInt(pos.size || "0");
       const contract = pos.contract;
-      const symbol = contract.replace("_USDT", "");
+      const symbol = exchangeClient.extractSymbol(contract);
       
       try {
-        await gateClient.placeOrder({
+        await exchangeClient.placeOrder({
           contract,
           size: -size,
           price: 0, // 市价单必须传 price: 0
@@ -1153,8 +1223,8 @@ async function executeTradingDecision() {
     
     // 3. 同步持仓信息（优化：只调用一次API，避免重复）
     try {
-      const gateClient = createGateClient();
-      const rawGatePositions = await gateClient.getPositions();
+      const exchangeClient = getExchangeClient();
+      const rawGatePositions = await exchangeClient.getPositions();
       
       // 使用同一份数据进行处理和同步，避免重复调用API
       positions = await getPositions(rawGatePositions);
@@ -1173,7 +1243,7 @@ async function executeTradingDecision() {
     }
     
     // 4. ====== 强制风控检查（在AI执行前） ======
-    const gateClient = createGateClient();
+    const exchangeClient = getExchangeClient();
     
     for (const pos of positions) {
       const symbol = pos.symbol;
@@ -1249,11 +1319,11 @@ async function executeTradingDecision() {
       if (shouldClose) {
         logger.warn(`【强制平仓】${symbol} ${side} - ${closeReason}`);
         try {
-          const contract = `${symbol}_USDT`;
+          const contract = exchangeClient.normalizeContract(symbol);
           const size = side === 'long' ? -pos.quantity : pos.quantity;
           
           // 1. 执行平仓订单
-          const order = await gateClient.placeOrder({
+          const order = await exchangeClient.placeOrder({
             contract,
             size,
             price: 0,
@@ -1273,27 +1343,38 @@ async function executeTradingDecision() {
             await new Promise(resolve => setTimeout(resolve, 500));
             
             try {
-              const orderStatus = await gateClient.getOrder(order.id?.toString() || "");
+              const orderStatus = await exchangeClient.getOrder(order.id?.toString() || "");
               
               if (orderStatus.status === 'finished') {
                 actualExitPrice = Number.parseFloat(orderStatus.fill_price || orderStatus.price || "0");
                 actualQuantity = Math.abs(Number.parseFloat(orderStatus.size || "0"));
                 orderFilled = true;
                 
-                // 获取合约乘数
-                const quantoMultiplier = await getQuantoMultiplier(contract);
-                
-                // 计算盈亏
+                // 使用 exchangeClient 统一计算盈亏（兼容Gate.io和Binance）
                 const entryPrice = pos.entry_price;
-                const priceChange = side === "long" 
-                  ? (actualExitPrice - entryPrice) 
-                  : (entryPrice - actualExitPrice);
+                const grossPnl = await exchangeClient.calculatePnl(
+                  entryPrice,
+                  actualExitPrice,
+                  actualQuantity,
+                  side as 'long' | 'short',
+                  contract
+                );
                 
-                const grossPnl = priceChange * actualQuantity * quantoMultiplier;
+                // 计算手续费（开仓 + 平仓，假设 0.05% taker 费率）
+                const contractType = exchangeClient.getContractType();
+                let openFee: number, closeFee: number;
                 
-                // 计算手续费（开仓 + 平仓）
-                const openFee = entryPrice * actualQuantity * quantoMultiplier * 0.0005;
-                const closeFee = actualExitPrice * actualQuantity * quantoMultiplier * 0.0005;
+                if (contractType === 'inverse') {
+                  // Gate.io: 反向合约，费用以币计价
+                  const quantoMultiplier = await getQuantoMultiplier(contract);
+                  openFee = entryPrice * actualQuantity * quantoMultiplier * 0.0005;
+                  closeFee = actualExitPrice * actualQuantity * quantoMultiplier * 0.0005;
+                } else {
+                  // Binance: 正向合约，费用直接以USDT计价
+                  openFee = entryPrice * actualQuantity * 0.0005;
+                  closeFee = actualExitPrice * actualQuantity * 0.0005;
+                }
+                
                 totalFee = openFee + closeFee;
                 
                 // 净盈亏
@@ -1309,21 +1390,38 @@ async function executeTradingDecision() {
           
           // 3. 记录到trades表（无论是否成功获取详细信息都要记录）
           try {
-            // 关键验证：检查盈亏计算是否正确
+            // 关键验证：检查盈亏计算是否正确（使用 exchangeClient 统一计算）
             const finalPrice = actualExitPrice || pos.current_price;
-            const quantoMultiplier = await getQuantoMultiplier(contract);
-            const notionalValue = finalPrice * actualQuantity * quantoMultiplier;
-            const priceChangeCheck = side === "long" 
-              ? (finalPrice - pos.entry_price) 
-              : (pos.entry_price - finalPrice);
-            const expectedPnl = priceChangeCheck * actualQuantity * quantoMultiplier - totalFee;
+            
+            // 使用 exchangeClient 统一计算预期盈亏（兼容Gate.io和Binance）
+            const grossExpectedPnl = await exchangeClient.calculatePnl(
+              pos.entry_price,
+              finalPrice,
+              actualQuantity,
+              side as 'long' | 'short',
+              contract
+            );
+            const expectedPnl = grossExpectedPnl - totalFee;
+            
+            // 计算名义价值用于异常检测
+            const contractType = exchangeClient.getContractType();
+            let notionalValue: number;
+            
+            if (contractType === 'inverse') {
+              // Gate.io: 反向合约
+              const quantoMultiplier = await getQuantoMultiplier(contract);
+              notionalValue = finalPrice * actualQuantity * quantoMultiplier;
+            } else {
+              // Binance: 正向合约
+              notionalValue = finalPrice * actualQuantity;
+            }
             
             // 检测盈亏是否被错误地设置为名义价值
             if (Math.abs(pnl - notionalValue) < Math.abs(pnl - expectedPnl)) {
               logger.error(`【强制平仓】检测到盈亏计算异常！`);
               logger.error(`  当前pnl: ${formatUSDT(pnl)} USDT 接近名义价值 ${formatUSDT(notionalValue)} USDT`);
               logger.error(`  预期pnl: ${formatUSDT(expectedPnl)} USDT`);
-              logger.error(`  开仓价: ${pos.entry_price}, 平仓价: ${finalPrice}, 数量: ${actualQuantity}, 合约乘数: ${quantoMultiplier}`);
+              logger.error(`  开仓价: ${pos.entry_price}, 平仓价: ${finalPrice}, 数量: ${actualQuantity}`);
               
               // 强制修正为正确值
               pnl = expectedPnl;
@@ -1558,7 +1656,7 @@ async function executeTradingDecision() {
       });
       
       // Agent 执行后重新同步持仓数据（优化：只调用一次API）
-      const updatedRawPositions = await gateClient.getPositions();
+      const updatedRawPositions = await exchangeClient.getPositions();
       await syncPositionsFromGate(updatedRawPositions);
       const updatedPositions = await getPositions(updatedRawPositions);
       

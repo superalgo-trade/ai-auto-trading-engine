@@ -39,13 +39,14 @@ if [ ! -f .env ]; then
     echo -e "${RED}❌ 错误: .env 文件不存在${NC}"
     echo ""
     echo "请先创建 .env 文件并配置必要的环境变量："
-    echo "  - GATE_API_KEY"
-    echo "  - GATE_API_SECRET"
+    echo "  - EXCHANGE_NAME (gate 或 binance)"
+    echo "  - Gate.io: GATE_API_KEY, GATE_API_SECRET"
+    echo "  - Binance: BINANCE_API_KEY, BINANCE_API_SECRET"
     echo "  - OPENAI_API_KEY"
     echo "  - INITIAL_BALANCE"
     echo "  - DATABASE_URL"
     echo ""
-    echo "参考 ENV_SETUP.md 文档了解详细配置说明"
+    echo "参考 README.md 文档了解详细配置说明"
     exit 1
 fi
 
@@ -57,12 +58,28 @@ source .env
 # 检查必需的环境变量
 MISSING_VARS=()
 
-if [ -z "$GATE_API_KEY" ]; then
-    MISSING_VARS+=("GATE_API_KEY")
-fi
+# 检查交易所配置
+EXCHANGE_NAME=${EXCHANGE_NAME:-gate}
+EXCHANGE_NAME=$(echo "$EXCHANGE_NAME" | tr '[:upper:]' '[:lower:]')
 
-if [ -z "$GATE_API_SECRET" ]; then
-    MISSING_VARS+=("GATE_API_SECRET")
+if [ "$EXCHANGE_NAME" = "gate" ]; then
+    if [ -z "$GATE_API_KEY" ]; then
+        MISSING_VARS+=("GATE_API_KEY")
+    fi
+    if [ -z "$GATE_API_SECRET" ]; then
+        MISSING_VARS+=("GATE_API_SECRET")
+    fi
+elif [ "$EXCHANGE_NAME" = "binance" ]; then
+    if [ -z "$BINANCE_API_KEY" ]; then
+        MISSING_VARS+=("BINANCE_API_KEY")
+    fi
+    if [ -z "$BINANCE_API_SECRET" ]; then
+        MISSING_VARS+=("BINANCE_API_SECRET")
+    fi
+else
+    echo -e "${RED}❌ 错误: 不支持的交易所 ${EXCHANGE_NAME}${NC}"
+    echo -e "${YELLOW}支持的交易所: gate, binance${NC}"
+    exit 1
 fi
 
 if [ -z "$OPENAI_API_KEY" ]; then
@@ -79,6 +96,7 @@ if [ ${#MISSING_VARS[@]} -ne 0 ]; then
     exit 1
 fi
 
+echo -e "${GREEN}✅ 交易所配置: ${EXCHANGE_NAME}${NC}"
 echo -e "${GREEN}✅ 环境变量检查通过${NC}"
 
 # 设置默认值

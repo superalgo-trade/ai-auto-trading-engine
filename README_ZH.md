@@ -7,6 +7,7 @@
 [![VoltAgent](https://img.shields.io/badge/Framework-VoltAgent-purple.svg)](https://voltagent.dev)
 [![OpenAI Compatible](https://img.shields.io/badge/AI-OpenAI_Compatible-orange.svg)](https://openrouter.ai)
 [![Gate.io](https://img.shields.io/badge/Exchange-Gate.io-00D4AA.svg)](https://www.gatesite.org/signup/VQBEAwgL?ref_type=103)
+[![Binance](https://img.shields.io/badge/Exchange-Binance-F0B90B.svg)](https://www.binance.com)
 [![TypeScript](https://img.shields.io/badge/Language-TypeScript-3178C6.svg?logo=typescript&logoColor=white)](https://www.typescriptlang.org)
 [![Node.js](https://img.shields.io/badge/Runtime-Node.js%2020+-339933.svg?logo=node.js&logoColor=white)](https://nodejs.org)
 [![License](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](./LICENSE)
@@ -20,7 +21,7 @@
 
 ai-auto-trading 是一个 AI 驱动的加密货币自动交易系统，将大语言模型智能与量化交易实践深度融合。系统基于 VoltAgent 框架构建，通过赋予 AI 完全的市场分析和交易决策自主权，实现真正的智能化交易。
 
-本系统采用**AI 自主决策**的设计理念，摒弃传统的硬编码交易规则，让 AI 模型基于实时市场数据和技术指标进行自主学习和决策。系统集成 Gate.io 交易所（支持测试网和正式网），提供完整的永续合约交易能力，覆盖 BTC、ETH、SOL 等主流加密货币，支持从数据采集、智能分析、风险管理到交易执行的全流程自动化。
+本系统采用**AI 自主决策**的设计理念，摒弃传统的硬编码交易规则，让 AI 模型基于实时市场数据和技术指标进行自主学习和决策。系统集成 **Gate.io** 和 **Binance** 两大主流交易所（支持测试网和正式网），提供完整的永续合约交易能力，覆盖 BTC、ETH、SOL 等主流加密货币，支持从数据采集、智能分析、风险管理到交易执行的全流程自动化。
 
 ![ai-auto-trading](./public/image.png)
 
@@ -79,7 +80,7 @@ ai-auto-trading 是一个 AI 驱动的加密货币自动交易系统，将大语
 |------|------|------|
 | 框架 | [VoltAgent](https://voltagent.dev) | AI Agent 编排与管理 |
 | AI 提供商 | OpenAI 兼容 API | 支持 OpenRouter、OpenAI、DeepSeek 等兼容供应商 |
-| 交易所 | [Gate.io](https://www.gatesite.org/signup/VQBEAwgL?ref_type=103) | 加密货币交易(测试网 & 正式网) |
+| 交易所 | [Gate.io](https://www.gatesite.org/signup/VQBEAwgL?ref_type=103) / [Binance](https://www.binance.com) | 加密货币交易(测试网 & 正式网) |
 | 数据库 | LibSQL (SQLite) | 本地数据持久化 |
 | Web 服务器 | Hono | 高性能 HTTP 框架 |
 | 开发语言 | TypeScript | 类型安全开发 |
@@ -229,38 +230,67 @@ ai-auto-trading/
 │   │   └── tradingAgent.ts           # AI 交易 Agent 实现
 │   ├── api/
 │   │   └── routes.ts                 # 监控界面 HTTP API 端点
+│   ├── config/
+│   │   └── riskParams.ts             # 风险参数配置
 │   ├── database/
 │   │   ├── init.ts                   # 数据库初始化逻辑
 │   │   ├── schema.ts                 # 数据库模式定义
-│   │   └── sync-from-gate.ts         # 交易所数据同步
+│   │   ├── sync-from-exchanges.ts    # 交易所数据同步
+│   │   ├── sync-positions-only.ts    # 仅同步持仓数据
+│   │   └── close-and-reset.ts        # 平仓并重置数据库
+│   ├── exchanges/                    # 交易所客户端（统一接口）
+│   │   ├── IExchangeClient.ts        # 交易所接口定义
+│   │   ├── GateExchangeClient.ts     # Gate.io 实现
+│   │   ├── BinanceExchangeClient.ts  # Binance 实现
+│   │   ├── ExchangeFactory.ts        # 交易所工厂（自动选择）
+│   │   └── index.ts                  # 统一导出
 │   ├── scheduler/
-│   │   └── tradingLoop.ts            # 交易循环编排
+│   │   ├── tradingLoop.ts            # 交易循环编排
+│   │   └── accountRecorder.ts        # 账户状态记录
 │   ├── services/
-│   │   ├── gateClient.ts             # Gate.io API 客户端封装
 │   │   └── multiTimeframeAnalysis.ts # 多时间框架数据聚合器
 │   ├── tools/
 │   │   └── trading/                  # VoltAgent 工具实现
 │   │       ├── accountManagement.ts  # 账户查询与管理
 │   │       ├── marketData.ts         # 市场数据获取
-│   │       └── tradeExecution.ts     # 订单下达与管理
+│   │       ├── tradeExecution.ts     # 订单下达与管理
+│   │       └── index.ts              # 工具统一导出
 │   ├── types/
 │   │   └── gate.d.ts                 # TypeScript 类型定义
 │   └── utils/
-│       └── timeUtils.ts              # 时间/日期工具函数
+│       ├── timeUtils.ts              # 时间/日期工具函数
+│       ├── priceFormatter.ts         # 价格格式化工具
+│       ├── contractUtils.ts          # 合约工具函数
+│       └── index.ts                  # 工具统一导出
 ├── public/                           # Web 仪表板静态文件
 │   ├── index.html                    # 仪表板 HTML
 │   ├── app.js                        # 仪表板 JavaScript
-│   └── style.css                     # 仪表板样式
+│   ├── style.css                     # 仪表板样式
+│   ├── monitor-script.js             # 监控脚本
+│   ├── monitor-styles.css            # 监控样式
+│   └── price-formatter.js            # 价格格式化
 ├── scripts/                          # 运维脚本
-│   ├── init-db.sh                    # 数据库设置脚本
+│   ├── init-db.sh                    # 数据库初始化脚本
+│   ├── setup.sh                      # 环境设置脚本
+│   ├── sync-from-exchanges.sh        # 从交易所同步数据
+│   ├── sync-positions.sh             # 同步持仓数据
+│   ├── close-and-reset.sh            # 平仓并重置
+│   ├── db-status.sh                  # 数据库状态检查
 │   ├── kill-port.sh                  # 服务关闭脚本
-│   └── sync-from-gate.sh             # 数据同步脚本
+│   ├── docker-start.sh               # Docker 启动脚本
+│   └── docker-stop.sh                # Docker 停止脚本
+├── docs/                             # 项目文档
+├── logs/                             # 日志文件目录
 ├── .env                              # 环境配置
+├── .env.example                      # 环境配置示例
 ├── .voltagent/                       # 数据存储目录
 │   └── trading.db                    # SQLite 数据库文件
 ├── ecosystem.config.cjs              # PM2 进程配置
+├── docker-compose.yml                # Docker Compose 开发配置
+├── docker-compose.prod.yml           # Docker Compose 生产配置
 ├── package.json                      # Node.js 依赖
 ├── tsconfig.json                     # TypeScript 配置
+├── tsdown.config.ts                  # 构建配置
 └── Dockerfile                        # 容器构建定义
 ```
 
@@ -282,9 +312,13 @@ ai-auto-trading/
 | `ACCOUNT_TAKE_PROFIT_USDT` | 账户止盈线（USDT） | 20000 | 否 |
 | `SYNC_CONFIG_ON_STARTUP` | 启动时同步配置 | true | 否 |
 | `DATABASE_URL` | SQLite 数据库文件路径 | file:./.voltagent/trading.db | 否 |
-| `GATE_API_KEY` | Gate.io API 密钥 | - | 是 |
-| `GATE_API_SECRET` | Gate.io API 密钥 | - | 是 |
-| `GATE_USE_TESTNET` | 使用测试网环境 | true | 否 |
+| `EXCHANGE_NAME` | 交易所选择（gate 或 binance） | gate | 是 |
+| `GATE_API_KEY` | Gate.io API 密钥 | - | 当 EXCHANGE_NAME=gate 时必需 |
+| `GATE_API_SECRET` | Gate.io API 密钥 | - | 当 EXCHANGE_NAME=gate 时必需 |
+| `GATE_USE_TESTNET` | Gate.io 使用测试网环境 | true | 否 |
+| `BINANCE_API_KEY` | Binance API 密钥 | - | 当 EXCHANGE_NAME=binance 时必需 |
+| `BINANCE_API_SECRET` | Binance API 密钥 | - | 当 EXCHANGE_NAME=binance 时必需 |
+| `BINANCE_USE_TESTNET` | Binance 使用测试网环境 | true | 否 |
 | `OPENAI_API_KEY` | OpenAI 兼容的 API 密钥 | - | 是 |
 | `OPENAI_BASE_URL` | API 基础地址 | <https://openrouter.ai/api/v1> | 否 |
 | `AI_MODEL_NAME` | 模型名称 | deepseek/deepseek-v3.2-exp | 否 |
