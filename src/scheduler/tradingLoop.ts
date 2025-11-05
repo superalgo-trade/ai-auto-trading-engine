@@ -155,16 +155,37 @@ async function collectMarketData() {
       
       // 记录数据质量问题
       const issues: string[] = [];
-      if (!dataQuality.price) issues.push("价格无效");
-      if (!dataQuality.ema20) issues.push("EMA20无效");
-      if (!dataQuality.macd) issues.push("MACD无效");
-      if (!dataQuality.rsi14) issues.push("RSI14无效或超出范围");
-      if (!dataQuality.volume) issues.push("成交量无效");
-      if (indicators.volume === 0) issues.push("当前成交量为0");
+      const criticalIssues: string[] = []; // 严重问题（影响交易决策）
       
-      if (issues.length > 0) {
-        logger.warn(`${symbol} 数据质量问题 [${dataTimestamp}]: ${issues.join(", ")}`);
-        logger.debug(`${symbol} K线数量:`, dataQuality.candleCount);
+      if (!dataQuality.price) {
+        issues.push("价格无效");
+        criticalIssues.push("价格无效");
+      }
+      if (!dataQuality.ema20) {
+        issues.push("EMA20无效");
+        criticalIssues.push("EMA20无效");
+      }
+      if (!dataQuality.macd) {
+        issues.push("MACD无效");
+        criticalIssues.push("MACD无效");
+      }
+      if (!dataQuality.rsi14) {
+        issues.push("RSI14无效或超出范围");
+        criticalIssues.push("RSI14无效");
+      }
+      
+      // 🔧 成交量为0：Gate.io 测试网常见问题，不作为严重错误
+      // 仅记录为 debug 信息，不影响交易决策
+      if (!dataQuality.volume || indicators.volume === 0) {
+        // Gate.io 测试网的 K线数据中成交量字段经常为 0
+        // 这是测试网数据质量问题，不应阻塞交易逻辑
+        logger.debug(`${symbol} 成交量数据为0 (${exchangeClient.getExchangeName()} ${exchangeClient.isTestnet() ? '测试网' : '正式网'})`);
+      }
+      
+      if (criticalIssues.length > 0) {
+        logger.warn(`${symbol} 严重数据质量问题 [${dataTimestamp}]: ${criticalIssues.join(", ")}`);
+      } else if (issues.length > 0) {
+        logger.debug(`${symbol} 数据质量问题 [${dataTimestamp}]: ${issues.join(", ")}`);
       } else {
         logger.debug(`${symbol} 数据质量检查通过 [${dataTimestamp}]`);
       }

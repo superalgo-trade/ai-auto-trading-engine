@@ -154,12 +154,6 @@ export class GateExchangeClient implements IExchangeClient {
           volume: candle.v,
         }));
         
-        // 🔧 调试日志：检查成交量数据
-        if (candles.length > 0) {
-          const lastCandle = candles[candles.length - 1];
-          logger.debug(`${contract} 最新K线: close=${lastCandle.close}, volume=${lastCandle.volume} (类型: ${typeof lastCandle.volume})`);
-        }
-        
         return candles;
       } catch (error) {
         lastError = error;
