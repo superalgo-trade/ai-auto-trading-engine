@@ -29,14 +29,15 @@ document.addEventListener('DOMContentLoaded', () => {
         updateLastUpdateTime();
     }, 3000);
     
-    // AI决策和交易历史每5分钟更新一次
+    // AI决策和交易历史每5秒更新一次
     setInterval(async () => {
         await Promise.all([
             loadLogsData(),
-            loadTradesData()
+            loadTradesData(),
+            loadTradingStats()
         ]);
-    }, 5 * 60 * 1000); // 5分钟 = 300000毫秒
-    
+    }, 5 * 1000); // 5秒 = 5000毫秒
+
     // 移动端优化：添加触摸滚动优化
     initMobileOptimizations();
     
