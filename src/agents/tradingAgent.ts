@@ -833,6 +833,7 @@ function generateInstructions(strategy: TradingStrategy, intervalMinutes: number
      * 参考建议（仅供参考，不是强制）：
        - 盈利 ≥ +${formatPercent(params.partialTakeProfit.stage1.trigger)}% → 可考虑平仓${formatPercent(params.partialTakeProfit.stage1.closePercent)}%
        - 盈利 ≥ +${formatPercent(params.partialTakeProfit.stage2.trigger)}% → 可考虑平仓剩余${formatPercent(params.partialTakeProfit.stage2.closePercent)}%
+       - 盈利 ≥ +${formatPercent(params.partialTakeProfit.stage3.trigger)}% → 可全部清仓${formatPercent(params.partialTakeProfit.stage3.closePercent)}%
      * 执行方式：使用 closePosition 的 percentage 参数
        - 示例：closePosition(symbol: 'BTC', percentage: 50) 可平掉50%仓位
      * 记住：小的确定性盈利 > 大的不确定性盈利！
@@ -892,7 +893,7 @@ function generateInstructions(strategy: TradingStrategy, intervalMinutes: number
         * 持仓时间>4小时且盈利>2% → 可主动止盈
         * 盈利达到5-8%但趋势减弱 → 建议分批止盈50%
         * 盈利达到10%+但出现回调迹象 → 建议至少止盈50%
-      - 策略目标（+${params.partialTakeProfit.stage1.trigger}%/+${params.partialTakeProfit.stage2.trigger}%）仅供参考，不是必须等到的
+      - 策略目标（+${params.partialTakeProfit.stage1.trigger}%/+${params.partialTakeProfit.stage2.trigger}%/+${params.partialTakeProfit.stage3.trigger}%）仅供参考，不是必须等到的
       - 执行方式：
         * 全部止盈：closePosition({ symbol: 'BTC' })
         * 部分止盈：closePosition({ symbol: 'BTC', percentage: 50 })
@@ -925,7 +926,7 @@ function generateInstructions(strategy: TradingStrategy, intervalMinutes: number
       - 持仓当前盈利（pnl_percent > 5%，必须有足够利润缓冲）
       - 趋势继续强化：至少3个时间框架共振，技术指标增强
       - 可用余额充足，加仓金额≤原仓位的50%
-      - 该币种加仓次数 < 2次
+      - 该币种加仓次数 < 3次
       - 加仓后总敞口不超过账户净值的${params.leverageMax}倍
       - 杠杆要求：必须使用与原持仓相同或更低的杠杆
       - 如果满足所有条件：立即调用 openPosition 加仓
