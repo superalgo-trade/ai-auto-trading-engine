@@ -274,12 +274,12 @@ export function getStrategyParams(strategy: TradingStrategy): StrategyParams {
         good: `${balancedLevGood}倍`,
         strong: `${balancedLevStrong}倍`,
       },
-      positionSizeMin: 20,
-      positionSizeMax: 27,
+      positionSizeMin: 10,
+      positionSizeMax: 20,
       positionSizeRecommend: {
-        normal: "20-23%",
-        good: "23-25%",
-        strong: "25-27%",
+        normal: "10-14%",
+        good: "14-16%",
+        strong: "16-20%",
       },
       stopLoss: {
         low: - balancedLevNormal / 2,
@@ -287,16 +287,16 @@ export function getStrategyParams(strategy: TradingStrategy): StrategyParams {
         high: - balancedLevStrong / 3,
       },
       trailingStop: {
-        // 平衡策略：适中的移动止盈（基准：15倍杠杆）
+        // 平衡策略：适中的移动止盈（基准：10倍杠杆）
         // 注意：这些是基准值，实际使用时会根据杠杆动态调整
-        level1: { trigger: 8, stopAt: 3 },   // 基准：盈利达到 +8% 时，止损线移至 +3%
-        level2: { trigger: 15, stopAt: 8 },  // 基准：盈利达到 +15% 时，止损线移至 +8%
-        level3: { trigger: 25, stopAt: 15 }, // 基准：盈利达到 +25% 时，止损线移至 +15%
+        level1: { trigger: 6, stopAt: 3 },   // 基准：盈利达到 +6% 时，止损线移至 +3%
+        level2: { trigger: 10, stopAt: 6 },  // 基准：盈利达到 +10% 时，止损线移至 +6%
+        level3: { trigger: 20, stopAt: 15 }, // 基准：盈利达到 +20% 时，止损线移至 +15%
       },
       partialTakeProfit: {
         // 平衡策略：标准分批止盈
-        stage1: { trigger: 30, closePercent: 50 },  // +30% 平仓50%
-        stage2: { trigger: 40, closePercent: 50 },  // +40% 平仓剩余50%
+        stage1: { trigger: 30, closePercent: 20 },  // +30% 平仓20%
+        stage2: { trigger: 40, closePercent: 50 },  // +40% 平仓剩余30%
         stage3: { trigger: 50, closePercent: 100 }, // +50% 全部清仓
       },
       peakDrawdownProtection: 30, // 平衡策略：30%峰值回撤保护（标准平衡点）
@@ -306,7 +306,7 @@ export function getStrategyParams(strategy: TradingStrategy): StrategyParams {
         lowVolatility: { leverageFactor: 1.1, positionFactor: 1.0 },    // 低波动：略微提高杠杆
       },
       entryCondition: "至少3个关键时间框架信号一致，4个或更多更佳",
-      riskTolerance: "单笔交易风险控制在20-27%之间，平衡风险与收益",
+      riskTolerance: "单笔交易风险控制在10-20%之间，平衡风险与收益",
       tradingStyle: "在风险可控前提下积极把握机会，追求稳健增长",
     },
     "aggressive": {

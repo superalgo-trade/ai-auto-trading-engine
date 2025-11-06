@@ -696,8 +696,8 @@ export const closePositionTool = createTool({
         
         // 获取交易周期间隔（分钟）
         const intervalMinutes = Number.parseInt(process.env.TRADING_INTERVAL_MINUTES || "5");
-        // 最小持仓时间为2个交易周期
-        const minHoldingMinutes = intervalMinutes * 2;
+        // 最小持仓时间为半个交易周期
+        const minHoldingMinutes = intervalMinutes / 2;
         
         // 如果持仓时间少于最小持仓时间，拒绝平仓
         if (holdingMinutes < minHoldingMinutes) {
