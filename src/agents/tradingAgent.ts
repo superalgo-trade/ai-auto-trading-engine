@@ -73,11 +73,25 @@ export interface StrategyParams {
     good: string;
     strong: string;
   };
-  stopLoss: {
-    low: number;
-    mid: number;
-    high: number;
+  // ===== 止损配置 =====
+  
+  // 科学止损配置（优先使用，基于 ATR 和支撑/阻力位）
+  scientificStopLoss?: {
+    enabled: boolean;           // 是否启用科学止损
+    atrMultiplier: number;      // ATR倍数（根据策略风格调整）
+    useSupport: boolean;        // 是否使用支撑/阻力位
+    minDistance: number;        // 最小止损距离%
+    maxDistance: number;        // 最大止损距离%
   };
+  
+  // 固定止损配置（备用方案，仅在科学止损未启用时使用）
+  stopLoss: {
+    low: number;                // 低杠杆止损线
+    mid: number;                // 中杠杆止损线
+    high: number;               // 高杠杆止损线
+    deprecated?: boolean;       // 标记为已弃用（科学止损优先）
+  };
+  
   trailingStop: {
     // 移动止盈阶梯配置 [触发盈利, 移动止损线]
     level1: { trigger: number; stopAt: number };
@@ -148,10 +162,20 @@ export function getStrategyParams(strategy: TradingStrategy): StrategyParams {
         good: "20-23%",
         strong: "23-25%",
       },
+      // 科学止损配置（优先使用）
+      scientificStopLoss: {
+        enabled: RISK_PARAMS.ENABLE_SCIENTIFIC_STOP_LOSS,
+        atrMultiplier: 1.5,        // 超短线：较紧的止损（1.5倍ATR）
+        useSupport: true,           // 使用支撑/阻力位
+        minDistance: 0.3,           // 最小止损距离0.3%
+        maxDistance: 2.0,           // 最大止损距离2.0%
+      },
+      // 固定止损配置（备用，仅在科学止损未启用时使用）
       stopLoss: {
         low: - balancedLevNormal / 1.5,
         mid: - balancedLevGood / 2,
         high: - balancedLevStrong / 2.5,
+        deprecated: true,           // 标记为已弃用
       },
       trailingStop: {
         // 超短线策略：快速锁利（5分钟周期）
@@ -192,10 +216,20 @@ export function getStrategyParams(strategy: TradingStrategy): StrategyParams {
         good: "15-18%",
         strong: "18-20%",
       },
+      // 科学止损配置（优先使用）
+      scientificStopLoss: {
+        enabled: RISK_PARAMS.ENABLE_SCIENTIFIC_STOP_LOSS,
+        atrMultiplier: 2.5,        // 波段：较宽的止损（2.5倍ATR），给趋势更多空间
+        useSupport: true,           // 使用支撑/阻力位
+        minDistance: 1.0,           // 最小止损距离1.0%
+        maxDistance: 6.0,           // 最大止损距离6.0%
+      },
+      // 固定止损配置（备用）
       stopLoss: {
         low: - balancedLevNormal / 1.5,
         mid: - balancedLevGood / 2,
         high: - balancedLevStrong / 2.5,
+        deprecated: true,
       },
       trailingStop: {
         // 波段策略：给趋势更多空间，较晚锁定利润
@@ -236,10 +270,20 @@ export function getStrategyParams(strategy: TradingStrategy): StrategyParams {
         good: "17-20%",
         strong: "20-22%",
       },
+      // 科学止损配置（优先使用）
+      scientificStopLoss: {
+        enabled: RISK_PARAMS.ENABLE_SCIENTIFIC_STOP_LOSS,
+        atrMultiplier: 2.5,        // 保守：较宽的止损（2.5倍ATR）
+        useSupport: true,           // 使用支撑/阻力位
+        minDistance: 1.0,           // 最小止损距离1.0%
+        maxDistance: 4.0,           // 最大止损距离4.0%
+      },
+      // 固定止损配置（备用）
       stopLoss: {
         low: - balancedLevNormal / 2.5,
         mid: - balancedLevGood / 3,
         high: - balancedLevStrong / 3.5,
+        deprecated: true,
       },
       trailingStop: {
         // 保守策略：较早锁定利润（基准：15倍杠杆）
@@ -281,10 +325,20 @@ export function getStrategyParams(strategy: TradingStrategy): StrategyParams {
         good: "14-16%",
         strong: "16-20%",
       },
+      // 科学止损配置（优先使用）
+      scientificStopLoss: {
+        enabled: RISK_PARAMS.ENABLE_SCIENTIFIC_STOP_LOSS,
+        atrMultiplier: 2.0,        // 平衡：标准止损（2.0倍ATR）
+        useSupport: true,           // 使用支撑/阻力位
+        minDistance: 0.5,           // 最小止损距离0.5%
+        maxDistance: 5.0,           // 最大止损距离5.0%
+      },
+      // 固定止损配置（备用）
       stopLoss: {
         low: - balancedLevNormal / 2,
         mid: - balancedLevGood / 2.5,
         high: - balancedLevStrong / 3,
+        deprecated: true,
       },
       trailingStop: {
         // 平衡策略：适中的移动止盈（基准：10倍杠杆）
@@ -326,10 +380,20 @@ export function getStrategyParams(strategy: TradingStrategy): StrategyParams {
         good: "28-30%",
         strong: "30-32%",
       },
+      // 科学止损配置（优先使用）
+      scientificStopLoss: {
+        enabled: RISK_PARAMS.ENABLE_SCIENTIFIC_STOP_LOSS,
+        atrMultiplier: 1.5,        // 激进：较紧的止损（1.5倍ATR）
+        useSupport: true,           // 使用支撑/阻力位
+        minDistance: 0.5,           // 最小止损距离0.5%
+        maxDistance: 5.0,           // 最大止损距离5.0%
+      },
+      // 固定止损配置（备用）
       stopLoss: {
         low: - balancedLevNormal / 1.5,
         mid: - balancedLevGood / 2,
         high: - balancedLevStrong / 2.5,
+        deprecated: true,
       },
       trailingStop: {
         // 激进策略：更晚锁定，追求更高利润（基准：15倍杠杆）
@@ -412,27 +476,46 @@ export function generateTradingPrompt(data: {
 
 【AI战术决策 - 强烈建议遵守】
 ┌─────────────────────────────────────────┐
-│ 策略止损：${formatPercent(params.stopLoss.low)}% ~ ${formatPercent(params.stopLoss.high)}%（根据杠杆）│
-│ 移动止盈：                               │
-│   • 盈利≥+${formatPercent(params.trailingStop.level1.trigger)}% → 止损移至+${formatPercent(params.trailingStop.level1.stopAt)}%  │
-│   • 盈利≥+${formatPercent(params.trailingStop.level2.trigger)}% → 止损移至+${formatPercent(params.trailingStop.level2.stopAt)}%  │
-│   • 盈利≥+${formatPercent(params.trailingStop.level3.trigger)}% → 止损移至+${formatPercent(params.trailingStop.level3.stopAt)}% │
-│ 分批止盈：                               │
-│   • 盈利≥+${formatPercent(params.partialTakeProfit.stage1.trigger)}% → 平仓${formatPercent(params.partialTakeProfit.stage1.closePercent)}%  │
-│   • 盈利≥+${formatPercent(params.partialTakeProfit.stage2.trigger)}% → 平仓${formatPercent(params.partialTakeProfit.stage2.closePercent)}%  │
-│   • 盈利≥+${formatPercent(params.partialTakeProfit.stage3.trigger)}% → 平仓${formatPercent(params.partialTakeProfit.stage3.closePercent)}% │
-│ 峰值回撤：≥${formatPercent(params.peakDrawdownProtection)}% → 危险信号，立即平仓 │
+${params.scientificStopLoss?.enabled ? `│ 科学止损：                              │
+│   • 基于 ATR${params.scientificStopLoss.atrMultiplier}x + 支撑/阻力位            │
+│   • 止损范围: ${params.scientificStopLoss.minDistance}%-${params.scientificStopLoss.maxDistance}%                   │
+│   • 开仓前检查: checkOpenPosition()     │
+│   • 计算止损: calculateStopLoss()       │
+│   • 动态调整: updateTrailingStop()      │` : `│ 策略止损：                  │
+│   策略止损线: ${formatPercent(params.stopLoss.low)}% ~ ${formatPercent(params.stopLoss.high)}%          │
+│   根据杠杆倍数动态调整                  │`}
+│ 移动止盈：                              │
+│   • 盈利≥+${formatPercent(params.trailingStop.level1.trigger)}% → 止损移至+${formatPercent(params.trailingStop.level1.stopAt)}%        │
+│   • 盈利≥+${formatPercent(params.trailingStop.level2.trigger)}% → 止损移至+${formatPercent(params.trailingStop.level2.stopAt)}%       │
+│   • 盈利≥+${formatPercent(params.trailingStop.level3.trigger)}% → 止损移至+${formatPercent(params.trailingStop.level3.stopAt)}%      │
+│ 分批止盈：                              │
+│   • 盈利≥+${formatPercent(params.partialTakeProfit.stage1.trigger)}% → 平仓${formatPercent(params.partialTakeProfit.stage1.closePercent)}%           │
+│   • 盈利≥+${formatPercent(params.partialTakeProfit.stage2.trigger)}% → 平仓${formatPercent(params.partialTakeProfit.stage2.closePercent)}%           │
+│   • 盈利≥+${formatPercent(params.partialTakeProfit.stage3.trigger)}% → 平仓${formatPercent(params.partialTakeProfit.stage3.closePercent)}%          │
+│ 峰值回撤：≥${formatPercent(params.peakDrawdownProtection)}% → 危险信号，立即平仓  │
 └─────────────────────────────────────────┘
 
 【决策流程 - 按优先级执行】
-(1) 持仓管理（最优先）：
+${params.scientificStopLoss?.enabled ? `(1) 持仓管理（最优先 - 使用科学止损）：
+   a) 检查科学止损：calculateStopLoss() 计算当前合理止损位
+   b) 考虑移动止损：updateTrailingStop() 为盈利持仓上移止损
+   c) 执行平仓决策：检查止损/止盈/峰值回撤 → closePosition
+   
+(2) 新开仓评估（科学过滤 - 避免重复计算）：
+   a) 分析市场数据：识别双向机会（做多/做空）
+   b) 开仓前检查：checkOpenPosition() 一次性完成止损验证和计算
+   c) 执行开仓：openPosition（使用 checkOpenPosition 返回的止损价）
+   ⚠️ 注意：checkOpenPosition() 已包含止损计算，不要再调用 calculateStopLoss()
+   
+(3) 加仓评估（谨慎使用科学止损）：
+   盈利>5%且趋势强化 → checkOpenPosition() 检查后 openPosition` : `(1) 持仓管理（最优先）：
    检查每个持仓的止损/止盈/峰值回撤 → closePosition
    
 (2) 新开仓评估：
    分析市场数据 → 识别双向机会（做多/做空） → openPosition
    
 (3) 加仓评估：
-   盈利>5%且趋势强化 → openPosition（≤50%原仓位，相同或更低杠杆）
+   盈利>5%且趋势强化 → openPosition（≤50%原仓位，相同或更低杠杆）`}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -868,18 +951,34 @@ function generateInstructions(strategy: TradingStrategy, intervalMinutes: number
    
    a) 止损决策（必须严格遵守，不可灵活）：
       - 重要：止损线是硬性规则，必须严格遵守，不像止盈可以灵活！
+      ${params.scientificStopLoss?.enabled ? `
+      ⭐ 科学止损（当前启用）：
+      - 调用 calculateStopLoss() 重新计算当前合理止损位
+      - 基于 ATR${params.scientificStopLoss.atrMultiplier}x 和支撑/阻力位动态计算
+      - 止损范围：${params.scientificStopLoss.minDistance}%-${params.scientificStopLoss.maxDistance}%
+      - 如果当前价格触及科学止损位：
+        * 立即调用 closePosition 平仓（不要犹豫）
+        * 市场波动加剧时，科学止损会自动放宽空间
+      - 记住：止损是保护本金的生命线！
+      ` : `
+      固定止损（当前使用）：
       - 检查 pnl_percent 是否触及策略止损线：
-        * ${params.leverageMin}-${Math.floor((params.leverageMin + params.leverageMax) / 2)}倍杠杆：止损线 ${formatPercent(params.stopLoss.low)}%（必须遵守）
-        * ${Math.floor((params.leverageMin + params.leverageMax) / 2)}-${Math.ceil((params.leverageMin + params.leverageMax) * 0.75)}倍杠杆：止损线 ${formatPercent(params.stopLoss.mid)}%（必须遵守）
-        * ${Math.ceil((params.leverageMin + params.leverageMax) * 0.75)}-${params.leverageMax}倍杠杆：止损线 ${formatPercent(params.stopLoss.high)}%（必须遵守）
-      - 微调空间：仅可根据关键支撑位/阻力位微调±1%（不能更多）
-      - 如果触及或突破止损线：
-        * 立即调用 closePosition 平仓（不要犹豫，不要等待）
-        * 例外情况极少：仅限明确的假突破+关键支撑位
-      - 记住：止损是保护本金的生命线，不严格执行会导致大额亏损！
+        * ${params.leverageMin}-${Math.floor((params.leverageMin + params.leverageMax) / 2)}倍杠杆：止损线 ${formatPercent(params.stopLoss.low)}%
+        * ${Math.floor((params.leverageMin + params.leverageMax) / 2)}-${Math.ceil((params.leverageMin + params.leverageMax) * 0.75)}倍杠杆：止损线 ${formatPercent(params.stopLoss.mid)}%
+        * ${Math.ceil((params.leverageMin + params.leverageMax) * 0.75)}-${params.leverageMax}倍杠杆：止损线 ${formatPercent(params.stopLoss.high)}%
+      - 如果触及或突破止损线：立即 closePosition 平仓
+      - 记住：止损是保护本金的生命线！
+      `}
    
    b) 移动止盈决策：
-      - 检查是否达到移动止盈触发点（+${params.trailingStop.level1.trigger}%/+${params.trailingStop.level2.trigger}%/+${params.trailingStop.level3.trigger}%）
+      ${params.scientificStopLoss?.enabled && RISK_PARAMS.ENABLE_TRAILING_STOP_LOSS ? `
+      ⭐ 优先使用科学移动止损（如已启用）：
+      - 调用 updateTrailingStop() 动态更新止损位
+      - 系统会自动判断是否需要上移止损保护利润
+      - 只在止损向有利方向移动时才更新
+      ` : ''}
+      标准移动止盈触发点：
+      - 检查是否达到（+${params.trailingStop.level1.trigger}%/+${params.trailingStop.level2.trigger}%/+${params.trailingStop.level3.trigger}%）
       - 如果达到，评估是否需要移动止损线保护利润
       - 如果当前盈利回落到移动止损线以下
       - 立即调用 closePosition 平仓保护利润（不要犹豫）
@@ -935,6 +1034,25 @@ function generateInstructions(strategy: TradingStrategy, intervalMinutes: number
       - 现有持仓数 < ${RISK_PARAMS.MAX_POSITIONS}
       - ${params.entryCondition}
       - 潜在利润≥2-3%（扣除0.1%费用后仍有净收益）
+      ${params.scientificStopLoss?.enabled ? `
+      ⭐ 科学止损工作流（当前启用）：
+      步骤1: 调用 checkOpenPosition() 检查止损合理性
+             - 此工具会自动计算止损位（基于 ATR${params.scientificStopLoss.atrMultiplier}x 和支撑/阻力）
+             - 止损范围：${params.scientificStopLoss.minDistance}%-${params.scientificStopLoss.maxDistance}%
+             - 返回结果包含：stopLossPrice, stopLossDistance, qualityScore
+             - 自动拒绝止损距离过大、市场波动极端的交易
+             - 只有检查通过（shouldOpen=true）才继续下一步
+      步骤2: 执行 openPosition() 开仓
+             - 使用步骤1返回的止损位（已经计算好）
+             - 下个周期会根据科学止损判断是否平仓
+      
+      ⚠️ 注意：不需要再次调用 calculateStopLoss()，因为 checkOpenPosition() 已经计算过了！
+      ` : `
+      固定止损策略（当前使用）：
+      - 根据杠杆倍数确定止损线：${formatPercent(params.stopLoss.low)}% ~ ${formatPercent(params.stopLoss.high)}%
+      - 开仓后严格执行止损规则
+      - 下个周期会根据 pnl_percent 判断是否触及止损
+      `}
       - 做多和做空机会的识别：
         * 做多信号：价格突破EMA20/50上方，MACD转正，RSI7 > 50且上升，多个时间框架共振向上
         * 做空信号：价格跌破EMA20/50下方，MACD转负，RSI7 < 50且下降，多个时间框架共振向下
@@ -1053,6 +1171,10 @@ export function createTradingAgent(intervalMinutes: number = 5) {
       tradingTools.checkOrderStatusTool,
       tradingTools.calculateRiskTool,
       tradingTools.syncPositionsTool,
+      // 止损管理工具
+      tradingTools.calculateStopLossTool,
+      tradingTools.checkOpenPositionTool,
+      tradingTools.updateTrailingStopTool,
     ],
     memory,
   });

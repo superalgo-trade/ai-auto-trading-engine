@@ -46,3 +46,11 @@ export {
   syncPositionsTool,
 } from "./accountManagement";
 
+// 止损管理工具
+export {
+  calculateStopLossTool,
+  checkOpenPositionTool,
+  updateTrailingStopTool,
+  stopLossManagementTools,
+} from "./stopLossManagement";
+
