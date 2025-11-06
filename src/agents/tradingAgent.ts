@@ -972,7 +972,7 @@ function generateInstructions(strategy: TradingStrategy, intervalMinutes: number
    
    b) 移动止盈决策：
       ${params.scientificStopLoss?.enabled && RISK_PARAMS.ENABLE_TRAILING_STOP_LOSS ? `
-      ⭐ 优先使用科学移动止损（如已启用）：
+      使用科学移动止损：
       - 调用 updateTrailingStop() 动态更新止损位
       - 系统会自动判断是否需要上移止损保护利润
       - 只在止损向有利方向移动时才更新
@@ -1015,7 +1015,7 @@ function generateInstructions(strategy: TradingStrategy, intervalMinutes: number
 3. 分析市场数据（必须实际调用工具）：
    - 调用 getTechnicalIndicators 获取技术指标数据
    - 分析多个时间框架（15分钟、30分钟、1小时、4小时）
-   - 重点关注：价格、EMA、MACD、RSI
+   - 重点关注：价格、EMA、MACD、RSI、成交量
    - ${params.entryCondition}
 
 4. 评估新交易机会（如果决定开仓，必须立即执行）：
@@ -1035,7 +1035,7 @@ function generateInstructions(strategy: TradingStrategy, intervalMinutes: number
       - ${params.entryCondition}
       - 潜在利润≥2-3%（扣除0.1%费用后仍有净收益）
       ${params.scientificStopLoss?.enabled ? `
-      ⭐ 科学止损工作流（当前启用）：
+      科学止损工作流（当前启用）：
       步骤1: 调用 checkOpenPosition() 检查止损合理性
              - 此工具会自动计算止损位（基于 ATR${params.scientificStopLoss.atrMultiplier}x 和支撑/阻力）
              - 止损范围：${params.scientificStopLoss.minDistance}%-${params.scientificStopLoss.maxDistance}%
@@ -1071,9 +1071,9 @@ function generateInstructions(strategy: TradingStrategy, intervalMinutes: number
 
 可用工具：
 - 市场数据：getMarketPrice、getTechnicalIndicators、getFundingRate、getOrderBook
-- 持仓管理：openPosition（市价单）、closePosition（市价单）、cancelOrder
+- 持仓管理：openPosition（市价单）、closePosition（市价单）、cancelOrder、setStopLoss、setTakeProfit、updateTrailingStop
 - 账户信息：getAccountBalance、getPositions、getOpenOrders
-- 风险分析：calculateRisk、checkOrderStatus
+- 风险分析：calculateRisk、checkOrderStatus、calculateStopLoss、checkOpenPosition
 
 世界顶级交易员行动准则：
 
