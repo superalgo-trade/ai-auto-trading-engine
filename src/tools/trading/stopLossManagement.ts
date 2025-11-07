@@ -51,9 +51,15 @@ export const calculateStopLossTool = createTool({
 - 支撑/阻力止损：基于市场结构的关键位置，提高盈亏比
 - 综合策略：结合两者优势，选择更保守的止损位
 
+⚠️ 重要说明：
+- 返回的 stopLossDistancePercent 是"价格变化百分比"（不含杠杆）
+- 实际盈亏百分比 = stopLossDistancePercent × 杠杆倍数
+- 例如：2% 止损距离 × 10倍杠杆 = -20% 实际亏损
+- 比较时请注意单位统一！
+
 返回结果包含：
 - 推荐止损价格
-- 止损距离百分比
+- 止损距离百分比（价格距离，不含杠杆）
 - 市场波动率评估
 - 风险建议
 - 质量评分（0-100）`,
@@ -116,11 +122,12 @@ export const calculateStopLossTool = createTool({
         message: `✅ 止损计算完成
 - 入场价: ${formatStopLossPrice(symbolName, entryPrice)}
 - 止损价: ${formatStopLossPrice(symbolName, result.stopLossPrice)}
-- 止损距离: ${result.stopLossDistancePercent.toFixed(2)}%
+- 止损距离: ${result.stopLossDistancePercent.toFixed(2)}% (价格距离，不含杠杆)
 - 计算方法: ${result.method}
 - 波动率: ${result.riskAssessment.volatilityLevel}
 - 质量评分: ${result.qualityScore}/100
-- 建议: ${result.riskAssessment.recommendation}`,
+- 建议: ${result.riskAssessment.recommendation}
+⚠️ 注意：实际亏损 = ${result.stopLossDistancePercent.toFixed(2)}% × 杠杆倍数`,
       };
     } catch (error: any) {
       logger.error(`计算止损失败: ${error.message}`);

@@ -484,7 +484,9 @@ export function generateTradingPrompt(data: {
 ┌─────────────────────────────────────────────────────┐
 ${params.scientificStopLoss?.enabled ? `│ 科学止损：                                          │
 │   • 基于 ATR${params.scientificStopLoss.atrMultiplier}x + 支撑/阻力位                        │
-│   • 止损范围: ${params.scientificStopLoss.minDistance}%-${params.scientificStopLoss.maxDistance}%                               │
+│   • 止损距离: ${params.scientificStopLoss.minDistance}%-${params.scientificStopLoss.maxDistance}% (价格变化，不含杠杆)        │
+│   • 实际亏损 = 止损距离 × 杠杆倍数                  │
+│     例：2%止损距离 × 10x杠杆 = -20%实际亏损         │
 │   • 开仓前检查: checkOpenPosition()                 │
 │   • 计算止损: calculateStopLoss()                   │
 │   • 动态调整: updateTrailingStop()                  │` : `│ 策略止损：                  │

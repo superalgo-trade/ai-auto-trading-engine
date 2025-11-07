@@ -361,6 +361,9 @@ export async function calculateScientificStopLoss(
   }
   
   // ===== 5. 计算止损距离百分比 =====
+  // 📝 重要说明：这里计算的是"价格变化百分比"，不含杠杆倍数
+  // 实际盈亏百分比 = stopLossDistancePercent × leverage
+  // 例如：止损距离2%，杠杆10x，实际亏损 = 2% × 10 = -20%
   const stopLossDistancePercent = side === "long"
     ? ((entryPrice - finalStopPrice) / entryPrice) * 100
     : ((finalStopPrice - entryPrice) / entryPrice) * 100;

@@ -1387,17 +1387,23 @@ async function executeTradingDecision() {
       // 说明：正常情况下，科学止损单在交易所服务器端会自动触发平仓
       // 这里是检测"止损单未生效"的极端情况，系统强制介入
       
-      // 根据杠杆倍数计算极端止损阈值（基于科学止损的最大距离 + 缓冲）
-      // 科学止损最大距离通常是 5-6%，我们设置极端保护线为 8-10%（留有缓冲）
-      const EXTREME_STOP_LOSS_BASE = -8; // 基准：-8% pnl_percent
-      const LEVERAGE_ADJUSTMENT = Math.min(leverage / 10, 1.5); // 杠杆调整系数（最大1.5倍）
-      const EXTREME_STOP_LOSS = EXTREME_STOP_LOSS_BASE * LEVERAGE_ADJUSTMENT; // 根据杠杆动态调整
+      // 🔧 修复：止损距离需要乘以杠杆倍数才能与 pnlPercent 比较
+      // pnlPercent = priceChangePercent * leverage（已含杠杆）
+      // stopLossDistancePercent 是价格变化百分比（不含杠杆）
+      // 因此需要将止损距离也乘以杠杆，才能正确比较
       
-      logger.info(`${symbol} 极端止损检查: 当前盈亏=${formatPercent(pnlPercent)}%, 极端止损线=${formatPercent(EXTREME_STOP_LOSS)}% (杠杆${leverage}x), 科学止损应该已在交易所服务器端执行`);
+      // 科学止损的最大距离配置（价格距离，不含杠杆）
+      const MAX_STOP_LOSS_DISTANCE_PERCENT = RISK_PARAMS.MAX_STOP_LOSS_PERCENT || 5.0; // 默认5%
+      
+      // 极端止损线 = 最大止损距离 * 杠杆 * 安全系数（1.5倍缓冲）
+      // 例如：5% 止损距离 * 10倍杠杆 * 1.5 = -75% 盈亏百分比
+      const EXTREME_STOP_LOSS = -(MAX_STOP_LOSS_DISTANCE_PERCENT * leverage * 1.5);
+      
+      logger.info(`${symbol} 极端止损检查: 当前盈亏=${formatPercent(pnlPercent)}% (含杠杆${leverage}x), 极端止损线=${formatPercent(EXTREME_STOP_LOSS)}% (${MAX_STOP_LOSS_DISTANCE_PERCENT}%价格距离*${leverage}x杠杆*1.5倍缓冲), 科学止损应该已在交易所服务器端执行`);
       
       if (pnlPercent <= EXTREME_STOP_LOSS) {
         shouldClose = true;
-        closeReason = `科学止损失效保护触发 (${formatPercent(pnlPercent)}% ≤ ${formatPercent(EXTREME_STOP_LOSS)}%，杠杆${leverage}x)`;
+        closeReason = `科学止损失效保护触发 (盈亏${formatPercent(pnlPercent)}% ≤ 极端线${formatPercent(EXTREME_STOP_LOSS)}%，杠杆${leverage}x)`;
         logger.error(`⚠️ ${closeReason} - 正常情况下科学止损单应该已在交易所服务器端触发，请检查止损单状态`);
       }
       

@@ -556,7 +556,8 @@ IMPORTANT:
           
           logger.info(`✅ 科学止损计算完成:`);
           logger.info(`   入场价: ${formatStopLossPrice(symbolName, actualFillPrice)}`);
-          logger.info(`   止损价: ${formatStopLossPrice(symbolName, calculatedStopLoss)} (${stopLossResult.stopLossDistancePercent.toFixed(2)}%)`);
+          logger.info(`   止损价: ${formatStopLossPrice(symbolName, calculatedStopLoss)} (${stopLossResult.stopLossDistancePercent.toFixed(2)}% 价格距离)`);
+          logger.info(`   实际亏损: ${stopLossResult.stopLossDistancePercent.toFixed(2)}% × ${adjustedLeverage}x杠杆 = ${(stopLossResult.stopLossDistancePercent * adjustedLeverage).toFixed(2)}%`);
           logger.info(`   止盈价: ${formatStopLossPrice(symbolName, calculatedTakeProfit)} (${((Math.abs(calculatedTakeProfit - actualFillPrice) / actualFillPrice) * 100).toFixed(2)}%)`);
           logger.info(`   计算方法: ${stopLossResult.method}`);
           logger.info(`   质量评分: ${stopLossResult.qualityScore}/100`);
