@@ -845,7 +845,7 @@ body {
 .tab-navigation {
     display: flex;
     gap: 0;
-    margin-bottom: 0.8rem;
+    /* margin-bottom: 0.8rem; */
     border-bottom: 2px solid var(--border-color);
     padding-bottom: 0;
 }
