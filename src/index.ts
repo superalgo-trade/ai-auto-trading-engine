@@ -57,7 +57,7 @@ async function main() {
   // 1. 初始化数据库
   logger.info("初始化数据库...");
   await initDatabase();
-  
+
   // 2. 初始化交易系统配置（读取环境变量并同步到数据库）
   await initTradingSystem();
   

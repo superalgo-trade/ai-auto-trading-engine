@@ -36,6 +36,15 @@ const dbClient = createClient({
   url: process.env.DATABASE_URL || "file:./.voltagent/trading.db",
 });
 
+// 价格缓存
+interface PriceCache {
+  prices: Record<string, number>;
+  timestamp: number;
+}
+
+let priceCache: PriceCache | null = null;
+const PRICE_CACHE_TTL = 5000; // 5秒缓存
+
 export function createApiRoutes() {
   const app = new Hono();
 
@@ -421,19 +430,44 @@ export function createApiRoutes() {
       const exchangeClient = getExchangeClient();
       const prices: Record<string, number> = {};
       
-      // 并发获取所有币种价格
-      await Promise.all(
-        symbols.map(async (symbol) => {
-          try {
-            const contract = exchangeClient.normalizeContract(symbol);
-            const ticker = await exchangeClient.getFuturesTicker(contract);
-            prices[symbol] = Number.parseFloat(ticker.last || "0");
-          } catch (error: any) {
-            logger.error(`获取 ${symbol} 价格失败:`, error);
-            prices[symbol] = 0;
-          }
-        })
-      );
+      // 使用缓存的价格数据（如果存在且未过期）
+      if (priceCache && Date.now() - priceCache.timestamp < PRICE_CACHE_TTL) {
+        return c.json({ prices: priceCache.prices });
+      }
+      
+      // 分批获取价格，避免并发过多导致网络拥堵
+      const BATCH_SIZE = 5; // 每批5个币种
+      for (let i = 0; i < symbols.length; i += BATCH_SIZE) {
+        const batch = symbols.slice(i, i + BATCH_SIZE);
+        await Promise.all(
+          batch.map(async (symbol) => {
+            try {
+              const contract = exchangeClient.normalizeContract(symbol);
+              const ticker = await exchangeClient.getFuturesTicker(contract);
+              prices[symbol] = Number.parseFloat(ticker.last || "0");
+            } catch (error: any) {
+              logger.error(`获取 ${symbol} 价格失败:`, error);
+              // 如果有旧缓存，使用旧价格作为降级
+              if (priceCache && priceCache.prices[symbol]) {
+                prices[symbol] = priceCache.prices[symbol];
+                logger.warn(`使用 ${symbol} 的缓存价格: ${prices[symbol]}`);
+              } else {
+                prices[symbol] = 0;
+              }
+            }
+          })
+        );
+        // 批次之间添加短暂延迟，避免请求过快
+        if (i + BATCH_SIZE < symbols.length) {
+          await new Promise(resolve => setTimeout(resolve, 100));
+        }
+      }
+      
+      // 更新缓存
+      priceCache = {
+        prices,
+        timestamp: Date.now(),
+      };
       
       return c.json({ prices });
     } catch (error: any) {

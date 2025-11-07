@@ -64,6 +64,9 @@ export class GateExchangeClient implements IExchangeClient {
       logger.info("使用 Gate.io 正式网");
     }
     
+    // 设置超时时间（30秒）
+    this.client.timeout = 30000;
+    
     // 设置API密钥和密钥（必须在设置basePath之后）
     this.client.setApiKeySecret(config.apiKey, config.apiSecret);
 
@@ -119,7 +122,8 @@ export class GateExchangeClient implements IExchangeClient {
         lastError = error;
         if (i < retries) {
           logger.warn(`获取 ${contract} 价格失败，重试 ${i + 1}/${retries}...`);
-          await new Promise(resolve => setTimeout(resolve, 300 * (i + 1)));
+          // 使用指数退避策略：1秒、2秒、4秒
+          await new Promise(resolve => setTimeout(resolve, 1000 * Math.pow(2, i)));
         }
       }
     }
@@ -160,7 +164,8 @@ export class GateExchangeClient implements IExchangeClient {
         lastError = error;
         if (i < retries) {
           logger.warn(`获取 ${contract} K线数据失败，重试 ${i + 1}/${retries}...`);
-          await new Promise(resolve => setTimeout(resolve, 300 * (i + 1)));
+          // 使用指数退避策略
+          await new Promise(resolve => setTimeout(resolve, 1000 * Math.pow(2, i)));
         }
       }
     }
@@ -201,7 +206,8 @@ export class GateExchangeClient implements IExchangeClient {
         
         if (i < retries) {
           logger.warn(`获取账户余额失败，重试 ${i + 1}/${retries}...`);
-          await new Promise(resolve => setTimeout(resolve, 300 * (i + 1)));
+          // 使用指数退避策略
+          await new Promise(resolve => setTimeout(resolve, 1000 * Math.pow(2, i)));
         }
       }
     }
@@ -240,7 +246,8 @@ export class GateExchangeClient implements IExchangeClient {
         lastError = error;
         if (i < retries) {
           logger.warn(`获取持仓失败，重试 ${i + 1}/${retries}...`);
-          await new Promise(resolve => setTimeout(resolve, 300 * (i + 1)));
+          // 使用指数退避策略
+          await new Promise(resolve => setTimeout(resolve, 1000 * Math.pow(2, i)));
         }
       }
     }

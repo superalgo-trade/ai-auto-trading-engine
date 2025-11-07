@@ -722,6 +722,8 @@ async function getAccountInfo() {
  * 1. 保存止损止盈订单ID等元数据
  * 2. 提供历史查询和监控页面展示
  * 实时持仓数据应该直接从交易所 API 获取
+ * 
+ * 🔧 关键修复：清理孤儿止损止盈订单
  */
 async function syncPositionsFromGate(cachedPositions?: any[]) {
   const exchangeClient = getExchangeClient();
@@ -742,6 +744,11 @@ async function syncPositionsFromGate(cachedPositions?: any[]) {
       logger.warn(`交易所返回0个持仓，但数据库有 ${dbResult.rows.length} 个持仓，可能是 API 延迟，跳过同步`);
       return;
     }
+    
+    // 🔧 关键修复：在清空 positions 表之前，先获取当前持仓的币种列表
+    const activeSymbols = new Set(
+      activeExchangePositions.map((p: any) => exchangeClient.extractSymbol(p.contract))
+    );
     
     await dbClient.execute("DELETE FROM positions");
     
@@ -816,6 +823,64 @@ async function syncPositionsFromGate(cachedPositions?: any[]) {
     const activePositionsCount = exchangePositions.filter((p: any) => parsePositionSize(p.size) !== 0).length;
     if (activePositionsCount > 0 && syncedCount === 0) {
       logger.error(`交易所有 ${activePositionsCount} 个持仓，但数据库同步失败！`);
+    }
+    
+    // 🔧 关键修复：清理孤儿止损止盈订单
+    // 将不在 activeSymbols 中的币种的所有 active 订单状态改为 cancelled
+    try {
+      // 获取所有活跃的止损止盈订单
+      const activeOrdersResult = await dbClient.execute({
+        sql: "SELECT DISTINCT symbol FROM price_orders WHERE status = 'active'",
+      });
+      
+      const orphanSymbols: string[] = [];
+      for (const row of activeOrdersResult.rows) {
+        const symbol = row.symbol as string;
+        if (!activeSymbols.has(symbol)) {
+          orphanSymbols.push(symbol);
+        }
+      }
+      
+      if (orphanSymbols.length > 0) {
+        logger.warn(`发现 ${orphanSymbols.length} 个币种的孤儿止损止盈订单，准备清理: ${orphanSymbols.join(', ')}`);
+        
+        // 批量更新这些订单的状态为 cancelled
+        const now = new Date().toISOString();
+        for (const symbol of orphanSymbols) {
+          // 获取该币种的所有活跃订单
+          const ordersResult = await dbClient.execute({
+            sql: `SELECT order_id, type FROM price_orders 
+                  WHERE symbol = ? AND status = 'active'`,
+            args: [symbol]
+          });
+          
+          // 尝试在交易所取消这些订单（先取消交易所，再更新数据库）
+          for (const orderRow of ordersResult.rows) {
+            const orderId = orderRow.order_id as string;
+            const orderType = orderRow.type as string;
+            
+            try {
+              await exchangeClient.cancelOrder(orderId);
+              logger.info(`✅ 已在交易所取消孤儿订单: ${symbol} ${orderType} ${orderId}`);
+            } catch (cancelError: any) {
+              // 订单可能已经被取消或不存在，这是正常的
+              logger.debug(`取消交易所订单失败 ${symbol} ${orderId}: ${cancelError.message}`);
+            }
+          }
+          
+          // 更新数据库中的订单状态
+          await dbClient.execute({
+            sql: `UPDATE price_orders 
+                  SET status = 'cancelled', updated_at = ?
+                  WHERE symbol = ? AND status = 'active'`,
+            args: [now, symbol]
+          });
+          
+          logger.info(`✅ 已清理 ${symbol} 的数据库孤儿订单记录，共 ${ordersResult.rows.length} 个`);
+        }
+      }
+    } catch (error: any) {
+      logger.error(`清理孤儿订单失败: ${error.message}`);
     }
     
   } catch (error) {
@@ -1826,6 +1891,15 @@ export async function initTradingSystem() {
   }
   
   logger.info(`最终配置: 止损线=${accountRiskConfig.stopLossUsdt} USDT, 止盈线=${accountRiskConfig.takeProfitUsdt} USDT`);
+  
+  // 3. 🔧 启动时清理孤儿止损止盈订单
+  try {
+    logger.info("检查并清理孤儿止损止盈订单...");
+    await syncPositionsFromGate();
+    logger.info("✅ 孤儿订单清理完成");
+  } catch (error: any) {
+    logger.error(`清理孤儿订单失败: ${error.message}`);
+  }
 }
 
 /**

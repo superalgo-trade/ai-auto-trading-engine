@@ -54,6 +54,8 @@ export class BinanceExchangeClient implements IExchangeClient {
   private readonly MAX_CACHE_SIZE = 1000; // 最大缓存数量
   private readonly CACHE_TTL = 24 * 60 * 60 * 1000; // 缓存有效期：24小时
   private readonly contractInfoCache: Map<string, ContractInfo> = new Map();
+  private networkHealthy = true;
+  private lastNetworkCheck = 0;
 
   constructor(config: ExchangeConfig) {
     this.config = config;
@@ -205,11 +207,18 @@ export class BinanceExchangeClient implements IExchangeClient {
   private async handleRequest(url: URL, options: RequestInit, retries = 3): Promise<any> {
     for (let attempt = 1; attempt <= retries; attempt++) {
       const controller = new AbortController();
-      const timeoutMs = 15000 + (attempt - 1) * 5000;
+      // 增加超时时间，第一次30秒，之后递增
+      const timeoutMs = 30000 + (attempt - 1) * 10000;
       const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
       try {
         options.signal = controller.signal;
+        // 添加连接keepAlive以提高连接复用
+        if (!options.headers) {
+          options.headers = {};
+        }
+        (options.headers as Record<string, string>)['Connection'] = 'keep-alive';
+        
         const response = await fetch(url.toString(), options);
         clearTimeout(timeoutId);
 
@@ -229,7 +238,8 @@ export class BinanceExchangeClient implements IExchangeClient {
             throw new Error(`API请求失败: ${error.msg || error.message || response.statusText}`);
           }
           logger.warn(`API请求失败(${attempt}/${retries}):`, error);
-          await new Promise(resolve => setTimeout(resolve, Math.min(1000 * attempt, 3000)));
+          // 增加重试间隔，使用指数退避策略
+          await new Promise(resolve => setTimeout(resolve, Math.min(2000 * Math.pow(2, attempt - 1), 10000)));
           continue;
         }
 
@@ -240,18 +250,33 @@ export class BinanceExchangeClient implements IExchangeClient {
 
         const isTimeout = error.name === 'AbortError' || 
                          error.message?.includes('timeout') ||
-                         error.message?.includes('aborted');
+                         error.message?.includes('aborted') ||
+                         error.message?.includes('Timeout');
 
         if (attempt === retries) {
           logger.error(`API请求失败(${attempt}/${retries}):`, error as Error);
+          
+          // 最后一次尝试失败，检查网络健康
+          const healthy = await this.checkNetworkHealth();
+          if (!healthy) {
+            logger.error(`⚠️  网络连接异常，请检查：`);
+            logger.error(`  1. 网络连接是否正常`);
+            logger.error(`  2. 是否需要配置代理访问 ${this.baseUrl}`);
+            logger.error(`  3. 防火墙设置是否阻止了访问`);
+            if (this.config.isTestnet) {
+              logger.error(`  4. Binance 测试网 (testnet.binancefuture.com) 是否可访问`);
+            }
+          }
+          
           throw error;
         }
 
         // logger.warn(`${isTimeout ? '请求超时' : 'API请求失败'}(${attempt}/${retries}), 将在 ${isTimeout ? attempt * 2 : attempt} 秒后重试`);
         
+        // 使用指数退避策略，超时错误延迟更长
         const delay = isTimeout ? 
-          Math.min(2000 * attempt, 6000) : 
-          Math.min(1000 * attempt, 3000);
+          Math.min(3000 * Math.pow(2, attempt - 1), 15000) : 
+          Math.min(2000 * Math.pow(2, attempt - 1), 10000);
           
         await new Promise(resolve => setTimeout(resolve, delay));
       }
@@ -1292,6 +1317,41 @@ export class BinanceExchangeClient implements IExchangeClient {
         stopLossOrder: undefined,
         takeProfitOrder: undefined
       };
+    }
+  }
+
+  /**
+   * 检查网络连接健康状态
+   */
+  private async checkNetworkHealth(): Promise<boolean> {
+    const now = Date.now();
+    // 5分钟内检查过则直接返回缓存结果
+    if (now - this.lastNetworkCheck < 5 * 60 * 1000) {
+      return this.networkHealthy;
+    }
+
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000);
+      
+      const response = await fetch(`${this.baseUrl}/fapi/v1/ping`, {
+        signal: controller.signal,
+      });
+      
+      clearTimeout(timeoutId);
+      this.networkHealthy = response.ok;
+      this.lastNetworkCheck = now;
+      
+      if (!this.networkHealthy) {
+        logger.warn(`网络健康检查失败: HTTP ${response.status}`);
+      }
+      
+      return this.networkHealthy;
+    } catch (error: any) {
+      logger.error('网络健康检查失败:', error);
+      this.networkHealthy = false;
+      this.lastNetworkCheck = now;
+      return false;
     }
   }
 }

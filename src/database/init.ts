@@ -147,6 +147,37 @@ async function initDatabase() {
       logger.info("\n当前无持仓");
     }
 
+    // 清理孤儿订单：持仓已关闭但止损止盈订单仍然活跃的情况
+    try {
+      const activeSymbols = new Set((positions.rows as any[]).map((p: any) => p.symbol));
+      
+      // 查询所有活跃的止损止盈订单
+      const activeOrdersResult = await client.execute(
+        "SELECT DISTINCT symbol FROM price_orders WHERE status = 'active'"
+      );
+      
+      const orphanSymbols = (activeOrdersResult.rows as any[])
+        .map((o: any) => o.symbol)
+        .filter(symbol => !activeSymbols.has(symbol));
+      
+      if (orphanSymbols.length > 0) {
+        logger.warn(`⚠️  发现孤儿订单: ${orphanSymbols.join(', ')}，正在清理...`);
+        
+        for (const symbol of orphanSymbols) {
+          await client.execute({
+            sql: `UPDATE price_orders 
+                  SET status = 'cancelled', updated_at = datetime('now')
+                  WHERE symbol = ? AND status = 'active'`,
+            args: [symbol],
+          });
+        }
+        
+        logger.info(`✅ 已清理 ${orphanSymbols.length} 个币种的孤儿订单`);
+      }
+    } catch (error) {
+      logger.error("清理孤儿订单失败:", error as any);
+    }
+
     logger.info("\n✅ 数据库初始化完成");
     client.close();
   } catch (error) {
