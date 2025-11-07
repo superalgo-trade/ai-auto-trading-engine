@@ -347,6 +347,28 @@ export const updatePositionStopLossTool = createTool({
         };
       }
 
+      // 🔧 如果没有传 takeProfit，从数据库读取原来的止盈价格，保持不变
+      if (takeProfit === undefined) {
+        try {
+          const { createClient } = await import("@libsql/client");
+          const dbClient = createClient({
+            url: process.env.DATABASE_URL || "file:./.voltagent/trading.db",
+          });
+          
+          const result = await dbClient.execute({
+            sql: "SELECT profit_target FROM positions WHERE symbol = ?",
+            args: [symbol],
+          });
+          
+          if (result.rows.length > 0 && result.rows[0].profit_target) {
+            takeProfit = Number(result.rows[0].profit_target);
+            logger.info(`📌 保留原止盈价格: ${symbol} = ${takeProfit}`);
+          }
+        } catch (error: any) {
+          logger.warn(`读取原止盈价格失败: ${error.message}`);
+        }
+      }
+
       // 调用交易所接口设置止损止盈
       const result = await exchangeClient.setPositionStopLoss(
         contract,
