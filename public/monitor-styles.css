@@ -1986,6 +1986,8 @@ body {
     }
 
     /* 移动端隐藏止盈止损表格的列 - 只保留: 币种、方向、止损价格、当前价格、止盈价格 */
+    #tab-price-orders .positions-table th:nth-child(2),
+    #tab-price-orders .positions-table td:nth-child(2),
     #tab-price-orders .positions-table th:nth-child(6),
     #tab-price-orders .positions-table td:nth-child(6),
     #tab-price-orders .positions-table th:nth-child(7),
