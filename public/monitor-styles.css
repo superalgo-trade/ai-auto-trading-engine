@@ -1802,6 +1802,12 @@ body {
         padding-bottom: 0.4rem;
     }
 
+    /* Tab按钮字体大小适配 */
+    .tab-button {
+        font-size: 0.85rem;
+        padding: 0.6rem 1rem;
+    }
+
     .timeframe-select {
         font-size: 0.7rem;
         padding: 0.25rem 0.5rem;
@@ -1970,12 +1976,22 @@ body {
     }
 
     /* 移动端隐藏持仓表格的列 - 只保留: 币种、方向、当前价格、未实现盈亏、收益率 */
-    .positions-table th:nth-child(3),
-    .positions-table td:nth-child(3),
-    .positions-table th:nth-child(4),
-    .positions-table td:nth-child(4),
-    .positions-table th:nth-child(5),
-    .positions-table td:nth-child(5) {
+    #tab-positions .positions-table th:nth-child(3),
+    #tab-positions .positions-table td:nth-child(3),
+    #tab-positions .positions-table th:nth-child(4),
+    #tab-positions .positions-table td:nth-child(4),
+    #tab-positions .positions-table th:nth-child(5),
+    #tab-positions .positions-table td:nth-child(5) {
+        display: none;
+    }
+
+    /* 移动端隐藏止盈止损表格的列 - 只保留: 币种、方向、止损价格、当前价格、止盈价格 */
+    #tab-price-orders .positions-table th:nth-child(6),
+    #tab-price-orders .positions-table td:nth-child(6),
+    #tab-price-orders .positions-table th:nth-child(7),
+    #tab-price-orders .positions-table td:nth-child(7),
+    #tab-price-orders .positions-table th:nth-child(8),
+    #tab-price-orders .positions-table td:nth-child(8) {
         display: none;
     }
 
@@ -2206,6 +2222,22 @@ body {
     .trades-table th {
         font-size: 0.65rem;
         font-weight: 700;
+    }
+
+    /* 超小屏幕Tab按钮字体大小适配 */
+    .tab-button {
+        font-size: 0.75rem;
+        padding: 0.5rem 0.8rem;
+    }
+
+    /* 超小屏幕隐藏止盈止损表格的列 - 只保留: 币种、方向、止损价格、当前价格、止盈价格 */
+    #tab-price-orders .positions-table th:nth-child(6),
+    #tab-price-orders .positions-table td:nth-child(6),
+    #tab-price-orders .positions-table th:nth-child(7),
+    #tab-price-orders .positions-table td:nth-child(7),
+    #tab-price-orders .positions-table th:nth-child(8),
+    #tab-price-orders .positions-table td:nth-child(8) {
+        display: none;
     }
 }
 
