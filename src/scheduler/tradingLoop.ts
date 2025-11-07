@@ -1383,22 +1383,27 @@ async function executeTradingDecision() {
         closeReason = `持仓时间已达 ${formatPercent(holdingHours, 1)} 小时，超过36小时限制`;
       }
       
-      // b) 极端止损保护（防止爆仓，硬编码底线）
-      // 只在极端情况下强制平仓，避免账户爆仓
-      // 常规止损由AI决策，这里只是最后的安全网
-      const EXTREME_STOP_LOSS = -30; // 单笔亏损 -30% 强制平仓（专业风控底线）
+      // b) 科学止损失效保护（防止爆仓的最后防线）
+      // 说明：正常情况下，科学止损单在交易所服务器端会自动触发平仓
+      // 这里是检测"止损单未生效"的极端情况，系统强制介入
       
-      logger.info(`${symbol} 极端止损检查: 当前盈亏=${formatPercent(pnlPercent)}%, 极端止损线=${EXTREME_STOP_LOSS}%`);
+      // 根据杠杆倍数计算极端止损阈值（基于科学止损的最大距离 + 缓冲）
+      // 科学止损最大距离通常是 5-6%，我们设置极端保护线为 8-10%（留有缓冲）
+      const EXTREME_STOP_LOSS_BASE = -8; // 基准：-8% pnl_percent
+      const LEVERAGE_ADJUSTMENT = Math.min(leverage / 10, 1.5); // 杠杆调整系数（最大1.5倍）
+      const EXTREME_STOP_LOSS = EXTREME_STOP_LOSS_BASE * LEVERAGE_ADJUSTMENT; // 根据杠杆动态调整
+      
+      logger.info(`${symbol} 极端止损检查: 当前盈亏=${formatPercent(pnlPercent)}%, 极端止损线=${formatPercent(EXTREME_STOP_LOSS)}% (杠杆${leverage}x), 科学止损应该已在交易所服务器端执行`);
       
       if (pnlPercent <= EXTREME_STOP_LOSS) {
         shouldClose = true;
-        closeReason = `触发极端止损保护 (${formatPercent(pnlPercent)}% ≤ ${EXTREME_STOP_LOSS}%，防止爆仓)`;
-        logger.error(`${closeReason}`);
+        closeReason = `科学止损失效保护触发 (${formatPercent(pnlPercent)}% ≤ ${formatPercent(EXTREME_STOP_LOSS)}%，杠杆${leverage}x)`;
+        logger.error(`⚠️ ${closeReason} - 正常情况下科学止损单应该已在交易所服务器端触发，请检查止损单状态`);
       }
       
       // c) 其他风控检查已移除，交由AI全权决策
       // AI负责：止损、移动止盈、分批止盈、时间止盈、峰值回撤等策略性决策
-      // 系统只保留底线安全保护（极端止损、36小时强制平仓、账户回撤保护）
+      // 系统只保留底线安全保护（科学止损失效保护、36小时强制平仓）
       
       logger.info(`${symbol} 持仓监控: 盈亏=${formatPercent(pnlPercent)}%, 持仓时间=${formatPercent(holdingHours, 1)}h, 峰值盈利=${formatPercent(peakPnlPercent)}%, 杠杆=${leverage}x`);
       
