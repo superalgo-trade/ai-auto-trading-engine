@@ -93,7 +93,9 @@ export interface StrategyParams {
   };
   
   trailingStop: {
-    // 移动止盈阶梯配置 [触发盈利, 移动止损线]
+    // 移动止损配置
+    // 科学模式（ENABLE_SCIENTIFIC_STOP_LOSS=true）：trigger 作为检查时机，stopAt 忽略
+    // 固定模式（ENABLE_SCIENTIFIC_STOP_LOSS=false）：trigger 触发点，stopAt 移动止损目标
     level1: { trigger: number; stopAt: number };
     level2: { trigger: number; stopAt: number };
     level3: { trigger: number; stopAt: number };
@@ -179,9 +181,10 @@ export function getStrategyParams(strategy: TradingStrategy): StrategyParams {
       },
       trailingStop: {
         // 超短线策略：快速锁利（5分钟周期）
-        level1: { trigger: 4, stopAt: 1.5 },   // 盈利达到 +4% 时，止损线移至 +1.5%
-        level2: { trigger: 8, stopAt: 4 },     // 盈利达到 +8% 时，止损线移至 +4%
-        level3: { trigger: 15, stopAt: 8 },    // 盈利达到 +15% 时，止损线移至 +8%
+        // 科学模式：trigger 作为检查时机 | 固定模式：trigger 触发点，stopAt 移动目标
+        level1: { trigger: 4, stopAt: 1.5 },   // 科学：盈利 4% 检查 | 固定：移至 +1.5%
+        level2: { trigger: 8, stopAt: 4 },     // 科学：盈利 8% 检查 | 固定：移至 +4%
+        level3: { trigger: 15, stopAt: 8 },    // 科学：盈利 15% 检查 | 固定：移至 +8%
       },
       partialTakeProfit: {
         // 超短线策略：快速分批止盈
@@ -233,9 +236,10 @@ export function getStrategyParams(strategy: TradingStrategy): StrategyParams {
       },
       trailingStop: {
         // 波段策略：给趋势更多空间，较晚锁定利润
-        level1: { trigger: 15, stopAt: 8 },   // 盈利达到 +15% 时，止损线移至 +8%
-        level2: { trigger: 30, stopAt: 20 },  // 盈利达到 +30% 时，止损线移至 +20%
-        level3: { trigger: 50, stopAt: 35 },  // 盈利达到 +50% 时，止损线移至 +35%
+        // 科学模式：trigger 作为检查时机 | 固定模式：trigger 触发点，stopAt 移动目标
+        level1: { trigger: 15, stopAt: 8 },   // 科学：盈利 15% 检查 | 固定：移至 +8%
+        level2: { trigger: 30, stopAt: 20 },  // 科学：盈利 30% 检查 | 固定：移至 +20%
+        level3: { trigger: 50, stopAt: 35 },  // 科学：盈利 50% 检查 | 固定：移至 +35%
       },
       partialTakeProfit: {
         // 波段策略：更晚分批止盈，追求趋势利润最大化
@@ -475,36 +479,41 @@ export function generateTradingPrompt(data: {
 └─────────────────────────────────────────┘
 
 【AI战术决策 - 强烈建议遵守】
-┌─────────────────────────────────────────┐
-${params.scientificStopLoss?.enabled ? `│ 科学止损：                              │
-│   • 基于 ATR${params.scientificStopLoss.atrMultiplier}x + 支撑/阻力位            │
-│   • 止损范围: ${params.scientificStopLoss.minDistance}%-${params.scientificStopLoss.maxDistance}%                   │
-│   • 开仓前检查: checkOpenPosition()     │
-│   • 计算止损: calculateStopLoss()       │
-│   • 动态调整: updateTrailingStop()      │` : `│ 策略止损：                  │
+┌─────────────────────────────────────────────────────┐
+${params.scientificStopLoss?.enabled ? `│ 科学止损：                                          │
+│   • 基于 ATR${params.scientificStopLoss.atrMultiplier}x + 支撑/阻力位                        │
+│   • 止损范围: ${params.scientificStopLoss.minDistance}%-${params.scientificStopLoss.maxDistance}%                               │
+│   • 开仓前检查: checkOpenPosition()                 │
+│   • 计算止损: calculateStopLoss()                   │
+│   • 动态调整: updateTrailingStop()                  │` : `│ 策略止损：                  │
 │   策略止损线: ${formatPercent(params.stopLoss.low)}% ~ ${formatPercent(params.stopLoss.high)}%          │
 │   根据杠杆倍数动态调整                  │`}
-│ 移动止盈：                              │
+${params.scientificStopLoss?.enabled ? `│ 移动止损：                                          │
+│   • 每周期检查盈利持仓，使用 updateTrailingStop()   │
+│   • 基于当前 ATR 和支撑位重新计算止损               │
+│   • 实际更新交易所订单：updatePositionStopLoss()    │
+│   • 参考触发点: ≥+${formatPercent(params.trailingStop.level1.trigger)}%, ≥+${formatPercent(params.trailingStop.level2.trigger)}%, ≥+${formatPercent(params.trailingStop.level3.trigger)}%         │` : `│ 移动止盈：                  │
 │   • 盈利≥+${formatPercent(params.trailingStop.level1.trigger)}% → 止损移至+${formatPercent(params.trailingStop.level1.stopAt)}%        │
 │   • 盈利≥+${formatPercent(params.trailingStop.level2.trigger)}% → 止损移至+${formatPercent(params.trailingStop.level2.stopAt)}%       │
-│   • 盈利≥+${formatPercent(params.trailingStop.level3.trigger)}% → 止损移至+${formatPercent(params.trailingStop.level3.stopAt)}%      │
-│ 分批止盈：                              │
-│   • 盈利≥+${formatPercent(params.partialTakeProfit.stage1.trigger)}% → 平仓${formatPercent(params.partialTakeProfit.stage1.closePercent)}%           │
-│   • 盈利≥+${formatPercent(params.partialTakeProfit.stage2.trigger)}% → 平仓${formatPercent(params.partialTakeProfit.stage2.closePercent)}%           │
-│   • 盈利≥+${formatPercent(params.partialTakeProfit.stage3.trigger)}% → 平仓${formatPercent(params.partialTakeProfit.stage3.closePercent)}%          │
-│ 峰值回撤：≥${formatPercent(params.peakDrawdownProtection)}% → 危险信号，立即平仓  │
-└─────────────────────────────────────────┘
-
+│   • 盈利≥+${formatPercent(params.trailingStop.level3.trigger)}% → 止损移至+${formatPercent(params.trailingStop.level3.stopAt)}%      │`}
+│ 分批止盈：                                          │
+│   • 盈利≥+${formatPercent(params.partialTakeProfit.stage1.trigger)}% → 平仓${formatPercent(params.partialTakeProfit.stage1.closePercent)}%                       │
+│   • 盈利≥+${formatPercent(params.partialTakeProfit.stage2.trigger)}% → 平仓${formatPercent(params.partialTakeProfit.stage2.closePercent)}%                       │
+│   • 盈利≥+${formatPercent(params.partialTakeProfit.stage3.trigger)}% → 平仓${formatPercent(params.partialTakeProfit.stage3.closePercent)}%                      │
+│ 峰值回撤：≥${formatPercent(params.peakDrawdownProtection)}% → 危险信号，立即平仓              │
+└─────────────────────────────────────────────────────┘
 【决策流程 - 按优先级执行】
 ${params.scientificStopLoss?.enabled ? `(1) 持仓管理（最优先 - 使用科学止损）：
    a) 检查科学止损：calculateStopLoss() 计算当前合理止损位
    b) 考虑移动止损：updateTrailingStop() 为盈利持仓上移止损
-   c) 执行平仓决策：检查止损/止盈/峰值回撤 → closePosition
-   
-(2) 新开仓评估（科学过滤 - 避免重复计算）：
+   c) 如果 shouldUpdate=true：立即调用 updatePositionStopLoss() 更新交易所订单
+   d) 执行平仓决策：检查止损/止盈/峰值回撤 → closePosition
+
+(2) 新开仓评估（科学过滤 + 自动止损单）：
    a) 分析市场数据：识别双向机会（做多/做空）
    b) 开仓前检查：checkOpenPosition() 一次性完成止损验证和计算
-   c) 执行开仓：openPosition（使用 checkOpenPosition 返回的止损价）
+   c) 执行开仓：openPosition（自动设置止损止盈订单到交易所）
+   ⚠️ 重要：openPosition() 会在交易所服务器端自动设置止损单，24/7保护资金
    ⚠️ 注意：checkOpenPosition() 已包含止损计算，不要再调用 calculateStopLoss()
    
 (3) 加仓评估（谨慎使用科学止损）：
@@ -894,7 +903,30 @@ function generateInstructions(strategy: TradingStrategy, intervalMinutes: number
        - 极少例外：仅限明确的假突破+关键支撑位（需要充分证据）
      * 说明：pnl_percent已包含杠杆效应，直接比较即可
   
-  (2) 移动止盈策略（保护利润的核心机制，强烈建议执行）：
+  (2) 移动止损策略（保护利润的核心机制）：
+     ${params.scientificStopLoss?.enabled && RISK_PARAMS.ENABLE_TRAILING_STOP_LOSS ? `
+     ⭐ 科学移动止损模式（当前启用）：
+     * 参考触发点（检查时机，不是目标止损位）：
+       - 盈利 ≥ +${formatPercent(params.trailingStop.level1.trigger)}% → 调用 updateTrailingStop() 检查是否上移
+       - 盈利 ≥ +${formatPercent(params.trailingStop.level2.trigger)}% → 再次调用 updateTrailingStop() 检查
+       - 盈利 ≥ +${formatPercent(params.trailingStop.level3.trigger)}% → 继续调用 updateTrailingStop() 检查
+     * 工作流程：
+       1. 检查盈利是否达到参考触发点
+       2. 调用 updateTrailingStop() 基于当前 ATR${params.scientificStopLoss.atrMultiplier}x 和支撑位计算新止损
+       3. 如果 shouldUpdate=true，立即调用 updatePositionStopLoss() 实际更新交易所订单
+       4. 新止损单在交易所服务器端立即生效，不受本地程序限制
+       5. 系统只在止损向有利方向移动时才更新，永远不会降低保护
+     * 核心优势：
+       - 动态适应市场波动，高波动时自动放宽，低波动时自动收紧
+       - 止损单在交易所服务器端执行，24/7监控，程序崩溃也不影响
+       - 触及止损位立即平仓（不用等20分钟循环），大幅降低风险
+       - 只在止损向有利方向移动时才更新，永远不会降低保护
+     * 重要工具：
+       - updateTrailingStop(): 检查是否应该上移止损（只建议，不执行）
+       - updatePositionStopLoss(): 实际更新交易所止损订单（真正执行）
+     * 可回退：随时可以禁用科学止损（.env中SCIENTIFIC_STOP_LOSS_ENABLED=false），系统会自动回到固定移动止盈模式
+     ` : `
+     固定移动止盈模式（当前使用）：
      * ${params.name}策略的移动止盈建议（已根据${params.leverageMax}倍最大杠杆优化）：
        - 盈利 ≥ +${formatPercent(params.trailingStop.level1.trigger)}% → 建议将止损移至+${formatPercent(params.trailingStop.level1.stopAt)}%（保护至少${formatPercent(params.trailingStop.level1.stopAt)}%利润）
        - 盈利 ≥ +${formatPercent(params.trailingStop.level2.trigger)}% → 建议将止损移至+${formatPercent(params.trailingStop.level2.stopAt)}%（保护至少${formatPercent(params.trailingStop.level2.stopAt)}%利润）
@@ -903,6 +935,8 @@ function generateInstructions(strategy: TradingStrategy, intervalMinutes: number
        - 强趋势行情：可适当放宽止损线，给利润更多空间
        - 震荡行情：应严格执行，避免利润回吐
      * 说明：这些阈值已针对您的杠杆范围（${params.leverageMin}-${params.leverageMax}倍）优化
+     * 可升级：如需动态止损，可启用科学移动止损（.env中SCIENTIFIC_STOP_LOSS_ENABLED=true）
+     `}
   
   (3) 止盈策略（灵活决策，不要死板）：
      * 重要原则：止盈要灵活，根据实际市场情况决定！
@@ -970,18 +1004,46 @@ function generateInstructions(strategy: TradingStrategy, intervalMinutes: number
       - 记住：止损是保护本金的生命线！
       `}
    
-   b) 移动止盈决策：
+   b) 移动止损保护利润（推荐每周期检查）：
       ${params.scientificStopLoss?.enabled && RISK_PARAMS.ENABLE_TRAILING_STOP_LOSS ? `
-      使用科学移动止损：
-      - 调用 updateTrailingStop() 动态更新止损位
-      - 系统会自动判断是否需要上移止损保护利润
-      - 只在止损向有利方向移动时才更新
-      ` : ''}
-      标准移动止盈触发点：
-      - 检查是否达到（+${params.trailingStop.level1.trigger}%/+${params.trailingStop.level2.trigger}%/+${params.trailingStop.level3.trigger}%）
-      - 如果达到，评估是否需要移动止损线保护利润
+      ⭐ 科学移动止损（当前启用，优先使用）：
+      步骤1: 检查盈利是否达到参考触发点：
+             - 参考点 1：盈利 ≥ +${formatPercent(params.trailingStop.level1.trigger)}%
+             - 参考点 2：盈利 ≥ +${formatPercent(params.trailingStop.level2.trigger)}%
+             - 参考点 3：盈利 ≥ +${formatPercent(params.trailingStop.level3.trigger)}%
+             这些只是检查时机，不是目标止损位！
+      
+      步骤2: 调用 updateTrailingStop() 动态计算新止损位：
+             - 基于当前价格重新计算 ATR${params.scientificStopLoss.atrMultiplier}x 止损
+             - 结合当前支撑/阻力位
+             - 返回建议：shouldUpdate 和 newStopLoss
+      
+      步骤3: 如果 shouldUpdate=true，立即调用 updatePositionStopLoss()：
+             - 实际更新交易所服务器端的止损单（这是真正的执行操作！）
+             - 新止损单会立即在交易所生效，24/7监控价格
+             - 触及止损位会立即平仓，不用等20分钟循环
+             - 系统只在止损向有利方向移动时才更新
+      
+      核心机制说明：
+      - updateTrailingStop(): 只检查建议，不会真正修改止损单
+      - updatePositionStopLoss(): 才会真正更新交易所订单
+      - 止损单在交易所服务器端，即使程序崩溃也会自动触发
+      
+      动态计算优势：
+      - 科学止损会根据市场波动自动计算合理止损位
+      - 不是固定移至 +${formatPercent(params.trailingStop.level1.stopAt)}% 这样的固定值
+      - 可能移至保本+1%，也可能移至+5%，取决于当前ATR和市场结构
+      - 这比固定百分比更科学，能更好保护利润
+      - 如不习惯可随时禁用（.env中SCIENTIFIC_STOP_LOSS_ENABLED=false），自动回退到固定模式
+      ` : `
+      固定移动止盈（当前使用）：
+      - 盈利 ≥ +${formatPercent(params.trailingStop.level1.trigger)}% → 将止损移至 +${formatPercent(params.trailingStop.level1.stopAt)}%
+      - 盈利 ≥ +${formatPercent(params.trailingStop.level2.trigger)}% → 将止损移至 +${formatPercent(params.trailingStop.level2.stopAt)}%
+      - 盈利 ≥ +${formatPercent(params.trailingStop.level3.trigger)}% → 将止损移至 +${formatPercent(params.trailingStop.level3.stopAt)}%
       - 如果当前盈利回落到移动止损线以下
-      - 立即调用 closePosition 平仓保护利润（不要犹豫）
+      - 立即调用 closePosition 平仓保护利润
+      - 如需动态止损保护，可启用科学移动止损（.env中SCIENTIFIC_STOP_LOSS_ENABLED=true）
+      `}
    
    c) 止盈决策（灵活判断，不要死守目标）：
       - 重要：止盈要根据市场实际情况灵活决策，不要死板！
@@ -1042,9 +1104,17 @@ function generateInstructions(strategy: TradingStrategy, intervalMinutes: number
              - 返回结果包含：stopLossPrice, stopLossDistance, qualityScore
              - 自动拒绝止损距离过大、市场波动极端的交易
              - 只有检查通过（shouldOpen=true）才继续下一步
+      
       步骤2: 执行 openPosition() 开仓
              - 使用步骤1返回的止损位（已经计算好）
-             - 下个周期会根据科学止损判断是否平仓
+             - ✅ openPosition 会自动设置止损止盈订单到交易所服务器
+             - ✅ 止损单24/7监控价格，触及即刻平仓，不受本地程序限制
+             - ✅ 即使程序崩溃，止损单仍会自动触发保护资金
+      
+      步骤3: 后续管理（每个周期）
+             - 盈利后可以上移止损：先调用 updateTrailingStop() 检查建议
+             - 如果 shouldUpdate=true，调用 updatePositionStopLoss() 实际更新交易所订单
+             - 新止损单会立即在交易所服务器端生效
       
       ⚠️ 注意：不需要再次调用 calculateStopLoss()，因为 checkOpenPosition() 已经计算过了！
       ` : `
@@ -1071,7 +1141,12 @@ function generateInstructions(strategy: TradingStrategy, intervalMinutes: number
 
 可用工具：
 - 市场数据：getMarketPrice、getTechnicalIndicators、getFundingRate、getOrderBook
-- 持仓管理：openPosition（市价单）、closePosition（市价单）、cancelOrder、setStopLoss、setTakeProfit、updateTrailingStop
+- 持仓管理：
+  * openPosition（市价单，自动设置止损止盈订单）
+  * closePosition（市价单）
+  * cancelOrder、setStopLoss、setTakeProfit
+  * updateTrailingStop（检查是否应该上移止损）
+  * updatePositionStopLoss（实际更新交易所止损订单）
 - 账户信息：getAccountBalance、getPositions、getOpenOrders
 - 风险分析：calculateRisk、checkOrderStatus、calculateStopLoss、checkOpenPosition
 
@@ -1171,10 +1246,10 @@ export function createTradingAgent(intervalMinutes: number = 5) {
       tradingTools.checkOrderStatusTool,
       tradingTools.calculateRiskTool,
       tradingTools.syncPositionsTool,
-      // 止损管理工具
       tradingTools.calculateStopLossTool,
       tradingTools.checkOpenPositionTool,
       tradingTools.updateTrailingStopTool,
+      tradingTools.updatePositionStopLossTool,
     ],
     memory,
   });

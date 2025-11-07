@@ -119,6 +119,27 @@ The system follows an **AI autonomous decision-making** philosophy, abandoning t
 
 ### Intelligent Risk Management
 
+#### Scientific Stop-Loss System ⭐ NEW
+
+- **Intelligent Stop-Loss Calculation**: Dynamically calculates stop-loss levels based on ATR (Average True Range)
+- **Strategy-Adaptive**: Each strategy has independent stop-loss parameters (ultra-short 0.5-3%, swing 1.0-6%, etc.)
+- **Server-Side Execution**: Stop-loss orders execute on exchange servers, independent of local program
+- **Automatic Protection**: Stop-loss orders trigger automatically even if program crashes
+- **Entry Filtering**: Automatically rejects trading opportunities with insufficient stop-loss space
+- **Trailing Stop-Loss**: Automatically raises stop-loss after profit, locking in gains
+
+**Configuration Example**:
+
+```env
+ENABLE_SCIENTIFIC_STOP_LOSS=true      # Enable scientific stop-loss
+ENABLE_TRAILING_STOP_LOSS=true        # Enable trailing stop-loss
+ENABLE_STOP_LOSS_FILTER=true          # Enable entry filtering
+```
+
+Detailed Documentation: [Scientific Stop-Loss Quick Start](./docs/STOP_LOSS_QUICK_START.md)
+
+#### Traditional Risk Controls
+
 - **Stop-Loss Protection**: Forced liquidation at -30% loss
 - **Time Limits**: Forced closure after 36 hours
 - **Trailing Stops**: Automatically raise stop-loss after profit milestones
@@ -172,6 +193,11 @@ MAX_HOLDING_HOURS=36                         # Maximum holding time (hours)
 INITIAL_BALANCE=1000                         # Initial capital (USDT)
 ACCOUNT_STOP_LOSS_USDT=50                    # Account stop-loss line
 ACCOUNT_TAKE_PROFIT_USDT=20000               # Account take-profit line
+
+# Scientific Stop-Loss System (Recommended)
+ENABLE_SCIENTIFIC_STOP_LOSS=true             # Enable scientific stop-loss
+ENABLE_TRAILING_STOP_LOSS=true               # Enable trailing stop-loss
+ENABLE_STOP_LOSS_FILTER=true                 # Enable entry filtering
 
 # Database
 DATABASE_URL=file:./.voltagent/trading.db
@@ -301,6 +327,9 @@ ai-auto-trading/
 | `MAX_POSITIONS` | Maximum number of positions | 5 | No |
 | `MAX_HOLDING_HOURS` | Maximum holding time in hours | 36 | No |
 | `INITIAL_BALANCE` | Initial capital in USDT | 2000 | No |
+| `ENABLE_SCIENTIFIC_STOP_LOSS` | Enable scientific stop-loss system | false | No |
+| `ENABLE_TRAILING_STOP_LOSS` | Enable trailing stop-loss (auto-raise after profit) | false | No |
+| `ENABLE_STOP_LOSS_FILTER` | Enable entry filtering (reject insufficient stop-loss space) | false | No |
 | `DATABASE_URL` | SQLite database file path | file:./.voltagent/trading.db | No |
 | `EXCHANGE_NAME` | Exchange selection (gate or binance) | gate | Yes |
 | `GATE_API_KEY` | Gate.io API key | - | When EXCHANGE_NAME=gate |

@@ -98,6 +98,21 @@ CREATE TABLE IF NOT EXISTS trade_logs (
     fee REAL,
     status TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS price_orders (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    order_id TEXT NOT NULL UNIQUE,
+    symbol TEXT NOT NULL,
+    side TEXT NOT NULL,
+    type TEXT NOT NULL,
+    trigger_price REAL NOT NULL,
+    order_price REAL NOT NULL,
+    quantity REAL NOT NULL,
+    status TEXT NOT NULL DEFAULT 'active',
+    created_at TEXT NOT NULL,
+    updated_at TEXT,
+    triggered_at TEXT
+);
 `;
 
 /**
@@ -124,6 +139,7 @@ async function resetDatabase() {
     await client.execute("DROP TABLE IF EXISTS trading_signals");
     await client.execute("DROP TABLE IF EXISTS positions");
     await client.execute("DROP TABLE IF EXISTS account_history");
+    await client.execute("DROP TABLE IF EXISTS price_orders");
     logger.info("✅ 现有表已删除");
 
     // 重新创建表

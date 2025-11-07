@@ -197,8 +197,15 @@ export function getDecimalPlacesBySymbol(symbol: string, price: number): number 
     return Math.max(5, getDecimalPlaces(price));
   }
   
-  // BTC、ETH等高价币
-  if (['BTC', 'ETH', 'BNB'].includes(symbolUpper)) {
+  // BTC 价格通常很高，但 Gate.io 要求使用整数价格（0位小数）
+  // 这是因为 BTC_USDT 合约的 order_price_round = "0.1"
+  if (symbolUpper === 'BTC') {
+    // 对于 BTC，使用2位小数（Gate.io 要求）
+    return 2;
+  }
+  
+  // ETH、BNB等高价币
+  if (['ETH', 'BNB'].includes(symbolUpper)) {
     return Math.max(2, Math.min(4, getDecimalPlaces(price)));
   }
   

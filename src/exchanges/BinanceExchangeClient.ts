@@ -53,6 +53,7 @@ export class BinanceExchangeClient implements IExchangeClient {
   private orderCache: Map<string, {contract: string, orderInfo: any, timestamp: number}> = new Map();
   private readonly MAX_CACHE_SIZE = 1000; // 最大缓存数量
   private readonly CACHE_TTL = 24 * 60 * 60 * 1000; // 缓存有效期：24小时
+  private readonly contractInfoCache: Map<string, ContractInfo> = new Map();
 
   constructor(config: ExchangeConfig) {
     this.config = config;
@@ -648,21 +649,43 @@ export class BinanceExchangeClient implements IExchangeClient {
 
   async cancelOrder(orderId: string): Promise<void> {
     // Binance 需要 symbol 参数，但接口定义只有 orderId
-    // 这里我们尝试获取所有未成交订单来查找 symbol
+    // 这里我们尝试从缓存或未成交订单来查找 symbol
     try {
-      const openOrders = await this.getOpenOrders();
-      const order = openOrders.find(o => o.id === orderId);
+      // 先检查缓存
+      const cached = this.orderCache.get(orderId);
+      let symbol: string | undefined;
       
-      if (!order) {
-        throw new Error(`Order ${orderId} not found. Cannot cancel without symbol.`);
+      if (cached) {
+        symbol = this.normalizeContract(cached.contract);
+      } else {
+        // 从未成交订单中查找
+        const openOrders = await this.getOpenOrders();
+        const order = openOrders.find(o => o.id === orderId);
+        
+        if (order) {
+          symbol = this.normalizeContract(order.contract);
+        }
       }
       
-      const symbol = this.normalizeContract(order.contract);
+      if (!symbol) {
+        // 订单不存在或已完成，无需取消
+        logger.debug(`订单 ${orderId} 未找到，可能已完成或不存在`);
+        return;
+      }
+      
       await this.privateRequest('/fapi/v1/order', {
         symbol,
         orderId
       }, 'DELETE');
-    } catch (error) {
+      
+      logger.debug(`已取消订单 ${orderId}`);
+    } catch (error: any) {
+      // 如果订单已经不存在，不应该抛出错误
+      if (error.message?.includes('Unknown order') || 
+          error.message?.includes('Order does not exist')) {
+        logger.debug(`订单 ${orderId} 已不存在，无需取消`);
+        return;
+      }
       logger.error('取消订单失败:', error as Error);
       throw error;
     }
@@ -708,6 +731,11 @@ export class BinanceExchangeClient implements IExchangeClient {
   }
 
   async getContractInfo(contract: string, retries: number = 2): Promise<ContractInfo> {
+    // 先检查缓存
+    if (this.contractInfoCache.has(contract)) {
+      return this.contractInfoCache.get(contract)!;
+    }
+    
     try {
       const symbol = this.normalizeContract(contract);
       const response = await this.publicRequest('/fapi/v1/exchangeInfo', {}, retries);
@@ -720,12 +748,14 @@ export class BinanceExchangeClient implements IExchangeClient {
       const lotSizeFilter = symbolInfo.filters?.find((f: any) => f.filterType === 'LOT_SIZE');
       const priceFilter = symbolInfo.filters?.find((f: any) => f.filterType === 'PRICE_FILTER');
       
-      return {
+      const contractInfo: ContractInfo = {
         name: symbolInfo.symbol,
         quantoMultiplier: '1',
         orderSizeMin: parseFloat(lotSizeFilter?.minQty || '0.001'),
         orderSizeMax: parseFloat(lotSizeFilter?.maxQty || '1000000'),
         orderPriceDeviate: '0.05',
+        orderPriceRound: priceFilter?.tickSize || '0.01',
+        markPriceRound: priceFilter?.tickSize || '0.01',
         type: 'direct',
         leverage_min: '1',
         leverage_max: '125',
@@ -736,8 +766,6 @@ export class BinanceExchangeClient implements IExchangeClient {
         last_price: '0',
         maker_fee_rate: symbolInfo.maker || '0.0002',
         taker_fee_rate: symbolInfo.taker || '0.0004',
-        order_price_round: priceFilter?.tickSize || '0.01',
-        mark_price_round: priceFilter?.tickSize || '0.01',
         funding_rate: '0',
         funding_interval: 28800,
         funding_next_apply: Date.now() + 28800000,
@@ -754,6 +782,11 @@ export class BinanceExchangeClient implements IExchangeClient {
         in_delisting: false,
         orders_limit: 200,
       };
+      
+      // 缓存合约信息
+      this.contractInfoCache.set(contract, contractInfo);
+      
+      return contractInfo;
     } catch (error) {
       logger.error(`获取合约信息失败:`, error as Error);
       throw error;
@@ -936,6 +969,329 @@ export class BinanceExchangeClient implements IExchangeClient {
       return quantity * (exitPrice - entryPrice);
     } else {
       return quantity * (entryPrice - exitPrice);
+    }
+  }
+
+  /**
+   * 根据合约的价格步长格式化价格
+   * @param contract 合约名称
+   * @param price 原始价格
+   * @returns 格式化后符合交易所要求的价格字符串
+   */
+  private async formatPriceByTickSize(contract: string, price: number): Promise<string> {
+    try {
+      const contractInfo = await this.getContractInfo(contract);
+      const tickSize = parseFloat(contractInfo.orderPriceRound || "0.01");
+      
+      // 将价格调整为tickSize的整数倍
+      const roundedPrice = Math.round(price / tickSize) * tickSize;
+      
+      // 确定小数位数
+      const decimals = tickSize.toString().split('.')[1]?.length || 0;
+      
+      return roundedPrice.toFixed(decimals);
+    } catch (error) {
+      logger.error(`格式化价格失败，使用默认精度: ${error}`);
+      // 如果获取合约信息失败，使用默认精度
+      return price.toFixed(2);
+    }
+  }
+
+  /**
+   * 设置持仓的止损止盈价格
+   * Binance 使用独立的条件单（STOP_MARKET/TAKE_PROFIT_MARKET）
+   */
+  async setPositionStopLoss(
+    contract: string,
+    stopLoss?: number,
+    takeProfit?: number
+  ): Promise<{
+    success: boolean;
+    stopLossOrderId?: string;
+    takeProfitOrderId?: string;
+    message?: string;
+  }> {
+    try {
+      const symbol = this.normalizeContract(contract);
+      
+      // 获取当前持仓
+      const positions = await this.getPositions();
+      const position = positions.find(p => p.contract === contract);
+      
+      if (!position || Math.abs(parseFloat(position.size)) === 0) {
+        return {
+          success: false,
+          message: `未找到 ${contract} 的持仓`
+        };
+      }
+
+      const posSize = parseFloat(position.size);
+      const quantity = Math.abs(posSize);
+      const positionSide = posSize > 0 ? 'LONG' : 'SHORT';
+
+      // 提取币种符号（如 BTCUSDT -> BTC）
+      const symbolName = this.extractSymbol(contract);
+
+      // 先取消现有的止损止盈订单
+      await this.cancelPositionStopLoss(contract);
+
+      let stopLossOrderId: string | undefined;
+      let takeProfitOrderId: string | undefined;
+
+      // 创建止损订单（STOP_MARKET）
+      if (stopLoss !== undefined && stopLoss > 0) {
+        try {
+          // 获取当前价格用于验证
+          const ticker = await this.getFuturesTicker(contract);
+          const currentPrice = parseFloat(ticker.markPrice || ticker.last || "0");
+          
+          if (currentPrice <= 0) {
+            throw new Error(`无法获取 ${contract} 的当前价格`);
+          }
+          
+          // 验证止损价格的合理性 - 确保与当前价格有足够的安全距离
+          const side = posSize > 0 ? 'long' : 'short';
+          const isInvalidStopLoss = (side === 'long' && stopLoss >= currentPrice) || 
+                                    (side === 'short' && stopLoss <= currentPrice);
+          
+          if (isInvalidStopLoss) {
+            const minDistance = 0.005; // 最小0.5%的安全距离
+            const adjustedStopLoss = side === 'long' 
+              ? currentPrice * (1 - minDistance)
+              : currentPrice * (1 + minDistance);
+            logger.warn(`⚠️ ${contract} 止损价格 ${stopLoss} 已触发或太接近当前价 ${currentPrice}，调整为 ${adjustedStopLoss.toFixed(6)}`);
+            stopLoss = adjustedStopLoss;
+          } else {
+            const priceDeviation = Math.abs(stopLoss - currentPrice) / currentPrice;
+            const minSafeDistance = 0.003; // 最小0.3%的安全距离
+            
+            if (priceDeviation < minSafeDistance) {
+              const adjustedStopLoss = side === 'long' 
+                ? currentPrice * (1 - minSafeDistance)
+                : currentPrice * (1 + minSafeDistance);
+              logger.warn(`⚠️ ${contract} 止损价格 ${stopLoss} 距离当前价 ${currentPrice} 太近，调整为 ${adjustedStopLoss.toFixed(6)}`);
+              stopLoss = adjustedStopLoss;
+            }
+          }
+          
+          const formattedStopLoss = await this.formatPriceByTickSize(contract, stopLoss);
+          const stopLossData: any = {
+            symbol,
+            side: posSize > 0 ? 'SELL' : 'BUY', // 平仓方向相反
+            type: 'STOP_MARKET',
+            stopPrice: formattedStopLoss,
+            closePosition: 'true', // 平掉整个仓位
+            workingType: 'MARK_PRICE', // 使用标记价格触发（避免插针）
+            priceProtect: 'TRUE' // 启用价格保护
+          };
+
+          const response = await this.privateRequest('/fapi/v1/order', stopLossData, 'POST', 2);
+          stopLossOrderId = response.orderId?.toString();
+          
+          logger.info(`✅ ${contract} 止损单已创建: ID=${stopLossOrderId}, 触发价=${formattedStopLoss}, 当前价=${currentPrice.toFixed(6)}`);
+        } catch (error: any) {
+          logger.error(`创建止损单失败: ${error.message}`);
+          return {
+            success: false,
+            message: `创建止损单失败: ${error.message}`
+          };
+        }
+      }
+
+      // 创建止盈订单（TAKE_PROFIT_MARKET）
+      if (takeProfit !== undefined && takeProfit > 0) {
+        try {
+          // 获取当前价格用于验证
+          const ticker = await this.getFuturesTicker(contract);
+          const currentPrice = parseFloat(ticker.markPrice || ticker.last || "0");
+          
+          if (currentPrice <= 0) {
+            throw new Error(`无法获取 ${contract} 的当前价格`);
+          }
+          
+          // 验证止盈价格的合理性
+          const side = posSize > 0 ? 'long' : 'short';
+          const isInvalidTakeProfit = (side === 'long' && takeProfit <= currentPrice) || 
+                                      (side === 'short' && takeProfit >= currentPrice);
+          
+          if (isInvalidTakeProfit) {
+            const minDistance = 0.005;
+            const adjustedTakeProfit = side === 'long' 
+              ? currentPrice * (1 + minDistance)
+              : currentPrice * (1 - minDistance);
+            logger.warn(`⚠️ ${contract} 止盈价格 ${takeProfit} 已触发或太接近当前价 ${currentPrice}，调整为 ${adjustedTakeProfit.toFixed(6)}`);
+            takeProfit = adjustedTakeProfit;
+          } else {
+            const priceDeviation = Math.abs(takeProfit - currentPrice) / currentPrice;
+            const minSafeDistance = 0.003;
+            
+            if (priceDeviation < minSafeDistance) {
+              const adjustedTakeProfit = side === 'long' 
+                ? currentPrice * (1 + minSafeDistance)
+                : currentPrice * (1 - minSafeDistance);
+              logger.warn(`⚠️ ${contract} 止盈价格 ${takeProfit} 距离当前价 ${currentPrice} 太近，调整为 ${adjustedTakeProfit.toFixed(6)}`);
+              takeProfit = adjustedTakeProfit;
+            }
+          }
+          
+          const formattedTakeProfit = await this.formatPriceByTickSize(contract, takeProfit);
+          const takeProfitData: any = {
+            symbol,
+            side: posSize > 0 ? 'SELL' : 'BUY', // 平仓方向相反
+            type: 'TAKE_PROFIT_MARKET',
+            stopPrice: formattedTakeProfit,
+            closePosition: 'true', // 平掉整个仓位
+            workingType: 'MARK_PRICE', // 使用标记价格触发
+            priceProtect: 'TRUE' // 启用价格保护
+          };
+
+          const response = await this.privateRequest('/fapi/v1/order', takeProfitData, 'POST', 2);
+          takeProfitOrderId = response.orderId?.toString();
+          
+          logger.info(`✅ ${contract} 止盈单已创建: ID=${takeProfitOrderId}, 触发价=${formattedTakeProfit}, 当前价=${currentPrice.toFixed(6)}`);
+        } catch (error: any) {
+          logger.error(`创建止盈单失败: ${error.message}`);
+          // 如果止盈单失败但止损单成功，仍返回成功（止损更重要）
+          if (stopLossOrderId) {
+            return {
+              success: true,
+              stopLossOrderId,
+              message: `止损单已创建，止盈单创建失败: ${error.message}`
+            };
+          }
+          return {
+            success: false,
+            message: `创建止盈单失败: ${error.message}`
+          };
+        }
+      }
+
+      return {
+        success: true,
+        stopLossOrderId,
+        takeProfitOrderId,
+        message: `止损止盈已设置${stopLoss ? ` 止损=${stopLoss}` : ''}${takeProfit ? ` 止盈=${takeProfit}` : ''}`
+      };
+
+    } catch (error: any) {
+      logger.error(`设置止损止盈失败: ${error.message}`);
+      return {
+        success: false,
+        message: `设置失败: ${error.message}`
+      };
+    }
+  }
+
+  /**
+   * 取消持仓的止损止盈订单
+   */
+  async cancelPositionStopLoss(contract: string): Promise<{
+    success: boolean;
+    message?: string;
+  }> {
+    try {
+      const symbol = this.normalizeContract(contract);
+      
+      // 获取所有未成交订单
+      const response = await this.privateRequest('/fapi/v1/openOrders', { symbol }, 'GET', 2);
+      const orders = response || [];
+      
+      // 筛选出止损止盈订单
+      const stopOrders = orders.filter((order: any) => 
+        order.type === 'STOP_MARKET' || 
+        order.type === 'TAKE_PROFIT_MARKET' ||
+        order.type === 'STOP' ||
+        order.type === 'TAKE_PROFIT'
+      );
+
+      if (stopOrders.length === 0) {
+        return {
+          success: true,
+          message: `${contract} 没有活跃的止损止盈订单`
+        };
+      }
+
+      // 取消所有止损止盈订单
+      for (const order of stopOrders) {
+        try {
+          await this.privateRequest('/fapi/v1/order', {
+            symbol,
+            orderId: order.orderId
+          }, 'DELETE', 2);
+          logger.info(`已取消订单: ${order.orderId} (${order.type})`);
+        } catch (error: any) {
+          logger.warn(`取消订单失败: ${order.orderId}, ${error.message}`);
+        }
+      }
+      
+      logger.info(`✅ 已取消 ${contract} 的 ${stopOrders.length} 个止损止盈订单`);
+      return {
+        success: true,
+        message: `已取消 ${contract} 的 ${stopOrders.length} 个止损止盈订单`
+      };
+    } catch (error: any) {
+      logger.error(`取消止损止盈订单失败: ${error.message}`);
+      return {
+        success: false,
+        message: `取消失败: ${error.message}`
+      };
+    }
+  }
+
+  /**
+   * 获取持仓的止损止盈订单状态
+   */
+  async getPositionStopLossOrders(contract: string): Promise<{
+    stopLossOrder?: any;
+    takeProfitOrder?: any;
+  }> {
+    try {
+      const symbol = this.normalizeContract(contract);
+      
+      // 获取所有未成交订单
+      const response = await this.privateRequest('/fapi/v1/openOrders', { symbol }, 'GET', 2);
+      const orders = response || [];
+      
+      let stopLossOrder: any;
+      let takeProfitOrder: any;
+
+      for (const order of orders) {
+        if (order.type === 'STOP_MARKET' || order.type === 'STOP') {
+          stopLossOrder = {
+            id: order.orderId?.toString(),
+            contract: contract,
+            type: order.type,
+            side: order.side,
+            stopPrice: order.stopPrice,
+            quantity: order.origQty,
+            status: order.status,
+            workingType: order.workingType
+          };
+        } else if (order.type === 'TAKE_PROFIT_MARKET' || order.type === 'TAKE_PROFIT') {
+          takeProfitOrder = {
+            id: order.orderId?.toString(),
+            contract: contract,
+            type: order.type,
+            side: order.side,
+            stopPrice: order.stopPrice,
+            quantity: order.origQty,
+            status: order.status,
+            workingType: order.workingType
+          };
+        }
+      }
+
+      return {
+        stopLossOrder,
+        takeProfitOrder
+      };
+    } catch (error: any) {
+      // 如果没有订单或查询失败,这是正常情况,使用debug级别
+      logger.debug(`${contract} 暂无止损止盈订单或查询失败: ${error.message}`);
+      return {
+        stopLossOrder: undefined,
+        takeProfitOrder: undefined
+      };
     }
   }
 }

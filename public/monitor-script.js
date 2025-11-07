@@ -162,13 +162,15 @@ class TradingMonitor {
             const response = await fetch('/api/positions');
             const data = await response.json();
             
-            if (data.error) {
-                console.error('API错误:', data.error);
-                return;
-            }
-
             const positionsBody = document.getElementById('positions-body');
             const positionsCardsContainer = document.getElementById('positions-cards-container');
+            
+            // 更新 "当前持仓" 标签显示数量
+            const positionsTabButton = document.querySelector('.tab-button[data-tab="positions"]');
+            if (positionsTabButton) {
+                const count = data.count || data.positions?.length || 0;
+                positionsTabButton.textContent = `当前持仓(${count})`;
+            }
             
             if (!data.positions || data.positions.length === 0) {
                 // 更新表格
@@ -250,7 +252,148 @@ class TradingMonitor {
         }
     }
 
-    // 加载交易记录 - 使用和 index.html 相同的布局
+    // 加载条件单数据（止盈止损）
+    async loadPriceOrdersData() {
+        try {
+            const response = await fetch('/api/price-orders');
+            const data = await response.json();
+            
+            if (data.error) {
+                console.error('API错误:', data.error);
+                return;
+            }
+            
+            // 更新 "止盈止损" 标签显示活跃持仓数量（每个持仓有止损+止盈）
+            const priceOrdersTabButton = document.querySelector('.tab-button[data-tab="price-orders"]');
+            if (priceOrdersTabButton) {
+                // 活跃订单数 / 2 = 活跃持仓数
+                const activePositionCount = Math.floor((data.activeCount || 0) / 2);
+                priceOrdersTabButton.textContent = `止盈止损(${activePositionCount})`;
+            }
+
+            const priceOrdersBody = document.getElementById('price-orders-body');
+            
+            if (!data.priceOrders || data.priceOrders.length === 0) {
+                if (priceOrdersBody) {
+                    priceOrdersBody.innerHTML = '<tr><td colspan="8" class="empty-state">暂无条件单</td></tr>';
+                }
+                return;
+            }
+
+            // 只显示活跃的条件单
+            const activeOrders = data.priceOrders.filter(order => order.status === 'active');
+            
+            // 如果没有活跃订单，显示空状态
+            if (activeOrders.length === 0) {
+                if (priceOrdersBody) {
+                    priceOrdersBody.innerHTML = '<tr><td colspan="8" class="empty-state">暂无条件单</td></tr>';
+                }
+                return;
+            }
+            
+            // 按币种和方向分组，合并止损和止盈
+            const groupedOrders = {};
+            
+            activeOrders.forEach(order => {
+                const key = `${order.symbol}_${order.side}_${order.status}`;
+                
+                if (!groupedOrders[key]) {
+                    groupedOrders[key] = {
+                        symbol: order.symbol,
+                        side: order.side,
+                        status: order.status,
+                        quantity: order.quantity,
+                        created_at: order.created_at,
+                        stopLoss: null,
+                        takeProfit: null
+                    };
+                }
+                
+                if (order.type === 'stop_loss') {
+                    groupedOrders[key].stopLoss = order.trigger_price;
+                } else if (order.type === 'take_profit') {
+                    groupedOrders[key].takeProfit = order.trigger_price;
+                }
+            });
+
+            // 更新条件单表格（合并显示）
+            if (priceOrdersBody) {
+                const rows = Object.values(groupedOrders)
+                    // 按状态和创建时间排序
+                    .sort((a, b) => {
+                        const statusOrder = { 'active': 1, 'triggered': 2, 'cancelled': 3 };
+                        if (statusOrder[a.status] !== statusOrder[b.status]) {
+                            return statusOrder[a.status] - statusOrder[b.status];
+                        }
+                        return new Date(b.created_at) - new Date(a.created_at);
+                    })
+                    .map(group => {
+                        // 方向显示
+                        const sideText = group.side === 'long' ? 'LONG' : 'SHORT';
+                        const sideClass = group.side === 'long' ? 'long' : 'short';
+                        
+                        // 状态显示
+                        const statusText = group.status === 'active' ? '活跃' : 
+                                          group.status === 'triggered' ? '已触发' : '已取消';
+                        const statusClass = group.status === 'active' ? 'status-active' : 
+                                           group.status === 'triggered' ? 'status-triggered' : 'status-cancelled';
+                        
+                        // 时间格式化
+                        const createdTime = new Date(group.created_at).toLocaleString('zh-CN', {
+                            month: '2-digit',
+                            day: '2-digit',
+                            hour: '2-digit',
+                            minute: '2-digit'
+                        });
+                        
+                        // 获取当前价格
+                        const currentPrice = this.cryptoPrices.get(group.symbol);
+                        const currentPriceText = currentPrice ? 
+                            `$${formatPriceBySymbol(group.symbol, currentPrice)}` : '--';
+                        
+                        // 止损价格显示（带偏差百分比）
+                        let stopLossText = '--';
+                        if (group.stopLoss && currentPrice) {
+                            const deviation = ((group.stopLoss - currentPrice) / currentPrice * 100);
+                            const deviationText = deviation >= 0 ? `+${deviation.toFixed(2)}` : deviation.toFixed(2);
+                            stopLossText = `$${formatPriceBySymbol(group.symbol, group.stopLoss)} <span class="deviation">(${deviationText}%)</span>`;
+                        } else if (group.stopLoss) {
+                            stopLossText = `$${formatPriceBySymbol(group.symbol, group.stopLoss)}`;
+                        }
+                        
+                        // 止盈价格显示（带偏差百分比）
+                        let takeProfitText = '--';
+                        if (group.takeProfit && currentPrice) {
+                            const deviation = ((group.takeProfit - currentPrice) / currentPrice * 100);
+                            const deviationText = deviation >= 0 ? `+${deviation.toFixed(2)}` : deviation.toFixed(2);
+                            takeProfitText = `$${formatPriceBySymbol(group.symbol, group.takeProfit)} <span class="deviation">(${deviationText}%)</span>`;
+                        } else if (group.takeProfit) {
+                            takeProfitText = `$${formatPriceBySymbol(group.symbol, group.takeProfit)}`;
+                        }
+                        
+                        return `
+                            <tr>
+                                <td><span class="symbol">${group.symbol}</span></td>
+                                <td><span class="side ${sideClass}">${sideText}</span></td>
+                                <td><span class="stop-loss">${stopLossText}</span></td>
+                                <td><span class="current-price">${currentPriceText}</span></td>
+                                <td><span class="take-profit">${takeProfitText}</span></td>
+                                <td>${group.quantity}</td>
+                                <td><span class="order-status ${statusClass}">${statusText}</span></td>
+                                <td>${createdTime}</td>
+                            </tr>
+                        `;
+                    });
+                
+                priceOrdersBody.innerHTML = rows.join('');
+            }
+            
+        } catch (error) {
+            console.error('加载条件单数据失败:', error);
+        }
+    }
+
+    // 加载交易记录
     async loadTradesData() {
         try {
             const response = await fetch('/api/completed-trades?limit=25');
@@ -407,8 +550,8 @@ class TradingMonitor {
     // 更新价格滚动条
     updateTickerPrices() {
         this.cryptoPrices.forEach((price, symbol) => {
-                const priceElements = document.querySelectorAll(`[data-symbol="${symbol}"]`);
-                priceElements.forEach(el => {
+            const priceElements = document.querySelectorAll(`[data-symbol="${symbol}"]`);
+            priceElements.forEach(el => {
                 el.textContent = '$' + formatPriceBySymbol(symbol, price);
             });
         });
@@ -420,7 +563,8 @@ class TradingMonitor {
         setInterval(async () => {
             await Promise.all([
                 this.loadAccountData(),
-                this.loadPositionsData()
+                this.loadPositionsData(),
+                this.loadPriceOrdersData()
             ]);
         }, 3000);
 
@@ -444,6 +588,35 @@ class TradingMonitor {
         }, 5000);
     }
 
+    // 初始化选项卡（简化版，只有一个选项卡）
+    initTabs() {
+        // 初始化TAB切换功能
+        const tabButtons = document.querySelectorAll('.tab-button');
+        const tabContents = document.querySelectorAll('.tab-content');
+
+        tabButtons.forEach(button => {
+            button.addEventListener('click', () => {
+                const targetTab = button.getAttribute('data-tab');
+                
+                // 移除所有active类
+                tabButtons.forEach(btn => btn.classList.remove('active'));
+                tabContents.forEach(content => content.classList.remove('active'));
+                
+                // 添加active类到当前选中的tab
+                button.classList.add('active');
+                const targetContent = document.getElementById(`tab-${targetTab}`);
+                if (targetContent) {
+                    targetContent.classList.add('active');
+                }
+                
+                // 如果切换到止盈止损tab，加载数据
+                if (targetTab === 'price-orders') {
+                    this.loadPriceOrdersData();
+                }
+            });
+        });
+    }
+
     // 复制ticker内容实现无缝滚动
     duplicateTicker() {
         const ticker = document.getElementById('ticker');
@@ -451,11 +624,6 @@ class TradingMonitor {
             const tickerContent = ticker.innerHTML;
             ticker.innerHTML = tickerContent + tickerContent + tickerContent;
         }
-    }
-
-    // 初始化选项卡（简化版，只有一个选项卡）
-    initTabs() {
-        // 已经只有一个选项卡，不需要切换功能
     }
 
     // 初始化聊天功能（已移除）

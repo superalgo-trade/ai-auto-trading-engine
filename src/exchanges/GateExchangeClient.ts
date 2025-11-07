@@ -47,6 +47,7 @@ export class GateExchangeClient implements IExchangeClient {
   private readonly spotApi: any;
   private readonly settle = "usdt";
   private readonly config: ExchangeConfig;
+  private readonly contractInfoCache: Map<string, ContractInfo> = new Map();
 
   constructor(config: ExchangeConfig) {
     this.config = config;
@@ -374,23 +375,65 @@ export class GateExchangeClient implements IExchangeClient {
   }
 
   async getContractInfo(contract: string): Promise<ContractInfo> {
+    // 先检查缓存
+    if (this.contractInfoCache.has(contract)) {
+      return this.contractInfoCache.get(contract)!;
+    }
+    
     try {
       const result = await this.futuresApi.getFuturesContract(
         this.settle,
         contract
       );
       const info = result.body;
-      return {
+      
+      // Gate.io API返回的字段：
+      // - order_price_round: 价格步长（如 "0.1" 表示价格必须是0.1的整数倍）
+      // - mark_price_round: 标记价格精度
+      // - quanto_multiplier: 合约乘数
+      const contractInfo: ContractInfo = {
         name: info.name,
-        quantoMultiplier: info.quantoMultiplier || "0.0001",
-        orderSizeMin: Number.parseFloat(info.orderSizeMin || "1"),
-        orderSizeMax: Number.parseFloat(info.orderSizeMax || "1000000"),
-        orderPriceDeviate: info.orderPriceDeviate,
+        quantoMultiplier: info.quanto_multiplier || "0.0001",
+        orderSizeMin: Number.parseFloat(info.order_size_min || "1"),
+        orderSizeMax: Number.parseFloat(info.order_size_max || "1000000"),
+        orderPriceDeviate: info.order_price_deviate,
+        orderPriceRound: info.order_price_round || "0.01",
+        markPriceRound: info.mark_price_round || "0.01",
         ...info,
       };
+      
+      // 缓存合约信息
+      this.contractInfoCache.set(contract, contractInfo);
+      
+      return contractInfo;
     } catch (error) {
       logger.error(`获取 ${contract} 合约信息失败:`, error as any);
       throw error;
+    }
+  }
+
+  /**
+   * 根据合约的价格步长格式化价格
+   * @param contract 合约名称
+   * @param price 原始价格
+   * @returns 格式化后符合交易所要求的价格字符串
+   */
+  private async formatPriceByTickSize(contract: string, price: number): Promise<string> {
+    try {
+      const contractInfo = await this.getContractInfo(contract);
+      const tickSize = parseFloat(contractInfo.orderPriceRound || "0.01");
+      
+      // 将价格调整为tickSize的整数倍
+      const roundedPrice = Math.round(price / tickSize) * tickSize;
+      
+      // 确定小数位数
+      const decimals = tickSize.toString().split('.')[1]?.length || 0;
+      
+      return roundedPrice.toFixed(decimals);
+    } catch (error) {
+      logger.error(`格式化价格失败，使用默认精度: ${error}`);
+      // 如果获取合约信息失败，使用默认精度
+      return price.toFixed(2);
     }
   }
 
@@ -461,8 +504,16 @@ export class GateExchangeClient implements IExchangeClient {
         orderId
       );
       return result.body;
-    } catch (error) {
-      logger.error(`获取订单 ${orderId} 详情失败:`, error as any);
+    } catch (error: any) {
+      // 404 表示订单不存在或已被执行/取消，这是正常情况
+      if (error.status === 404 || error.code === 'ERR_BAD_REQUEST') {
+        logger.debug(`订单 ${orderId} 不存在或已完成 (404)`);
+        return {
+          id: orderId,
+          status: 'finished', // 假设已完成
+        };
+      }
+      logger.error(`获取订单 ${orderId} 详情失败:`, error);
       throw error;
     }
   }
@@ -474,8 +525,13 @@ export class GateExchangeClient implements IExchangeClient {
         orderId
       );
       return result.body;
-    } catch (error) {
-      logger.error(`取消订单 ${orderId} 失败:`, error as any);
+    } catch (error: any) {
+      // 404 表示订单不存在或已被执行，无需取消
+      if (error.status === 404 || error.code === 'ERR_BAD_REQUEST') {
+        logger.debug(`订单 ${orderId} 不存在或已完成，无需取消 (404)`);
+        return { id: orderId, status: 'finished' };
+      }
+      logger.error(`取消订单 ${orderId} 失败:`, error);
       throw error;
     }
   }
@@ -651,5 +707,373 @@ export class GateExchangeClient implements IExchangeClient {
       : (entryPrice - exitPrice);
     
     return priceChange * quantity * quantoMultiplier;
+  }
+
+  /**
+   * 设置持仓的止损止盈价格
+   * Gate.io 注意：开仓时设置止损止盈，开仓后无法直接修改
+   * 需要通过取消原单并重新下单的方式实现
+   */
+  async setPositionStopLoss(
+    contract: string,
+    stopLoss?: number,
+    takeProfit?: number
+  ): Promise<{
+    success: boolean;
+    stopLossOrderId?: string;
+    takeProfitOrderId?: string;
+    message?: string;
+  }> {
+    try {
+      // Gate.io 的止损止盈是在开仓时设置的
+      // 开仓后无法直接修改，需要通过条件单（price trigger orders）实现
+      
+      // 获取当前持仓
+      const positions = await this.getPositions();
+      const position = positions.find(p => p.contract === contract);
+      
+      if (!position || Math.abs(parseFloat(position.size)) === 0) {
+        return {
+          success: false,
+          message: `未找到 ${contract} 的持仓`
+        };
+      }
+
+      const posSize = parseFloat(position.size);
+      const side = posSize > 0 ? 'long' : 'short';
+      
+      // Gate.io 条件单的 size 字段必须是正整数，表示平仓的合约张数
+      // 方向由 trigger.rule 决定，不需要负号
+      const closeSize = Math.abs(Math.round(posSize));
+
+      // 提取币种符号（如 BTC_USDT -> BTC）
+      const symbol = this.extractSymbol(contract);
+
+      // 取消现有的条件单（如果有）
+      try {
+        // 注意：必须传递 options 对象，而不是直接传递 contract 字符串
+        const options: any = { contract: contract };
+        await this.futuresApi.cancelPriceTriggeredOrderList(
+          this.settle,
+          options
+        );
+        logger.info(`已取消 ${contract} 的现有条件单`);
+      } catch (error) {
+        // 可能没有条件单，忽略错误
+        logger.debug(`取消条件单失败（可能不存在）: ${error}`);
+      }
+
+      let stopLossOrderId: string | undefined;
+      let takeProfitOrderId: string | undefined;
+
+      // 创建止损条件单
+      if (stopLoss !== undefined && stopLoss > 0) {
+        // 在 try 块外部定义变量，确保在 catch 块中也能访问
+        let currentPrice = 0;
+        let formattedStopLoss = '';
+        
+        try {
+          // 获取当前价格用于验证
+          const ticker = await this.getFuturesTicker(contract);
+          currentPrice = parseFloat(ticker.markPrice || ticker.last || "0");
+          
+          if (currentPrice <= 0) {
+            throw new Error(`无法获取 ${contract} 的当前价格`);
+          }
+          
+          // 验证止损价格的合理性 - 确保与当前价格有足够的安全距离
+          // 检查止损价格是否在错误的方向(已经被触发)
+          const isInvalidStopLoss = (side === 'long' && stopLoss >= currentPrice) || 
+                                    (side === 'short' && stopLoss <= currentPrice);
+          
+          if (isInvalidStopLoss) {
+            // 止损价格已经在错误的方向,需要调整
+            const minDistance = 0.005; // 最小0.5%的安全距离
+            const adjustedStopLoss = side === 'long' 
+              ? currentPrice * (1 - minDistance)  // 做多：向下调整至当前价的99.5%
+              : currentPrice * (1 + minDistance); // 做空：向上调整至当前价的100.5%
+            logger.warn(`⚠️ 止损价格 ${stopLoss} 已触发或太接近当前价 ${currentPrice}，调整为 ${adjustedStopLoss.toFixed(6)} (${side === 'long' ? '向下' : '向上'}${minDistance * 100}%)`);
+            stopLoss = adjustedStopLoss;
+          } else {
+            // 检查安全距离
+            const priceDeviation = Math.abs(stopLoss - currentPrice) / currentPrice;
+            const minSafeDistance = 0.003; // 最小0.3%的安全距离
+            
+            if (priceDeviation < minSafeDistance) {
+              const adjustedStopLoss = side === 'long' 
+                ? currentPrice * (1 - minSafeDistance)
+                : currentPrice * (1 + minSafeDistance);
+              logger.warn(`⚠️ 止损价格 ${stopLoss} 距离当前价 ${currentPrice} 太近(${(priceDeviation * 100).toFixed(2)}%)，调整为 ${adjustedStopLoss.toFixed(6)}`);
+              stopLoss = adjustedStopLoss;
+            }
+          }
+          
+          // 格式化止损价格 - 使用合约的价格步长精度
+          formattedStopLoss = await this.formatPriceByTickSize(contract, stopLoss);
+          
+          const stopLossOrder = {
+            initial: {
+              contract: contract,
+              size: closeSize, // 已经是正整数
+              price: '0', // 市价单
+              tif: 'ioc', // immediate or cancel，市价单必需
+            },
+            trigger: {
+              strategy_type: 0, // 0=by price
+              price_type: 0, // 0=last price
+              price: formattedStopLoss,
+              rule: side === 'long' ? 2 : 1, // long: <=止损价, short: >=止损价
+            }
+          };
+
+          logger.info(`📤 创建止损单: contract=${contract}, size=${closeSize}, 触发价=${formattedStopLoss}, 当前价=${currentPrice}, side=${side}`);
+          logger.debug(`止损单完整数据:`, stopLossOrder);
+
+          const result = await this.futuresApi.createPriceTriggeredOrder(
+            this.settle,
+            stopLossOrder as any
+          );
+          
+          stopLossOrderId = result.body.id?.toString();
+          logger.info(`✅ ${contract} 止损单已创建: ID=${stopLossOrderId}, 触发价=${formattedStopLoss}, 当前价=${currentPrice}`);
+        } catch (error: any) {
+          const errorMsg = error.response?.body?.message || error.message;
+          const errorDetail = error.response?.body || error.message;
+          
+          // 记录详细的错误信息
+          logger.error(`❌ 创建止损单失败: ${errorMsg}`, { 
+            contract, 
+            posSize,
+            closeSize: closeSize,
+            stopLossPrice: formattedStopLoss || stopLoss,
+            currentPrice,
+            side,
+            errorDetail
+          });
+          
+          return {
+            success: false,
+            message: `创建止损单失败: ${errorMsg}`
+          };
+        }
+      }
+
+      // 创建止盈条件单
+      if (takeProfit !== undefined && takeProfit > 0) {
+        // 在 try 块外部定义变量，确保在 catch 块中也能访问
+        let currentPrice = 0;
+        let formattedTakeProfit = '';
+        
+        try {
+          // 获取当前价格用于验证
+          const ticker = await this.getFuturesTicker(contract);
+          currentPrice = parseFloat(ticker.markPrice || ticker.last || "0");
+          
+          if (currentPrice <= 0) {
+            throw new Error(`无法获取 ${contract} 的当前价格`);
+          }
+          
+          // 验证止盈价格的合理性 - 确保与当前价格有足够的安全距离
+          // 检查止盈价格是否在错误的方向(已经被触发)
+          const isInvalidTakeProfit = (side === 'long' && takeProfit <= currentPrice) || 
+                                      (side === 'short' && takeProfit >= currentPrice);
+          
+          if (isInvalidTakeProfit) {
+            // 止盈价格已经在错误的方向,需要调整
+            const minDistance = 0.005; // 最小0.5%的安全距离
+            const adjustedTakeProfit = side === 'long' 
+              ? currentPrice * (1 + minDistance)  // 做多：向上调整至当前价的100.5%
+              : currentPrice * (1 - minDistance); // 做空：向下调整至当前价的99.5%
+            logger.warn(`⚠️ 止盈价格 ${takeProfit} 已触发或太接近当前价 ${currentPrice}，调整为 ${adjustedTakeProfit.toFixed(6)} (${side === 'long' ? '向上' : '向下'}${minDistance * 100}%)`);
+            takeProfit = adjustedTakeProfit;
+          } else {
+            // 检查安全距离
+            const priceDeviation = Math.abs(takeProfit - currentPrice) / currentPrice;
+            const minSafeDistance = 0.003; // 最小0.3%的安全距离
+            
+            if (priceDeviation < minSafeDistance) {
+              const adjustedTakeProfit = side === 'long' 
+                ? currentPrice * (1 + minSafeDistance)
+                : currentPrice * (1 - minSafeDistance);
+              logger.warn(`⚠️ 止盈价格 ${takeProfit} 距离当前价 ${currentPrice} 太近(${(priceDeviation * 100).toFixed(2)}%)，调整为 ${adjustedTakeProfit.toFixed(6)}`);
+              takeProfit = adjustedTakeProfit;
+            }
+          }
+          
+          // 格式化止盈价格 - 使用合约的价格步长精度
+          formattedTakeProfit = await this.formatPriceByTickSize(contract, takeProfit);
+          
+          const takeProfitOrder = {
+            initial: {
+              contract: contract,
+              size: closeSize, // 已经是正整数
+              price: '0', // 市价单
+              tif: 'ioc', // immediate or cancel，市价单必需
+            },
+            trigger: {
+              strategy_type: 0, // 0=by price
+              price_type: 0, // 0=last price
+              price: formattedTakeProfit,
+              rule: side === 'long' ? 1 : 2, // long: >=止盈价, short: <=止盈价
+            }
+          };
+
+          logger.info(`📤 创建止盈单: contract=${contract}, size=${closeSize}, 触发价=${formattedTakeProfit}, 当前价=${currentPrice}, side=${side}`);
+          logger.debug(`止盈单完整数据:`, takeProfitOrder);
+
+          const result = await this.futuresApi.createPriceTriggeredOrder(
+            this.settle,
+            takeProfitOrder as any
+          );
+          
+          takeProfitOrderId = result.body.id?.toString();
+          logger.info(`✅ ${contract} 止盈单已创建: ID=${takeProfitOrderId}, 触发价=${formattedTakeProfit}, 当前价=${currentPrice}`);
+        } catch (error: any) {
+          const errorMsg = error.response?.body?.message || error.message;
+          const errorDetail = error.response?.body || error.message;
+          logger.error(`创建止盈单失败: ${errorMsg}`, { 
+            contract, 
+            posSize,
+            closeSize: closeSize,
+            takeProfitPrice: formattedTakeProfit || takeProfit,
+            currentPrice,
+            side,
+            error: errorDetail
+          });
+          // 如果止盈单失败但止损单成功，仍返回成功（止损更重要）
+          if (stopLossOrderId) {
+            return {
+              success: true,
+              stopLossOrderId,
+              message: `止损单已创建，止盈单创建失败: ${errorMsg}`
+            };
+          }
+          return {
+            success: false,
+            message: `创建止盈单失败: ${errorMsg}`
+          };
+        }
+      }
+
+      return {
+        success: true,
+        stopLossOrderId,
+        takeProfitOrderId,
+        message: `止损止盈已设置${stopLoss ? ` 止损=${stopLoss}` : ''}${takeProfit ? ` 止盈=${takeProfit}` : ''}`
+      };
+
+    } catch (error: any) {
+      logger.error(`设置止损止盈失败: ${error.message}`);
+      return {
+        success: false,
+        message: `设置失败: ${error.message}`
+      };
+    }
+  }
+
+  /**
+   * 取消持仓的止损止盈订单
+   */
+  async cancelPositionStopLoss(contract: string): Promise<{
+    success: boolean;
+    message?: string;
+  }> {
+    try {
+      await this.futuresApi.cancelPriceTriggeredOrderList(
+        this.settle,
+        contract
+      );
+      
+      logger.info(`✅ 已取消 ${contract} 的止损止盈订单`);
+      return {
+        success: true,
+        message: `已取消 ${contract} 的止损止盈订单`
+      };
+    } catch (error: any) {
+      logger.error(`取消止损止盈订单失败: ${error.message}`);
+      return {
+        success: false,
+        message: `取消失败: ${error.message}`
+      };
+    }
+  }
+
+  /**
+   * 获取持仓的止损止盈订单状态
+   */
+  async getPositionStopLossOrders(contract: string): Promise<{
+    stopLossOrder?: any;
+    takeProfitOrder?: any;
+  }> {
+    try {
+      // 先检查是否有持仓，没有持仓则直接返回空
+      const positions = await this.getPositions();
+      const position = positions.find(p => p.contract === contract);
+      
+      if (!position) {
+        return {
+          stopLossOrder: undefined,
+          takeProfitOrder: undefined
+        };
+      }
+
+      const posSize = parseFloat(position.size);
+      const side = posSize > 0 ? 'long' : 'short';
+
+      // 查询条件单
+      const result = await this.futuresApi.listPriceTriggeredOrders(
+        this.settle,
+        {
+          contract: contract,
+          status: 'open' // 只查询活跃的条件单
+        }
+      );
+
+      const orders = result.body || [];
+      let stopLossOrder: any;
+      let takeProfitOrder: any;
+
+      for (const order of orders) {
+        // 判断是止损还是止盈
+        // 止损：多单时 <= 触发价，空单时 >= 触发价
+        // 止盈：多单时 >= 触发价，空单时 <= 触发价
+        const rule = order.trigger?.rule;
+        
+        if (side === 'long') {
+          if (rule === 2) { // <=
+            stopLossOrder = order;
+          } else if (rule === 1) { // >=
+            takeProfitOrder = order;
+          }
+        } else {
+          if (rule === 1) { // >=
+            stopLossOrder = order;
+          } else if (rule === 2) { // <=
+            takeProfitOrder = order;
+          }
+        }
+      }
+
+      return {
+        stopLossOrder,
+        takeProfitOrder
+      };
+    } catch (error: any) {
+      // 如果是404或400错误，说明没有条件单，这是正常情况
+      if (error.message?.includes('400') || error.message?.includes('404')) {
+        logger.debug(`${contract} 暂无止损止盈订单`);
+        return {
+          stopLossOrder: undefined,
+          takeProfitOrder: undefined
+        };
+      }
+      
+      // 其他错误才记录为error
+      logger.error(`获取止损止盈订单失败: ${error.message}`);
+      return {
+        stopLossOrder: undefined,
+        takeProfitOrder: undefined
+      };
+    }
   }
 }

@@ -104,7 +104,83 @@ CREATE TABLE IF NOT EXISTS trade_logs (
     fee REAL,
     status TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS price_orders (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    order_id TEXT NOT NULL UNIQUE,
+    symbol TEXT NOT NULL,
+    side TEXT NOT NULL,
+    type TEXT NOT NULL,
+    trigger_price REAL NOT NULL,
+    order_price REAL NOT NULL,
+    quantity REAL NOT NULL,
+    status TEXT NOT NULL DEFAULT 'active',
+    created_at TEXT NOT NULL,
+    updated_at TEXT,
+    triggered_at TEXT
+);
 `;
+
+/**
+ * 取消所有条件单（止损止盈订单）
+ */
+async function cancelAllConditionalOrders(): Promise<void> {
+  const exchangeClient = getExchangeClient();
+  
+  try {
+    logger.info("📊 取消所有条件单（止损止盈订单）...");
+    
+    const exchangeName = exchangeClient.getExchangeName();
+    
+    if (exchangeName === 'gate') {
+      // Gate.io: 取消所有合约的条件单
+      try {
+        await exchangeClient.cancelAllOrders(); // 不传contract参数，取消所有
+        logger.info("✅ Gate.io 所有条件单已取消");
+      } catch (error: any) {
+        // 如果没有条件单，API可能返回错误，这是正常的
+        if (error.message?.includes('ORDER_NOT_FOUND') || error.response?.status === 404) {
+          logger.info("✅ 当前无条件单需要取消");
+        } else {
+          logger.warn(`⚠️  取消条件单时出现警告: ${error.message}`);
+        }
+      }
+    } else if (exchangeName === 'binance') {
+      // Binance: 需要逐个合约取消
+      const positions = await exchangeClient.getPositions();
+      const activeContracts = new Set(positions.map((p: any) => p.contract));
+      
+      if (activeContracts.size === 0) {
+        logger.info("✅ 当前无持仓，无需取消条件单");
+        return;
+      }
+      
+      logger.info(`🔄 取消 ${activeContracts.size} 个合约的条件单...`);
+      
+      for (const contract of activeContracts) {
+        try {
+          await exchangeClient.cancelAllOrders(contract);
+          logger.info(`✅ 已取消 ${contract} 的条件单`);
+        } catch (error: any) {
+          // 如果没有条件单，这是正常的
+          if (error.code === -2011 || error.message?.includes('Unknown order')) {
+            logger.debug(`   ${contract} 无条件单`);
+          } else {
+            logger.warn(`⚠️  取消 ${contract} 条件单时出现警告: ${error.message}`);
+          }
+        }
+      }
+      
+      logger.info("✅ Binance 所有条件单已取消");
+    } else {
+      logger.warn(`⚠️  未知交易所: ${exchangeName}，跳过取消条件单`);
+    }
+    
+  } catch (error: any) {
+    logger.error(`❌ 取消条件单过程出错: ${error.message}`);
+    // 不抛出错误，允许继续执行平仓流程
+  }
+}
 
 /**
  * 平仓所有持仓
@@ -204,6 +280,7 @@ async function resetDatabase(): Promise<void> {
     await client.execute("DROP TABLE IF EXISTS trading_signals");
     await client.execute("DROP TABLE IF EXISTS positions");
     await client.execute("DROP TABLE IF EXISTS account_history");
+    await client.execute("DROP TABLE IF EXISTS price_orders");
     logger.info("✅ 现有表已删除");
 
     // 重新创建表
@@ -345,8 +422,19 @@ async function closeAndReset() {
   logger.info("");
   
   try {
-    // 步骤1：平仓所有持仓
-    logger.info("【步骤 1/3】平仓所有持仓");
+    // 步骤1：取消所有条件单
+    logger.info("【步骤 1/4】取消所有条件单（止损止盈订单）");
+    logger.info("-".repeat(80));
+    await cancelAllConditionalOrders();
+    logger.info("");
+    
+    // 等待1秒确保条件单取消完成
+    logger.info("⏱️  等待1秒确保条件单取消完成...");
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    logger.info("");
+    
+    // 步骤2：平仓所有持仓
+    logger.info("【步骤 2/4】平仓所有持仓");
     logger.info("-".repeat(80));
     await closeAllPositions();
     logger.info("");
@@ -356,16 +444,16 @@ async function closeAndReset() {
     await new Promise(resolve => setTimeout(resolve, 2000));
     logger.info("");
     
-    // 步骤2：重置数据库
-    logger.info("【步骤 2/3】重置数据库");
+    // 步骤3：重置数据库
+    logger.info("【步骤 3/4】重置数据库");
     logger.info("-".repeat(80));
     await resetDatabase();
     logger.info("");
     
-    // 步骤3：同步持仓数据
+    // 步骤4：同步持仓数据
     const exchangeClient = getExchangeClient();
     const exchangeName = exchangeClient.getExchangeName();
-    logger.info(`【步骤 3/3】从 ${exchangeName} 同步持仓数据`);
+    logger.info(`【步骤 4/4】从 ${exchangeName} 同步持仓数据`);
     logger.info("-".repeat(80));
     await syncPositions();
     logger.info("");

@@ -119,6 +119,8 @@ export interface ContractInfo {
   orderSizeMin: number;
   orderSizeMax: number;
   orderPriceDeviate?: string;
+  orderPriceRound?: string;  // 价格步长（如 "0.1" 表示价格必须是0.1的整数倍）
+  markPriceRound?: string;   // 标记价格精度
   [key: string]: any;
 }
 
@@ -322,4 +324,48 @@ export interface IExchangeClient {
     side: 'long' | 'short',
     contract: string
   ): Promise<number>;
+
+  /**
+   * 设置持仓的止损止盈价格
+   * 注意：不同交易所实现方式不同
+   * - Gate.io: 修改持仓的止损止盈参数
+   * - Binance: 下独立的条件单（STOP_MARKET/TAKE_PROFIT_MARKET）
+   * 
+   * @param contract 合约名称
+   * @param stopLoss 止损价格（可选）
+   * @param takeProfit 止盈价格（可选）
+   * @returns 设置结果
+   */
+  setPositionStopLoss(
+    contract: string,
+    stopLoss?: number,
+    takeProfit?: number
+  ): Promise<{
+    success: boolean;
+    stopLossOrderId?: string;
+    takeProfitOrderId?: string;
+    message?: string;
+  }>;
+
+  /**
+   * 取消持仓的止损止盈订单
+   * 
+   * @param contract 合约名称
+   * @returns 取消结果
+   */
+  cancelPositionStopLoss(contract: string): Promise<{
+    success: boolean;
+    message?: string;
+  }>;
+
+  /**
+   * 获取持仓的止损止盈订单状态
+   * 
+   * @param contract 合约名称
+   * @returns 止损止盈订单信息
+   */
+  getPositionStopLossOrders(contract: string): Promise<{
+    stopLossOrder?: any;
+    takeProfitOrder?: any;
+  }>;
 }

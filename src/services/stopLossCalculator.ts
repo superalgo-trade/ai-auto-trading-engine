@@ -30,6 +30,7 @@
 
 import { createPinoLogger } from "@voltagent/logger";
 import { getExchangeClient } from "../exchanges";
+import { formatStopLossPrice } from "../utils/priceFormatter";
 
 const logger = createPinoLogger({
   name: "stop-loss-calculator",
@@ -401,7 +402,7 @@ export async function calculateScientificStopLoss(
   // 确保分数在0-100范围内
   qualityScore = Math.max(0, Math.min(100, qualityScore));
   
-  // ===== 8. 返回结果 =====
+  // ===== 8. 返回结果(使用原始数字,便于后续计算) =====
   const result: StopLossResult = {
     stopLossPrice: finalStopPrice,
     stopLossDistancePercent,
@@ -422,11 +423,15 @@ export async function calculateScientificStopLoss(
     },
   };
   
+  // 提取币种符号用于价格格式化（如 BTC_USDT -> BTC）
+  const symbolName = symbol.replace(/_USDT$/, '').replace(/USDT$/, '');
+  
+  // 日志输出时使用统一的价格格式化
   logger.info(`📊 ${symbol} ${side} 止损计算完成: 
-    - 入场价: ${entryPrice.toFixed(4)}
-    - 止损价: ${finalStopPrice.toFixed(4)}
+    - 入场价: ${formatStopLossPrice(symbolName, entryPrice)}
+    - 止损价: ${formatStopLossPrice(symbolName, finalStopPrice)}
     - 止损距离: ${stopLossDistancePercent.toFixed(2)}%
-    - ATR${config.atrPeriod}: ${atr.toFixed(4)} (${atrPercent.toFixed(2)}%)
+    - ATR${config.atrPeriod}: ${formatStopLossPrice(symbolName, atr)} (${atrPercent.toFixed(2)}%)
     - 方法: ${method}
     - 波动率: ${noiseAssessment.volatilityLevel}
     - 质量评分: ${qualityScore}/100`);

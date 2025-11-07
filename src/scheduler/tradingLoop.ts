@@ -28,7 +28,7 @@ import { getExchangeClient } from "../exchanges";
 import { getChinaTimeISO } from "../utils/timeUtils";
 import { RISK_PARAMS } from "../config/riskParams";
 import { getQuantoMultiplier } from "../utils/contractUtils";
-import { formatPrice, formatUSDT, formatPercent, formatATR, getDecimalPlacesBySymbol } from "../utils/priceFormatter";
+import { formatPrice, formatUSDT, formatPercent, formatATR, formatStopLossPrice, getDecimalPlacesBySymbol } from "../utils/priceFormatter";
 
 const logger = createPinoLogger({
   name: "trading-loop",
@@ -1658,7 +1658,44 @@ async function executeTradingDecision() {
       
       logger.info("【输出 - AI 决策】");
       logger.info("=".repeat(80));
-      logger.info(decisionText || "无决策输出");
+      
+      // 分段输出长文本，避免被截断
+      const textToLog = decisionText || "无决策输出";
+      const maxChunkSize = 2000; // 每次最多输出2000字符
+      
+      if (textToLog.length <= maxChunkSize) {
+        logger.info(textToLog);
+      } else {
+        // 按自然段落分割，避免截断句子
+        const lines = textToLog.split('\n');
+        let currentChunk = '';
+        
+        for (const line of lines) {
+          if (currentChunk.length + line.length + 1 > maxChunkSize) {
+            // 输出当前块
+            if (currentChunk) {
+              logger.info(currentChunk);
+              currentChunk = '';
+            }
+            // 如果单行太长，强制分割
+            if (line.length > maxChunkSize) {
+              for (let i = 0; i < line.length; i += maxChunkSize) {
+                logger.info(line.substring(i, i + maxChunkSize));
+              }
+            } else {
+              currentChunk = line;
+            }
+          } else {
+            currentChunk += (currentChunk ? '\n' : '') + line;
+          }
+        }
+        
+        // 输出最后一块
+        if (currentChunk) {
+          logger.info(currentChunk);
+        }
+      }
+      
       logger.info("=".repeat(80) + "\n");
       
       // 保存决策记录
@@ -1694,15 +1731,49 @@ async function executeTradingDecision() {
         logger.info("持仓: 无");
       } else {
         logger.info(`持仓: ${updatedPositions.length} 个`);
-        updatedPositions.forEach((pos: any) => {
+        for (const pos of updatedPositions) {
+          // 提取币种符号用于价格格式化
+          const symbolName = pos.symbol.replace(/_USDT$/, '').replace(/USDT$/, '');
+          
           // 计算盈亏百分比：考虑杠杆倍数
           // 对于杠杆交易：盈亏百分比 = (价格变动百分比) × 杠杆倍数
           const priceChangePercent = pos.entry_price > 0 
             ? ((pos.current_price - pos.entry_price) / pos.entry_price * 100 * (pos.side === 'long' ? 1 : -1))
             : 0;
           const pnlPercent = priceChangePercent * pos.leverage;
-          logger.info(`  ${pos.symbol} ${pos.side === 'long' ? '做多' : '做空'} ${pos.quantity}张 (入场: ${pos.entry_price.toFixed(2)}, 当前: ${pos.current_price.toFixed(2)}, 盈亏: ${pos.unrealized_pnl >= 0 ? '+' : ''}${pos.unrealized_pnl.toFixed(2)} USDT / ${pnlPercent >= 0 ? '+' : ''}${pnlPercent.toFixed(2)}%)`);
-        });
+          
+          let positionInfo = `  ${pos.symbol} ${pos.side === 'long' ? '做多' : '做空'} ${pos.quantity}张 (入场: ${formatStopLossPrice(symbolName, pos.entry_price)}, 当前: ${formatStopLossPrice(symbolName, pos.current_price)}, 盈亏: ${pos.unrealized_pnl >= 0 ? '+' : ''}${pos.unrealized_pnl.toFixed(2)} USDT / ${pnlPercent >= 0 ? '+' : ''}${pnlPercent.toFixed(2)}%)`;
+          
+          // 获取并显示止损止盈订单信息
+          try {
+            const contract = exchangeClient.normalizeContract(pos.symbol);
+            const orders = await exchangeClient.getPositionStopLossOrders(contract);
+            
+            if (orders.stopLossOrder || orders.takeProfitOrder) {
+              const orderInfo: string[] = [];
+              if (orders.stopLossOrder) {
+                const slPrice = orders.stopLossOrder.trigger?.price || orders.stopLossOrder.stopPrice;
+                if (slPrice) {
+                  orderInfo.push(`止损=${formatStopLossPrice(symbolName, parseFloat(slPrice))}`);
+                }
+              }
+              if (orders.takeProfitOrder) {
+                const tpPrice = orders.takeProfitOrder.trigger?.price || orders.takeProfitOrder.stopPrice;
+                if (tpPrice) {
+                  orderInfo.push(`止盈=${formatStopLossPrice(symbolName, parseFloat(tpPrice))}`);
+                }
+              }
+              if (orderInfo.length > 0) {
+                positionInfo += ` [${orderInfo.join(', ')}]`;
+              }
+            }
+          } catch (orderError) {
+            // 获取订单信息失败不影响显示(通常是因为订单还未创建或已执行)
+            // 不记录日志,避免干扰
+          }
+          
+          logger.info(positionInfo);
+        }
       }
       
       logger.info(`未实现盈亏: ${finalUnrealizedPnL >= 0 ? '+' : ''}${finalUnrealizedPnL.toFixed(2)} USDT`);

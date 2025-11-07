@@ -103,6 +103,21 @@ export interface SystemConfig {
   updated_at: string;
 }
 
+export interface PriceOrder {
+  id: number;
+  order_id: string;
+  symbol: string;
+  side: 'long' | 'short';
+  type: 'stop_loss' | 'take_profit';
+  trigger_price: number;
+  order_price: number;
+  quantity: number;
+  status: 'active' | 'triggered' | 'cancelled';
+  created_at: string;
+  updated_at?: string;
+  triggered_at?: string;
+}
+
 /**
  * SQL 建表语句
  */
@@ -196,6 +211,22 @@ CREATE TABLE IF NOT EXISTS system_config (
   updated_at TEXT NOT NULL
 );
 
+-- 条件单表（止损止盈订单）
+CREATE TABLE IF NOT EXISTS price_orders (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  order_id TEXT NOT NULL UNIQUE,
+  symbol TEXT NOT NULL,
+  side TEXT NOT NULL,
+  type TEXT NOT NULL,
+  trigger_price REAL NOT NULL,
+  order_price REAL NOT NULL,
+  quantity REAL NOT NULL,
+  status TEXT NOT NULL DEFAULT 'active',
+  created_at TEXT NOT NULL,
+  updated_at TEXT,
+  triggered_at TEXT
+);
+
 -- 创建索引
 CREATE INDEX IF NOT EXISTS idx_trades_timestamp ON trades(timestamp);
 CREATE INDEX IF NOT EXISTS idx_trades_symbol ON trades(symbol);
@@ -203,5 +234,8 @@ CREATE INDEX IF NOT EXISTS idx_signals_timestamp ON trading_signals(timestamp);
 CREATE INDEX IF NOT EXISTS idx_signals_symbol ON trading_signals(symbol);
 CREATE INDEX IF NOT EXISTS idx_history_timestamp ON account_history(timestamp);
 CREATE INDEX IF NOT EXISTS idx_decisions_timestamp ON agent_decisions(timestamp);
+CREATE INDEX IF NOT EXISTS idx_price_orders_symbol ON price_orders(symbol);
+CREATE INDEX IF NOT EXISTS idx_price_orders_status ON price_orders(status);
+CREATE INDEX IF NOT EXISTS idx_price_orders_order_id ON price_orders(order_id);
 `;
 

@@ -145,7 +145,10 @@ export function createApiRoutes() {
           };
         });
       
-      return c.json({ positions });
+      return c.json({ 
+        positions,
+        count: positions.length 
+      });
     } catch (error: any) {
       return c.json({ error: error.message }, 500);
     }
@@ -434,6 +437,51 @@ export function createApiRoutes() {
       
       return c.json({ prices });
     } catch (error: any) {
+      return c.json({ error: error.message }, 500);
+    }
+  });
+
+  /**
+   * 获取条件单列表（止盈止损）
+   */
+  app.get("/api/price-orders", async (c) => {
+    try {
+      const result = await dbClient.execute(
+        `SELECT * FROM price_orders 
+         ORDER BY 
+           CASE status 
+             WHEN 'active' THEN 1 
+             WHEN 'triggered' THEN 2 
+             WHEN 'cancelled' THEN 3 
+           END,
+           created_at DESC`
+      );
+      
+      const priceOrders = result.rows.map((row: any) => ({
+        id: row.id,
+        order_id: row.order_id,
+        symbol: row.symbol,
+        side: row.side,
+        type: row.type,
+        trigger_price: Number.parseFloat(row.trigger_price),
+        order_price: Number.parseFloat(row.order_price),
+        quantity: Number.parseFloat(row.quantity),
+        status: row.status,
+        created_at: row.created_at,
+        updated_at: row.updated_at,
+        triggered_at: row.triggered_at
+      }));
+      
+      // 统计活跃的条件单数量
+      const activeCount = priceOrders.filter((order: any) => order.status === 'active').length;
+      
+      return c.json({ 
+        priceOrders,
+        count: priceOrders.length,
+        activeCount 
+      });
+    } catch (error: any) {
+      logger.error('获取条件单失败:', error);
       return c.json({ error: error.message }, 500);
     }
   });

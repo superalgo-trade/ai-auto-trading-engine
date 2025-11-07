@@ -123,6 +123,27 @@ ai-auto-trading 是一个 AI 驱动的加密货币自动交易系统，将大语
 
 ### 智能风险管理
 
+#### 科学止损系统 ⭐ NEW
+
+- **智能止损计算**：基于 ATR（真实波动范围）动态计算止损位
+- **策略自适应**：每个策略有独立的止损参数（超短线 0.5-3%，波段 1.0-6% 等）
+- **服务器端执行**：止损订单在交易所服务器执行，不受本地程序影响
+- **自动保护**：即使程序崩溃，止损订单仍会自动触发
+- **开仓过滤**：自动拒绝止损空间不足的交易机会
+- **追踪止损**：盈利后自动上移止损线，锁定利润
+
+**配置示例**：
+
+```env
+ENABLE_SCIENTIFIC_STOP_LOSS=true      # 启用科学止损
+ENABLE_TRAILING_STOP_LOSS=true        # 启用追踪止损
+ENABLE_STOP_LOSS_FILTER=true          # 启用开仓过滤
+```
+
+详细文档：[科学止损快速入门](./docs/STOP_LOSS_QUICK_START.md)
+
+#### 传统风控机制
+
 - **止损保护**：单笔亏损达-30%强制平仓
 - **时间限制**：持仓超过36小时强制平仓
 - **移动止盈**：盈利达标后自动上移止损线
@@ -175,6 +196,11 @@ MAX_HOLDING_HOURS=36                         # 最大持仓时长（小时）
 INITIAL_BALANCE=1000                         # 初始资金（USDT）
 ACCOUNT_STOP_LOSS_USDT=50                    # 账户止损线
 ACCOUNT_TAKE_PROFIT_USDT=20000               # 账户止盈线
+
+# 科学止损系统（推荐开启）
+ENABLE_SCIENTIFIC_STOP_LOSS=true             # 启用科学止损
+ENABLE_TRAILING_STOP_LOSS=true               # 启用追踪止损
+ENABLE_STOP_LOSS_FILTER=true                 # 启用开仓过滤
 
 # 数据库
 DATABASE_URL=file:./.voltagent/trading.db
@@ -310,6 +336,9 @@ ai-auto-trading/
 | `INITIAL_BALANCE` | 初始资金（USDT） | 1000 | 否 |
 | `ACCOUNT_STOP_LOSS_USDT` | 账户止损线（USDT） | 50 | 否 |
 | `ACCOUNT_TAKE_PROFIT_USDT` | 账户止盈线（USDT） | 20000 | 否 |
+| `ENABLE_SCIENTIFIC_STOP_LOSS` | 启用科学止损系统 | false | 否 |
+| `ENABLE_TRAILING_STOP_LOSS` | 启用追踪止损（盈利后自动上移止损） | false | 否 |
+| `ENABLE_STOP_LOSS_FILTER` | 启用开仓过滤（拒绝止损空间不足的交易） | false | 否 |
 | `SYNC_CONFIG_ON_STARTUP` | 启动时同步配置 | true | 否 |
 | `DATABASE_URL` | SQLite 数据库文件路径 | file:./.voltagent/trading.db | 否 |
 | `EXCHANGE_NAME` | 交易所选择（gate 或 binance） | gate | 是 |

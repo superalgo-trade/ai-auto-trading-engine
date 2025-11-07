@@ -28,6 +28,7 @@ import { createPinoLogger } from "@voltagent/logger";
 import { getChinaTimeISO } from "../../utils/timeUtils";
 import { RISK_PARAMS } from "../../config/riskParams";
 import { getQuantoMultiplier } from "../../utils/contractUtils";
+import { formatStopLossPrice } from "../../utils/priceFormatter";
 
 const logger = createPinoLogger({
   name: "trade-execution",
@@ -43,7 +44,18 @@ const dbClient = createClient({
  */
 export const openPositionTool = createTool({
   name: "openPosition",
-  description: "开仓 - 做多或做空指定币种（使用市价单，立即以当前市场价格成交）。IMPORTANT: 开仓前必须先用getAccountBalance和getPositions工具查询可用资金和现有持仓，避免资金不足。交易手续费约0.05%，避免频繁交易。开仓时不设置止盈止损，你需要在每个周期主动决策是否平仓。",
+  description: `开仓 - 做多或做空指定币种（使用市价单，立即以当前市场价格成交）。
+
+✨ 新功能：自动设置科学止损！
+- 如果启用科学止损系统（ENABLE_SCIENTIFIC_STOP_LOSS=true），开仓后会自动设置止损单
+- 止损单在交易所服务器端执行，不受本地程序循环间隔限制
+- 即使程序崩溃，止损单仍会自动触发，保护资金安全
+
+IMPORTANT: 
+- 开仓前必须先用 getAccountBalance 和 getPositions 查询可用资金和现有持仓
+- 建议先用 checkOpenPosition 检查止损合理性
+- 建议先用 calculateStopLoss 获取推荐止损位
+- 交易手续费约0.05%，避免频繁交易`,
   parameters: z.object({
     symbol: z.enum(RISK_PARAMS.TRADING_SYMBOLS).describe("币种代码"),
     side: z.enum(["long", "short"]).describe("方向：long=做多，short=做空"),
@@ -51,9 +63,6 @@ export const openPositionTool = createTool({
     amountUsdt: z.number().describe("开仓金额（USDT）"),
   }),
   execute: async ({ symbol, side, leverage, amountUsdt }) => {
-    // 开仓时不设置止盈止损，由 AI 在每个周期主动决策
-    const stopLoss = undefined;
-    const takeProfit = undefined;
     const exchangeClient = getExchangeClient();
     const contract = exchangeClient.normalizeContract(symbol);
     
@@ -500,9 +509,103 @@ export const openPositionTool = createTool({
         ],
       });
       
-      // 不设置止损止盈订单
+      // ✨ 科学止损：开仓后自动设置止损单
       let slOrderId: string | undefined;
       let tpOrderId: string | undefined;
+      let calculatedStopLoss: number | null = null;
+      let calculatedTakeProfit: number | null = null;
+      
+      if (RISK_PARAMS.ENABLE_SCIENTIFIC_STOP_LOSS) {
+        try {
+          logger.info(`📊 计算科学止损位...`);
+          
+          // 动态导入止损计算服务
+          const { calculateScientificStopLoss } = await import("../../services/stopLossCalculator.js");
+          
+          // 构建止损配置
+          const stopLossConfig = {
+            atrPeriod: RISK_PARAMS.ATR_PERIOD,
+            atrMultiplier: RISK_PARAMS.ATR_MULTIPLIER,
+            lookbackPeriod: RISK_PARAMS.SUPPORT_RESISTANCE_LOOKBACK,
+            bufferPercent: RISK_PARAMS.SUPPORT_RESISTANCE_BUFFER,
+            useATR: RISK_PARAMS.USE_ATR_STOP_LOSS,
+            useSupportResistance: RISK_PARAMS.USE_SUPPORT_RESISTANCE_STOP_LOSS,
+            minStopLossPercent: RISK_PARAMS.MIN_STOP_LOSS_PERCENT,
+            maxStopLossPercent: RISK_PARAMS.MAX_STOP_LOSS_PERCENT,
+          };
+          
+          // 计算止损位
+          const stopLossResult = await calculateScientificStopLoss(
+            symbol,
+            side,
+            actualFillPrice,
+            stopLossConfig,
+            "1h"
+          );
+          
+          calculatedStopLoss = stopLossResult.stopLossPrice;
+          
+          // 计算止盈位（风险回报比 1:2）
+          const stopLossDistance = Math.abs(actualFillPrice - calculatedStopLoss);
+          calculatedTakeProfit = side === "long"
+            ? actualFillPrice + stopLossDistance * 2
+            : actualFillPrice - stopLossDistance * 2;
+          
+          // 提取币种符号用于价格格式化
+          const symbolName = symbol.replace(/_USDT$/, '').replace(/USDT$/, '');
+          
+          logger.info(`✅ 科学止损计算完成:`);
+          logger.info(`   入场价: ${formatStopLossPrice(symbolName, actualFillPrice)}`);
+          logger.info(`   止损价: ${formatStopLossPrice(symbolName, calculatedStopLoss)} (${stopLossResult.stopLossDistancePercent.toFixed(2)}%)`);
+          logger.info(`   止盈价: ${formatStopLossPrice(symbolName, calculatedTakeProfit)} (${((Math.abs(calculatedTakeProfit - actualFillPrice) / actualFillPrice) * 100).toFixed(2)}%)`);
+          logger.info(`   计算方法: ${stopLossResult.method}`);
+          logger.info(`   质量评分: ${stopLossResult.qualityScore}/100`);
+          
+          // 设置止损止盈订单
+          const setStopLossResult = await exchangeClient.setPositionStopLoss(
+            contract,
+            calculatedStopLoss,
+            calculatedTakeProfit
+          );
+          
+          if (setStopLossResult.success) {
+            slOrderId = setStopLossResult.stopLossOrderId;
+            tpOrderId = setStopLossResult.takeProfitOrderId;
+            logger.info(`✅ 止损止盈订单已设置 (止损单ID: ${slOrderId}, 止盈单ID: ${tpOrderId})`);
+            
+            // 保存条件单到数据库
+            try {
+              const now = new Date().toISOString();
+              if (slOrderId) {
+                await dbClient.execute({
+                  sql: `INSERT INTO price_orders 
+                        (order_id, symbol, side, type, trigger_price, order_price, quantity, status, created_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                  args: [slOrderId, symbol, side, 'stop_loss', calculatedStopLoss, 0, finalQuantity, 'active', now]
+                });
+              }
+              if (tpOrderId) {
+                await dbClient.execute({
+                  sql: `INSERT INTO price_orders 
+                        (order_id, symbol, side, type, trigger_price, order_price, quantity, status, created_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                  args: [tpOrderId, symbol, side, 'take_profit', calculatedTakeProfit, 0, finalQuantity, 'active', now]
+                });
+              }
+            } catch (dbError: any) {
+              logger.warn(`⚠️  保存条件单到数据库失败: ${dbError.message}`);
+            }
+          } else {
+            logger.warn(`⚠️  设置止损止盈订单失败: ${setStopLossResult.message}`);
+          }
+          
+        } catch (error: any) {
+          logger.error(`❌ 科学止损设置失败: ${error.message}`);
+          logger.warn(`将不设置止损单，请手动管理风险`);
+        }
+      } else {
+        logger.info(`科学止损系统未启用，不设置止损单`);
+      }
       
       //  获取持仓信息以获取 Gate.io 返回的强平价
       // Gate.io API 有延迟，需要等待并重试
@@ -572,8 +675,8 @@ export const openPositionTool = createTool({
             0,
             leverage,
             side,
-            takeProfit || null,
-            stopLoss || null,
+            calculatedTakeProfit,
+            calculatedStopLoss,
             tpOrderId || null,
             slOrderId || null,
             order.id?.toString() || "",
@@ -596,8 +699,8 @@ export const openPositionTool = createTool({
             0,
             leverage,
             side,
-            takeProfit || null,
-            stopLoss || null,
+            calculatedTakeProfit,
+            calculatedStopLoss,
             tpOrderId || null,
             slOrderId || null,
             order.id?.toString() || "",
@@ -984,42 +1087,73 @@ export const closePositionTool = createTool({
         ],
       });
       
-      // 从数据库获取止损止盈订单ID（如果存在）
+      // 🔥 关键修复：平仓时必须取消交易所的所有条件单
+      // 使用交易所的 cancelPositionStopLoss 方法一次性取消所有条件单
+      try {
+        const cancelResult = await exchangeClient.cancelPositionStopLoss(contract);
+        if (cancelResult.success) {
+          logger.info(`✅ 已取消 ${symbol} 在交易所的所有止损止盈订单`);
+          
+          // 更新数据库中该币种所有活跃条件单的状态为 cancelled
+          const now = new Date().toISOString();
+          await dbClient.execute({
+            sql: `UPDATE price_orders 
+                  SET status = 'cancelled', updated_at = ?
+                  WHERE symbol = ? AND status = 'active'`,
+            args: [now, symbol]
+          });
+          logger.info(`✅ 已更新数据库中 ${symbol} 的条件单状态`);
+        } else {
+          logger.warn(`⚠️ 取消条件单失败: ${cancelResult.message}`);
+        }
+      } catch (cancelError: any) {
+        logger.error(`❌ 取消条件单异常: ${cancelError.message}`);
+      }
+      
+      // 从数据库获取止损止盈订单ID（用于日志记录）
       const posResult = await dbClient.execute({
         sql: "SELECT sl_order_id, tp_order_id FROM positions WHERE symbol = ?",
         args: [symbol],
       });
       
-      // 取消止损止盈订单（先检查订单状态）
+      // 额外检查：如果数据库中有订单ID记录，再尝试单独取消（双重保险）
       if (posResult.rows.length > 0) {
         const dbPosition = posResult.rows[0] as any;
         
-        if (dbPosition.sl_order_id) {
-          try {
-            // 先获取订单状态
-            const orderDetail = await exchangeClient.getOrder(dbPosition.sl_order_id);
-            // 只取消未完成的订单（open状态）
-            if (orderDetail.status === 'open') {
-              await exchangeClient.cancelOrder(dbPosition.sl_order_id);
-            }
-          } catch (e: any) {
-            // 订单可能已经不存在或已被取消
-            logger.warn(`无法取消止损订单 ${dbPosition.sl_order_id}: ${e.message}`);
+        if (dbPosition.sl_order_id || dbPosition.tp_order_id) {
+          logger.debug(`数据库记录的订单ID: SL=${dbPosition.sl_order_id}, TP=${dbPosition.tp_order_id}`);
+          
+          // 批量处理单个订单取消（作为双重保险）
+          const cancelPromises: Promise<void>[] = [];
+          
+          if (dbPosition.sl_order_id) {
+            cancelPromises.push(
+              (async () => {
+                try {
+                  await exchangeClient.cancelOrder(dbPosition.sl_order_id);
+                  logger.debug(`✅ 止损订单 ${dbPosition.sl_order_id} 已取消`);
+                } catch (e: any) {
+                  logger.debug(`止损订单 ${dbPosition.sl_order_id} 可能已被取消: ${e.message}`);
+                }
+              })()
+            );
           }
-        }
-        
-        if (dbPosition.tp_order_id) {
-          try {
-            // 先获取订单状态
-            const orderDetail = await exchangeClient.getOrder(dbPosition.tp_order_id);
-            // 只取消未完成的订单（open状态）
-            if (orderDetail.status === 'open') {
-              await exchangeClient.cancelOrder(dbPosition.tp_order_id);
-            }
-          } catch (e: any) {
-            // 订单可能已经不存在或已被取消
-            logger.warn(`无法取消止盈订单 ${dbPosition.tp_order_id}: ${e.message}`);
+          
+          if (dbPosition.tp_order_id) {
+            cancelPromises.push(
+              (async () => {
+                try {
+                  await exchangeClient.cancelOrder(dbPosition.tp_order_id);
+                  logger.debug(`✅ 止盈订单 ${dbPosition.tp_order_id} 已取消`);
+                } catch (e: any) {
+                  logger.debug(`止盈订单 ${dbPosition.tp_order_id} 可能已被取消: ${e.message}`);
+                }
+              })()
+            );
           }
+          
+          // 等待所有取消操作完成（不阻塞主流程）
+          await Promise.allSettled(cancelPromises);
         }
       }
       

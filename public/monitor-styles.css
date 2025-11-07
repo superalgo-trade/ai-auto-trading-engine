@@ -841,14 +841,70 @@ body {
     overflow: hidden;
 }
 
-.positions-container {
-    max-height: 600px;
-    overflow-y: auto;
-    overflow-x: auto;
-    max-width: 100%;
-    -webkit-overflow-scrolling: touch;
+/* Tab Navigation Styles */
+.tab-navigation {
+    display: flex;
+    gap: 0;
+    margin-bottom: 1.5rem;
+    border-bottom: 2px solid var(--border-color);
+    padding-bottom: 0;
 }
 
+.tab-button {
+    background: none;
+    border: none;
+    color: var(--text-dim);
+    font-family: 'Courier New', monospace;
+    font-size: 1rem;
+    font-weight: 700;
+    padding: 0.8rem 1.5rem;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    position: relative;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    border-bottom: 3px solid transparent;
+    margin-bottom: -2px;
+}
+
+.tab-button:hover {
+    color: var(--text-secondary);
+    background-color: rgba(0, 255, 170, 0.05);
+}
+
+.tab-button.active {
+    color: var(--accent-green);
+    border-bottom-color: var(--accent-green);
+    text-shadow: 0 0 8px var(--accent-green);
+    background-color: rgba(0, 255, 170, 0.1);
+}
+
+.tab-button:focus {
+    outline: none;
+}
+
+/* Tab Content Styles */
+.tab-content {
+    display: none;
+    animation: fadeIn 0.3s ease-in;
+}
+
+.tab-content.active {
+    display: block;
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* Positions Section - Table Styles */
 .positions-table {
     width: 100%;
     border-collapse: collapse;
@@ -935,15 +991,54 @@ body {
     font-weight: 600;
 }
 
-/* 兼容旧样式 */
-.positions-table td.positive {
+/* 条件单类型样式 */
+.positions-table .order-type {
+    padding: 0.25rem 0.75rem;
+    border-radius: 4px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+/* 止盈止损表格价格列样式 */
+.positions-table .stop-loss {
     color: var(--accent-red);
     font-weight: 600;
 }
 
-.positions-table td.negative {
+.positions-table .take-profit {
     color: var(--accent-green);
     font-weight: 600;
+}
+
+.positions-table .current-price {
+    color: var(--text-secondary);
+    font-weight: 700;
+    font-size: 1.05em;
+}
+
+/* 价格偏差百分比样式 */
+.positions-table .deviation {
+    font-size: 0.85em;
+    color: var(--text-dim);
+    font-weight: 400;
+    margin-left: 4px;
+}
+
+.positions-table .order-status.status-active {
+    background-color: rgba(255, 255, 0, 0.1);
+    color: var(--accent-yellow);
+}
+
+.positions-table .order-status.status-triggered {
+    background-color: rgba(0, 255, 170, 0.1);
+    color: var(--accent-green);
+}
+
+.positions-table .order-status.status-cancelled {
+    background-color: rgba(136, 136, 136, 0.1);
+    color: #888;
 }
 
 /* Trades Section */

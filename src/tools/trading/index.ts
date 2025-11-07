@@ -51,6 +51,7 @@ export {
   calculateStopLossTool,
   checkOpenPositionTool,
   updateTrailingStopTool,
+  updatePositionStopLossTool,
   stopLossManagementTools,
 } from "./stopLossManagement";
 

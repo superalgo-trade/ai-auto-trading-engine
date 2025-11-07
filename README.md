@@ -134,6 +134,11 @@ INITIAL_BALANCE=1000                         # 初始资金
 ACCOUNT_STOP_LOSS_USDT=50                    # 止损线
 ACCOUNT_TAKE_PROFIT_USDT=20000               # 止盈线
 
+# 科学止损系统（推荐开启）
+ENABLE_SCIENTIFIC_STOP_LOSS=true             # 启用科学止损
+ENABLE_TRAILING_STOP_LOSS=true               # 启用追踪止损
+ENABLE_STOP_LOSS_FILTER=true                 # 启用开仓过滤
+
 # 交易所选择（gate 或 binance）
 EXCHANGE_NAME=gate
 
@@ -220,6 +225,7 @@ npm run trading:start
 - **支持币种**：BTC、ETH、SOL、BNB、XRP、DOGE、BCH、HYPE、SUI、ADA、AVAX、LTC、LINK 等
 - **合约类型**：永续合约（Gate.io 币本位/Binance USDT本位 自动适配）
 - **杠杆范围**：1-15倍（可配置）
+- **科学止损系统** ⭐ NEW：基于 ATR 智能计算止损位，服务器端执行，自动保护资金
 - **风险管理**：止损、止盈、移动止盈、分批止盈、峰值回撤保护
 
 ### 📊 实时监控

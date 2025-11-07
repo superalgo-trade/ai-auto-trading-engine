@@ -25,6 +25,7 @@ import { createTool } from "@voltagent/core";
 import { z } from "zod";
 import { createPinoLogger } from "@voltagent/logger";
 import { RISK_PARAMS } from "../../config/riskParams";
+import { formatStopLossPrice } from "../../utils/priceFormatter";
 import {
   calculateScientificStopLoss,
   shouldOpenPosition,
@@ -91,6 +92,9 @@ export const calculateStopLossTool = createTool({
         timeframe
       );
 
+      // 提取币种符号用于价格格式化（如 BTC_USDT -> BTC）
+      const symbolName = symbol.replace(/_USDT$/, '').replace(/USDT$/, '');
+      
       return {
         success: true,
         data: {
@@ -100,18 +104,18 @@ export const calculateStopLossTool = createTool({
           stopLossPrice: result.stopLossPrice,
           stopLossDistancePercent: result.stopLossDistancePercent.toFixed(2),
           method: result.method,
-          atr: result.details.atr?.toFixed(4),
+          atr: result.details.atr !== undefined ? formatStopLossPrice(symbolName, result.details.atr) : undefined,
           atrPercent: result.details.atrPercent?.toFixed(2),
-          supportLevel: result.details.supportLevel?.toFixed(4),
-          resistanceLevel: result.details.resistanceLevel?.toFixed(4),
+          supportLevel: result.details.supportLevel !== undefined ? formatStopLossPrice(symbolName, result.details.supportLevel) : undefined,
+          resistanceLevel: result.details.resistanceLevel !== undefined ? formatStopLossPrice(symbolName, result.details.resistanceLevel) : undefined,
           qualityScore: result.qualityScore,
           volatilityLevel: result.riskAssessment.volatilityLevel,
           isNoisy: result.riskAssessment.isNoisy,
           recommendation: result.riskAssessment.recommendation,
         },
         message: `✅ 止损计算完成
-- 入场价: ${entryPrice.toFixed(4)}
-- 止损价: ${result.stopLossPrice.toFixed(4)}
+- 入场价: ${formatStopLossPrice(symbolName, entryPrice)}
+- 止损价: ${formatStopLossPrice(symbolName, result.stopLossPrice)}
 - 止损距离: ${result.stopLossDistancePercent.toFixed(2)}%
 - 计算方法: ${result.method}
 - 波动率: ${result.riskAssessment.volatilityLevel}
@@ -223,7 +227,10 @@ export const updateTrailingStopTool = createTool({
 
 适用场景：
 - 持仓已盈利，希望锁定部分利润
-- 定期检查（如每小时）是否可以上移止损`,
+- 定期检查（如每小时）是否可以上移止损
+
+⚠️ 注意：此工具只返回建议，不会实际修改交易所的止损单。
+如需实际修改，请使用 updatePositionStopLoss 工具。`,
   parameters: z.object({
     symbol: z.enum(RISK_PARAMS.TRADING_SYMBOLS).describe("币种代码"),
     side: z.enum(["long", "short"]).describe("方向"),
@@ -260,6 +267,9 @@ export const updateTrailingStopTool = createTool({
         config
       );
 
+      // 提取币种符号用于价格格式化
+      const symbolName = symbol.replace(/_USDT$/, '').replace(/USDT$/, '');
+      
       if (updateResult.shouldUpdate && updateResult.newStopLoss) {
         return {
           success: true,
@@ -270,8 +280,9 @@ export const updateTrailingStopTool = createTool({
             improvement: ((Math.abs(updateResult.newStopLoss - currentStopLoss) / currentStopLoss) * 100).toFixed(2),
           },
           message: `✅ ${updateResult.reason}
-- 旧止损: ${currentStopLoss.toFixed(4)}
-- 新止损: ${updateResult.newStopLoss.toFixed(4)}`,
+- 旧止损: ${formatStopLossPrice(symbolName, currentStopLoss)}
+- 新止损: ${formatStopLossPrice(symbolName, updateResult.newStopLoss)}
+💡 提示：使用 updatePositionStopLoss 工具实际更新交易所的止损单`,
         };
       } else {
         return {
@@ -291,10 +302,168 @@ export const updateTrailingStopTool = createTool({
 });
 
 /**
+ * 更新持仓止损单工具（实际修改交易所订单）
+ */
+export const updatePositionStopLossTool = createTool({
+  name: "updatePositionStopLoss",
+  description: `更新持仓的止损止盈订单 - 直接修改交易所服务器端的止损单。
+
+✨ 核心功能：
+- 取消旧的止损止盈订单
+- 创建新的止损止盈订单
+- 适用于 Gate.io 和 Binance 两个交易所
+
+使用场景：
+1. 移动止损：盈利后上移止损保护利润
+2. 调整止盈：根据市场情况修改目标价位
+3. 重新设置：市场波动变化后重新计算
+
+建议工作流：
+1. 先调用 updateTrailingStop 检查是否需要更新
+2. 如果 shouldUpdate=true，再调用此工具实际更新
+3. 或者先调用 calculateStopLoss 获取新的止损位`,
+  parameters: z.object({
+    symbol: z.enum(RISK_PARAMS.TRADING_SYMBOLS).describe("币种代码"),
+    stopLoss: z.number().optional().describe("新的止损价格（可选，不传则取消止损）"),
+    takeProfit: z.number().optional().describe("新的止盈价格（可选，不传则取消止盈）"),
+  }),
+  execute: async ({ symbol, stopLoss, takeProfit }) => {
+    try {
+      const { getExchangeClient } = await import("../../exchanges/index.js");
+      const exchangeClient = getExchangeClient();
+      const contract = exchangeClient.normalizeContract(symbol);
+
+      // 获取当前持仓
+      const positions = await exchangeClient.getPositions();
+      const position = positions.find((p: any) => {
+        const posSymbol = exchangeClient.extractSymbol(p.contract);
+        return posSymbol === symbol;
+      });
+
+      if (!position || Math.abs(parseFloat(position.size)) === 0) {
+        return {
+          success: false,
+          message: `未找到 ${symbol} 的持仓，无法设置止损`,
+        };
+      }
+
+      // 调用交易所接口设置止损止盈
+      const result = await exchangeClient.setPositionStopLoss(
+        contract,
+        stopLoss,
+        takeProfit
+      );
+
+      if (result.success) {
+        // 更新数据库中的持仓信息和条件单记录
+        try {
+          const { createClient } = await import("@libsql/client");
+          const dbClient = createClient({
+            url: process.env.DATABASE_URL || "file:./.voltagent/trading.db",
+          });
+
+          const now = new Date().toISOString();
+          
+          // 1. 标记旧的条件单为已取消（如果存在）
+          await dbClient.execute({
+            sql: `UPDATE price_orders 
+                  SET status = 'cancelled', updated_at = ?
+                  WHERE symbol = ? AND status = 'active'`,
+            args: [now, symbol],
+          });
+          
+          // 2. 插入新的条件单记录
+          if (result.stopLossOrderId && stopLoss) {
+            await dbClient.execute({
+              sql: `INSERT INTO price_orders 
+                    (order_id, symbol, side, type, trigger_price, order_price, quantity, status, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+              args: [
+                result.stopLossOrderId,
+                symbol,
+                parseFloat(position.size) > 0 ? 'long' : 'short',
+                'stop_loss',
+                stopLoss,
+                0,
+                Math.abs(parseFloat(position.size)),
+                'active',
+                now
+              ]
+            });
+          }
+          
+          if (result.takeProfitOrderId && takeProfit) {
+            await dbClient.execute({
+              sql: `INSERT INTO price_orders 
+                    (order_id, symbol, side, type, trigger_price, order_price, quantity, status, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+              args: [
+                result.takeProfitOrderId,
+                symbol,
+                parseFloat(position.size) > 0 ? 'long' : 'short',
+                'take_profit',
+                takeProfit,
+                0,
+                Math.abs(parseFloat(position.size)),
+                'active',
+                now
+              ]
+            });
+          }
+
+          // 3. 更新持仓表
+          await dbClient.execute({
+            sql: `UPDATE positions 
+                  SET stop_loss = ?, profit_target = ?, sl_order_id = ?, tp_order_id = ?
+                  WHERE symbol = ?`,
+            args: [
+              stopLoss || null,
+              takeProfit || null,
+              result.stopLossOrderId || null,
+              result.takeProfitOrderId || null,
+              symbol,
+            ],
+          });
+
+          logger.info(`✅ 数据库已更新: ${symbol} 止损=${stopLoss || 'null'}, 止盈=${takeProfit || 'null'}, 订单ID=${result.stopLossOrderId}/${result.takeProfitOrderId}`);
+        } catch (dbError: any) {
+          logger.error(`更新数据库失败: ${dbError.message}`);
+          // 数据库更新失败不影响订单已设置的事实
+        }
+
+        return {
+          success: true,
+          data: {
+            symbol,
+            stopLoss,
+            takeProfit,
+            stopLossOrderId: result.stopLossOrderId,
+            takeProfitOrderId: result.takeProfitOrderId,
+          },
+          message: `✅ ${result.message}`,
+        };
+      } else {
+        return {
+          success: false,
+          message: `❌ ${result.message}`,
+        };
+      }
+    } catch (error: any) {
+      logger.error(`更新持仓止损失败: ${error.message}`);
+      return {
+        success: false,
+        message: `更新失败: ${error.message}`,
+      };
+    }
+  },
+});
+
+/**
  * 导出所有止损管理工具
  */
 export const stopLossManagementTools = [
   calculateStopLossTool,
   checkOpenPositionTool,
   updateTrailingStopTool,
+  updatePositionStopLossTool,
 ];

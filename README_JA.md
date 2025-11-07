@@ -124,6 +124,27 @@ ai-auto-trading は、大規模言語モデルの知能と量的取引実践を�
 
 ### リスク管理システム
 
+#### サイエンティフィック・ストップロス・システム ⭐ NEW
+
+- **インテリジェントストップロス計算**: ATR（真の値幅）に基づいてストップロスレベルを動的に計算
+- **戦略適応型**: 各戦略に独立したストップロスパラメータ（超短期 0.5-3%、スイング 1.0-6% など）
+- **サーバーサイド実行**: ストップロス注文は取引所サーバーで実行、ローカルプログラムに依存しない
+- **自動保護**: プログラムがクラッシュしてもストップロス注文は自動的にトリガー
+- **エントリーフィルタリング**: ストップロススペースが不十分な取引機会を自動的に拒否
+- **トレーリングストップロス**: 利益後にストップロスを自動的に引き上げ、利益を確保
+
+**設定例**:
+
+```env
+ENABLE_SCIENTIFIC_STOP_LOSS=true      # サイエンティフィック・ストップロスを有効化
+ENABLE_TRAILING_STOP_LOSS=true        # トレーリングストップロスを有効化
+ENABLE_STOP_LOSS_FILTER=true          # エントリーフィルタリングを有効化
+```
+
+詳細ドキュメント: [サイエンティフィック・ストップロス クイックスタート](./docs/STOP_LOSS_QUICK_START.md)
+
+#### 従来のリスク管理
+
 - **自動損切り**: 設定可能なパーセンテージベースの損切り
 - **利確注文**: 自動的な利益実現
 - **ポジション制限**: 資産ごとの最大エクスポージャー
@@ -173,6 +194,11 @@ MAX_LEVERAGE=10                 # 最大レバレッジ倍率
 MAX_POSITIONS=5                 # 最大ポジション数
 MAX_HOLDING_HOURS=36            # 最大保有時間(時間)
 INITIAL_BALANCE=2000            # 初期資金(USDT)
+
+# サイエンティフィック・ストップロス・システム（推奨）
+ENABLE_SCIENTIFIC_STOP_LOSS=true      # サイエンティフィック・ストップロスを有効化
+ENABLE_TRAILING_STOP_LOSS=true        # トレーリングストップロスを有効化
+ENABLE_STOP_LOSS_FILTER=true          # エントリーフィルタリングを有効化
 
 # データベース
 DATABASE_URL=file:./.voltagent/trading.db
@@ -310,6 +336,9 @@ ai-auto-trading/
 | `MAX_POSITIONS` | 最大ポジション数 | 5 | いいえ |
 | `MAX_HOLDING_HOURS` | 最大保有時間(時間) | 36 | いいえ |
 | `INITIAL_BALANCE` | 初期資金(USDT) | 2000 | いいえ |
+| `ENABLE_SCIENTIFIC_STOP_LOSS` | サイエンティフィック・ストップロス・システムを有効化 | false | いいえ |
+| `ENABLE_TRAILING_STOP_LOSS` | トレーリングストップロス（利益後に自動的にストップロスを引き上げ）を有効化 | false | いいえ |
+| `ENABLE_STOP_LOSS_FILTER` | エントリーフィルタリング（ストップロススペース不足の取引を拒否）を有効化 | false | いいえ |
 | `DATABASE_URL` | SQLite データベースファイルパス | file:./.voltagent/trading.db | いいえ |
 | `EXCHANGE_NAME` | 取引所選択 (gate または binance) | gate | はい |
 | `GATE_API_KEY` | Gate.io API キー | - | EXCHANGE_NAME=gate の場合 |

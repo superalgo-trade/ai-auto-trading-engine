@@ -344,29 +344,62 @@
       <!-- 移除了旧的持仓卡片显示 -->
     </section>
 
-        <!-- Positions Section -->
+        <!-- Positions Section with Tabs -->
         <section class="positions-section">
-            <h2 class="section-header">当前持仓</h2>
-            <div class="positions-container">
-                <table class="positions-table">
-                    <thead>
-                        <tr>
-                            <th>币种</th>
-                            <th>方向</th>
-                            <th>开仓倍数</th>
-                            <th>开仓价格</th>
-                            <th>开仓价值</th>
-                            <th>当前价格</th>
-                            <th>未实现盈亏</th>
-                            <th>收益率</th>
-                        </tr>
-                    </thead>
-                    <tbody id="positions-body">
-                        <tr>
-                            <td colspan="8" class="loading">加载中...</td>
-                        </tr>
-                    </tbody>
-                </table>
+            <!-- Tab Navigation as Header -->
+            <div class="tab-navigation">
+                <button class="tab-button active" data-tab="positions">当前持仓</button>
+                <button class="tab-button" data-tab="price-orders">止盈止损</button>
+            </div>
+
+            <!-- Tab Content: Current Positions -->
+            <div class="tab-content active" id="tab-positions">
+                <div class="positions-container">
+                    <table class="positions-table">
+                        <thead>
+                            <tr>
+                                <th>币种</th>
+                                <th>方向</th>
+                                <th>开仓倍数</th>
+                                <th>开仓价格</th>
+                                <th>开仓价值</th>
+                                <th>当前价格</th>
+                                <th>未实现盈亏</th>
+                                <th>收益率</th>
+                            </tr>
+                        </thead>
+                        <tbody id="positions-body">
+                            <tr>
+                                <td colspan="8" class="loading">加载中...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Tab Content: Price Orders (Stop Loss / Take Profit) -->
+            <div class="tab-content" id="tab-price-orders">
+                <div class="positions-container">
+                    <table class="positions-table">
+                        <thead>
+                            <tr>
+                                <th>币种</th>
+                                <th>方向</th>
+                                <th>止损价格</th>
+                                <th>当前价格</th>
+                                <th>止盈价格</th>
+                                <th>数量</th>
+                                <th>状态</th>
+                                <th>创建时间</th>
+                            </tr>
+                        </thead>
+                        <tbody id="price-orders-body">
+                            <tr>
+                                <td colspan="8" class="loading">加载中...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
             </div>
         </section>
 
