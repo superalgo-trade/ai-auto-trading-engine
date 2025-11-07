@@ -749,9 +749,16 @@ export class GateExchangeClient implements IExchangeClient {
       const posSize = parseFloat(position.size);
       const side = posSize > 0 ? 'long' : 'short';
       
-      // Gate.io 条件单的 size 字段必须是正整数，表示平仓的合约张数
-      // 方向由 trigger.rule 决定，不需要负号
-      const closeSize = Math.abs(Math.round(posSize));
+      // 🔧 Gate.io 条件单 size 字段说明：
+      // 根据Gate.io API文档和实际测试：
+      // - size 可以是正数或负数
+      // - 正数表示买入（做多），负数表示卖出（做空）
+      // - 平仓需要反向操作：多单平仓用负数，空单平仓用正数
+      //
+      // 示例：
+      // - 持有100张多单(posSize=+100) → 平仓需要-100（卖出）
+      // - 持有100张空单(posSize=-100) → 平仓需要+100（买入）
+      const closeSize = -Math.round(posSize); // 取相反方向进行平仓
 
       // 提取币种符号（如 BTC_USDT -> BTC）
       const symbol = this.extractSymbol(contract);
@@ -821,7 +828,7 @@ export class GateExchangeClient implements IExchangeClient {
           const stopLossOrder = {
             initial: {
               contract: contract,
-              size: closeSize, // 已经是正整数
+              size: closeSize, // 负数=卖出平多单，正数=买入平空单
               price: '0', // 市价单
               tif: 'ioc', // immediate or cancel，市价单必需
             },
@@ -829,11 +836,11 @@ export class GateExchangeClient implements IExchangeClient {
               strategy_type: 0, // 0=by price
               price_type: 0, // 0=last price
               price: formattedStopLoss,
-              rule: side === 'long' ? 2 : 1, // long: <=止损价, short: >=止损价
+              rule: side === 'long' ? 2 : 1, // long: <=止损价触发, short: >=止损价触发
             }
           };
 
-          logger.info(`📤 创建止损单: contract=${contract}, size=${closeSize}, 触发价=${formattedStopLoss}, 当前价=${currentPrice}, side=${side}`);
+          logger.info(`📤 创建止损单: contract=${contract}, posSize=${posSize}, closeSize=${closeSize} (${closeSize < 0 ? '卖出' : '买入'}), 触发价=${formattedStopLoss}, 当前价=${currentPrice}, side=${side}`);
           logger.debug(`止损单完整数据:`, stopLossOrder);
 
           const result = await this.futuresApi.createPriceTriggeredOrder(
@@ -913,7 +920,7 @@ export class GateExchangeClient implements IExchangeClient {
           const takeProfitOrder = {
             initial: {
               contract: contract,
-              size: closeSize, // 已经是正整数
+              size: closeSize, // 负数=卖出平多单，正数=买入平空单
               price: '0', // 市价单
               tif: 'ioc', // immediate or cancel，市价单必需
             },
@@ -921,11 +928,11 @@ export class GateExchangeClient implements IExchangeClient {
               strategy_type: 0, // 0=by price
               price_type: 0, // 0=last price
               price: formattedTakeProfit,
-              rule: side === 'long' ? 1 : 2, // long: >=止盈价, short: <=止盈价
+              rule: side === 'long' ? 1 : 2, // long: >=止盈价触发, short: <=止盈价触发
             }
           };
 
-          logger.info(`📤 创建止盈单: contract=${contract}, size=${closeSize}, 触发价=${formattedTakeProfit}, 当前价=${currentPrice}, side=${side}`);
+          logger.info(`📤 创建止盈单: contract=${contract}, posSize=${posSize}, closeSize=${closeSize} (${closeSize < 0 ? '卖出' : '买入'}), 触发价=${formattedTakeProfit}, 当前价=${currentPrice}, side=${side}`);
           logger.debug(`止盈单完整数据:`, takeProfitOrder);
 
           const result = await this.futuresApi.createPriceTriggeredOrder(
