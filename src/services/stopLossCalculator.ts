@@ -509,6 +509,13 @@ export async function shouldOpenPosition(
 
 /**
  * 为现有持仓动态更新止损（移动止损）
+ * 
+ * 核心原则（科学止损的精髓）：
+ * - 使用当前价格（而非入场价格）重新计算止损位，这是正确的
+ * - 关键保护机制：新止损必须比旧止损更有利，否则拒绝更新
+ * - 做多：新止损 > 旧止损 → 止损向上移动（保护更多利润）
+ * - 做空：新止损 < 旧止损 → 止损向下移动（保护更多利润）
+ * - 不需要与入场价比较，只需要确保止损在持续改善
  */
 export async function updateTrailingStopLoss(
   symbol: string,
@@ -523,43 +530,70 @@ export async function updateTrailingStopLoss(
   reason: string;
 }> {
   try {
-    // 重新计算科学止损位
+    // 检查持仓是否盈利（可选：也可以为亏损持仓优化止损）
+    const isProfitable = side === "long" 
+      ? currentPrice > entryPrice 
+      : currentPrice < entryPrice;
+    
+    // 提取币种符号用于日志
+    const symbolName = symbol.replace(/_USDT$/, '').replace(/USDT$/, '');
+    
+    // 使用当前价格重新计算科学止损位
+    // 这是正确的做法：基于当前市场波动(ATR)和当前支撑/阻力位
     const stopLossResult = await calculateScientificStopLoss(
       symbol,
       side,
-      currentPrice, // 使用当前价格作为参考
+      currentPrice, // ✅ 使用当前价格是正确的
       config
     );
     
     const newStopLoss = stopLossResult.stopLossPrice;
     
-    // 只在止损向有利方向移动时才更新
+    // 🎯 核心保护机制：只允许止损向有利方向移动
+    // 这是唯一的判断标准，不需要与入场价比较
     if (side === "long") {
-      // 多单：新止损高于旧止损才更新
+      // 多单：新止损必须 > 旧止损（向上移动）
       if (newStopLoss > currentStopLoss) {
         const improvement = ((newStopLoss - currentStopLoss) / currentStopLoss) * 100;
+        const profitProtection = ((newStopLoss - entryPrice) / entryPrice) * 100;
+        
         return {
           shouldUpdate: true,
           newStopLoss,
-          reason: `止损上移 ${improvement.toFixed(2)}%，保护利润`,
+          reason: isProfitable 
+            ? `止损上移 ${improvement.toFixed(2)}%，保护 ${profitProtection >= 0 ? '+' : ''}${profitProtection.toFixed(2)}% 利润`
+            : `止损上移 ${improvement.toFixed(2)}%，优化风险保护`,
+        };
+      } else {
+        // 拒绝下移
+        logger.debug(`${symbol} 多单拒绝止损下移: 新=${formatStopLossPrice(symbolName, newStopLoss)}, 旧=${formatStopLossPrice(symbolName, currentStopLoss)}`);
+        return {
+          shouldUpdate: false,
+          reason: `新止损(${formatStopLossPrice(symbolName, newStopLoss)})未高于当前止损(${formatStopLossPrice(symbolName, currentStopLoss)})，保持现有保护`,
         };
       }
     } else {
-      // 空单：新止损低于旧止损才更新
+      // 空单：新止损必须 < 旧止损（向下移动）
       if (newStopLoss < currentStopLoss) {
         const improvement = ((currentStopLoss - newStopLoss) / currentStopLoss) * 100;
+        const profitProtection = ((entryPrice - newStopLoss) / entryPrice) * 100;
+        
         return {
           shouldUpdate: true,
           newStopLoss,
-          reason: `止损下移 ${improvement.toFixed(2)}%，保护利润`,
+          reason: isProfitable 
+            ? `止损下移 ${improvement.toFixed(2)}%，保护 ${profitProtection >= 0 ? '+' : ''}${profitProtection.toFixed(2)}% 利润`
+            : `止损下移 ${improvement.toFixed(2)}%，优化风险保护`,
+        };
+      } else {
+        // 拒绝上移
+        logger.debug(`${symbol} 空单拒绝止损上移: 新=${formatStopLossPrice(symbolName, newStopLoss)}, 旧=${formatStopLossPrice(symbolName, currentStopLoss)}`);
+        return {
+          shouldUpdate: false,
+          reason: `新止损(${formatStopLossPrice(symbolName, newStopLoss)})未低于当前止损(${formatStopLossPrice(symbolName, currentStopLoss)})，保持现有保护`,
         };
       }
     }
-    
-    return {
-      shouldUpdate: false,
-      reason: "当前止损位置仍然合理，无需调整",
-    };
   } catch (error) {
     logger.error(`更新止损失败: ${error}`);
     return {

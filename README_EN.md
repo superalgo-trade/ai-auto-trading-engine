@@ -108,6 +108,7 @@ The system follows an **AI autonomous decision-making** philosophy, abandoning t
 - **Supported Cryptocurrencies**: BTC, ETH, SOL, BNB, XRP, DOGE, BCH, HYPE, SUI, ADA, AVAX, LTC, LINK, etc.
 - **Contract Type**: USDT-settled perpetual futures
 - **Leverage Range**: 1-15x (configurable)
+- **Intelligent Trailing Stop**: Dynamically optimizes stop-loss levels based on current price and market volatility, only allowing favorable movement (long positions: stop-loss can only move up; short positions: stop-loss can only move down)
 - **Risk Management**: Stop-loss, take-profit, trailing stops, partial profit-taking, peak drawdown protection
 
 ### 📊 Real-Time Monitoring
@@ -126,7 +127,10 @@ The system follows an **AI autonomous decision-making** philosophy, abandoning t
 - **Server-Side Execution**: Stop-loss orders execute on exchange servers, independent of local program
 - **Automatic Protection**: Stop-loss orders trigger automatically even if program crashes
 - **Entry Filtering**: Automatically rejects trading opportunities with insufficient stop-loss space
-- **Trailing Stop-Loss**: Automatically raises stop-loss after profit, locking in gains
+- **Intelligent Trailing Stop**: Recalculates stop-loss based on current price and market volatility, only allowing favorable movement
+  - Long positions: New stop-loss must be higher than old stop-loss (stop moves up, protection enhanced)
+  - Short positions: New stop-loss must be lower than old stop-loss (stop moves down, protection enhanced)
+  - Rejects any operation that reduces protection, ensuring continuous risk control improvement
 
 **Configuration Example**:
 

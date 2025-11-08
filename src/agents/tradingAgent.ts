@@ -509,7 +509,7 @@ ${params.scientificStopLoss?.enabled ? `│ 移动止损：                     
 【决策流程 - 按优先级执行】
 ${params.scientificStopLoss?.enabled ? `(1) 持仓管理（最优先 - 使用科学止损）：
    a) 检查科学止损：calculateStopLoss() 计算当前合理止损位
-   b) 考虑移动止损：updateTrailingStop() 为盈利持仓上移止损
+   b) 考虑移动止损：updateTrailingStop() 优化止损保护（多单上移/空单下移）
    c) 如果 shouldUpdate=true：立即调用 updatePositionStopLoss() 更新交易所订单
    d) 执行平仓决策：检查止损/止盈/峰值回撤 → closePosition
 
@@ -927,7 +927,7 @@ function generateInstructions(strategy: TradingStrategy, intervalMinutes: number
        - 触及止损位立即平仓（不用等20分钟循环），大幅降低风险
        - 只在止损向有利方向移动时才更新，永远不会降低保护
      * 重要工具：
-       - updateTrailingStop(): 检查是否应该上移止损（只建议，不执行）
+       - updateTrailingStop(): 检查是否应该优化止损（只建议，不执行）
        - updatePositionStopLoss(): 实际更新交易所止损订单（真正执行）
      * 可回退：随时可以禁用科学止损（.env中SCIENTIFIC_STOP_LOSS_ENABLED=false），系统会自动回到固定移动止盈模式
      ` : `
@@ -1014,6 +1014,14 @@ function generateInstructions(strategy: TradingStrategy, intervalMinutes: number
    b) 移动止损保护利润（推荐每周期检查）：
       ${params.scientificStopLoss?.enabled && RISK_PARAMS.ENABLE_TRAILING_STOP_LOSS ? `
       ⭐ 科学移动止损（当前启用，优先使用）：
+      
+      核心原理（必须深刻理解）：
+      - ✅ 使用当前价格重新计算止损位（基于实时ATR和支撑/阻力）
+      - ✅ 只允许止损向有利方向移动（这是唯一判断标准）
+      - ✅ 多单：新止损 > 旧止损 → 允许更新（止损上移，保护增强）
+      - ✅ 空单：新止损 < 旧止损 → 允许更新（止损下移，保护增强）
+      - ❌ 不需要与入场价比较，只需确保止损持续改善
+      
       步骤1: 检查盈利是否达到参考触发点：
              - 参考点 1：盈利 ≥ +${formatPercent(params.trailingStop.level1.trigger)}%
              - 参考点 2：盈利 ≥ +${formatPercent(params.trailingStop.level2.trigger)}%
@@ -1024,12 +1032,14 @@ function generateInstructions(strategy: TradingStrategy, intervalMinutes: number
              - 基于当前价格重新计算 ATR${params.scientificStopLoss.atrMultiplier}x 止损
              - 结合当前支撑/阻力位
              - 返回建议：shouldUpdate 和 newStopLoss
+             - ✅ 系统保证新止损只会向有利方向移动
+             - ✅ 多单：只有新止损 > 旧止损才会返回 shouldUpdate=true
+             - ✅ 空单：只有新止损 < 旧止损才会返回 shouldUpdate=true
       
       步骤3: 如果 shouldUpdate=true，立即调用 updatePositionStopLoss()：
              - 实际更新交易所服务器端的止损单（这是真正的执行操作！）
              - 新止损单会立即在交易所生效，24/7监控价格
              - 触及止损位会立即平仓，不用等交易循环
-             - 系统只在止损向有利方向移动时才更新
       
       核心机制说明：
       - updateTrailingStop(): 只检查建议，不会真正修改止损单
@@ -1044,6 +1054,11 @@ function generateInstructions(strategy: TradingStrategy, intervalMinutes: number
       - 如不习惯可随时禁用（.env中SCIENTIFIC_STOP_LOSS_ENABLED=false），自动回退到固定模式
       ` : `
       固定移动止盈（当前使用）：
+      
+      核心原则（必须理解）：
+      - ✅ 做多时：止损只能上移，不能下移（保护利润）
+      - ✅ 做空时：止损只能下移，不能上移（保护利润）
+      
       - 盈利 ≥ +${formatPercent(params.trailingStop.level1.trigger)}% → 将止损移至 +${formatPercent(params.trailingStop.level1.stopAt)}%
       - 盈利 ≥ +${formatPercent(params.trailingStop.level2.trigger)}% → 将止损移至 +${formatPercent(params.trailingStop.level2.stopAt)}%
       - 盈利 ≥ +${formatPercent(params.trailingStop.level3.trigger)}% → 将止损移至 +${formatPercent(params.trailingStop.level3.stopAt)}%
@@ -1259,7 +1274,7 @@ function generateInstructions(strategy: TradingStrategy, intervalMinutes: number
              - ✅ 即使程序崩溃，止损单仍会自动触发保护资金
       
       步骤3: 后续管理（每个周期）
-             - 盈利后可以上移止损：先调用 updateTrailingStop() 检查建议
+             - 可以优化止损：先调用 updateTrailingStop() 检查建议
              - 如果 shouldUpdate=true，调用 updatePositionStopLoss() 实际更新交易所订单
              - 新止损单会立即在交易所服务器端生效
       
@@ -1292,7 +1307,7 @@ function generateInstructions(strategy: TradingStrategy, intervalMinutes: number
   * openPosition（市价单，自动设置止损止盈订单）
   * closePosition（市价单）
   * cancelOrder、setStopLoss、setTakeProfit
-  * updateTrailingStop（检查是否应该上移止损）
+  * updateTrailingStop（检查是否应该优化止损保护）
   * updatePositionStopLoss（实际更新交易所止损订单）
 - 账户信息：getAccountBalance、getPositions、getOpenOrders
 - 风险分析：calculateRisk、checkOrderStatus、calculateStopLoss、checkOpenPosition
