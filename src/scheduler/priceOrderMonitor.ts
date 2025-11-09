@@ -179,36 +179,36 @@ export class PriceOrderMonitor {
    * 处理已触发的条件单
    */
   private async handleTriggeredOrder(order: DBPriceOrder) {
-    logger.info(`🔔 检测到条件单可能被触发: ${order.symbol} ${order.type} ${order.order_id}`);
+    logger.debug(`� 检查条件单: ${order.symbol} ${order.type} ${order.order_id}`);
 
-    // 1. 验证是否真的触发（查询交易记录）
+    // 1. 先验证是否真的有平仓交易（关键：先查询再决定）
     const closeTrade = await this.findCloseTrade(order);
     if (!closeTrade) {
-      // 没有真实平仓成交，仅取消条件单，不做触发处理
-      await this.updateOrderStatus(order.order_id, 'cancelled');
-      logger.info(`未找到真实平仓成交，仅取消条件单: ${order.symbol} ${order.type} ${order.order_id}`);
+      // 没有真实平仓成交，说明条件单仍然活跃，不做任何修改
+      logger.debug(`  ✅ 条件单仍活跃: ${order.symbol} ${order.type} ${order.order_id}`);
       return;
     }
 
-    logger.info(`✅ 确认条件单触发: ${order.symbol} ${order.type}, 平仓价格: ${closeTrade.price}`);
+    // 2. 确认有真实平仓，这才是真正的触发
+    logger.info(`🔔 确认条件单触发: ${order.symbol} ${order.type}, 平仓价格: ${closeTrade.price}`);
 
-    // 2. 更新触发的条件单状态
+    // 3. 更新触发的条件单状态
     await this.updateOrderStatus(order.order_id, 'triggered');
 
-    // 3. 取消反向条件单
+    // 4. 取消反向条件单
     await this.cancelOppositeOrder(order);
 
-    // 4. 查询持仓信息（用于计算PnL）
+    // 5. 查询持仓信息（用于计算PnL）
     const position = await this.getPositionInfo(order.symbol, order.side);
     
-    // 5. 记录平仓交易
+    // 6. 记录平仓交易
     if (position) {
       await this.recordCloseTrade(order, closeTrade, position);
     } else {
       logger.warn(`未找到 ${order.symbol} ${order.side} 的持仓信息，无法计算PnL`);
     }
 
-    // 6. 删除持仓记录
+    // 7. 删除持仓记录
     await this.removePosition(order.symbol, order.side);
 
     logger.info(`✅ ${order.symbol} ${order.type} 触发处理完成`);
