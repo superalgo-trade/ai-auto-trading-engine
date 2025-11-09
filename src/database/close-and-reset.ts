@@ -166,32 +166,73 @@ async function cancelAllConditionalOrders(): Promise<void> {
         }
       }
     } else if (exchangeName === 'binance') {
-      // Binance: 需要逐个合约取消
-      const positions = await exchangeClient.getPositions();
-      const activeContracts = new Set(positions.map((p: any) => p.contract));
-      
-      if (activeContracts.size === 0) {
-        logger.info("✅ 当前无持仓，无需取消条件单");
-        return;
-      }
-      
-      logger.info(`🔄 取消 ${activeContracts.size} 个合约的条件单...`);
-      
-      for (const contract of activeContracts) {
-        try {
-          await exchangeClient.cancelAllOrders(contract);
-          logger.info(`✅ 已取消 ${contract} 的条件单`);
-        } catch (error: any) {
-          // 如果没有条件单，这是正常的
-          if (error.code === -2011 || error.message?.includes('Unknown order')) {
-            logger.debug(`   ${contract} 无条件单`);
-          } else {
-            logger.warn(`⚠️  取消 ${contract} 条件单时出现警告: ${error.message}`);
+      // Binance: 需要先获取所有未成交订单，然后逐个合约取消
+      // 🔥 关键修复：不依赖持仓信息，而是直接获取所有未成交订单
+      try {
+        // 获取所有未成交订单（不传contract参数会获取所有）
+        const openOrders = await exchangeClient.getOpenOrders();
+        
+        if (openOrders.length === 0) {
+          logger.info("✅ 当前无未成交订单");
+          return;
+        }
+        
+        // 按合约分组
+        const contractOrders = new Map<string, any[]>();
+        for (const order of openOrders) {
+          const contract = order.contract;
+          if (!contractOrders.has(contract)) {
+            contractOrders.set(contract, []);
+          }
+          contractOrders.get(contract)!.push(order);
+        }
+        
+        logger.info(`🔄 发现 ${contractOrders.size} 个合约有未成交订单，共 ${openOrders.length} 个订单`);
+        
+        // 逐个合约取消所有订单
+        for (const [contract, orders] of contractOrders) {
+          try {
+            logger.info(`   取消 ${contract} 的 ${orders.length} 个订单...`);
+            await exchangeClient.cancelAllOrders(contract);
+            logger.info(`   ✅ ${contract} 订单已取消`);
+          } catch (error: any) {
+            // 如果订单已经不存在，这是正常的
+            if (error.code === -2011 || error.message?.includes('Unknown order')) {
+              logger.debug(`   ${contract} 订单已不存在`);
+            } else {
+              logger.warn(`   ⚠️  取消 ${contract} 订单时出现警告: ${error.message}`);
+            }
+          }
+        }
+        
+        logger.info("✅ Binance 所有未成交订单已取消");
+      } catch (error: any) {
+        logger.warn(`⚠️  获取未成交订单失败: ${error.message}，尝试备用方案...`);
+        
+        // 备用方案：从持仓信息获取合约列表
+        const positions = await exchangeClient.getPositions();
+        const activeContracts = new Set(positions.map((p: any) => p.contract));
+        
+        if (activeContracts.size === 0) {
+          logger.info("✅ 无持仓也无法获取订单，假设无订单需要取消");
+          return;
+        }
+        
+        logger.info(`🔄 使用备用方案：从 ${activeContracts.size} 个持仓合约取消订单...`);
+        
+        for (const contract of activeContracts) {
+          try {
+            await exchangeClient.cancelAllOrders(contract);
+            logger.info(`✅ 已取消 ${contract} 的订单`);
+          } catch (error: any) {
+            if (error.code === -2011 || error.message?.includes('Unknown order')) {
+              logger.debug(`   ${contract} 无订单`);
+            } else {
+              logger.warn(`⚠️  取消 ${contract} 订单时出现警告: ${error.message}`);
+            }
           }
         }
       }
-      
-      logger.info("✅ Binance 所有条件单已取消");
     } else {
       logger.warn(`⚠️  未知交易所: ${exchangeName}，跳过取消条件单`);
     }
