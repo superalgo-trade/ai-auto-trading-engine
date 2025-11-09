@@ -113,6 +113,26 @@ CREATE TABLE IF NOT EXISTS price_orders (
     updated_at TEXT,
     triggered_at TEXT
 );
+
+CREATE TABLE IF NOT EXISTS position_close_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    symbol TEXT NOT NULL,
+    side TEXT NOT NULL,
+    close_reason TEXT NOT NULL,
+    trigger_price REAL,
+    close_price REAL NOT NULL,
+    entry_price REAL NOT NULL,
+    quantity REAL NOT NULL,
+    pnl REAL NOT NULL,
+    pnl_percent REAL NOT NULL,
+    trigger_order_id TEXT,
+    close_trade_id TEXT,
+    created_at TEXT NOT NULL,
+    processed INTEGER DEFAULT 0
+);
+
+CREATE INDEX IF NOT EXISTS idx_close_events_processed ON position_close_events(processed, created_at);
+CREATE INDEX IF NOT EXISTS idx_close_events_symbol ON position_close_events(symbol);
 `;
 
 /**
@@ -140,6 +160,7 @@ async function resetDatabase() {
     await client.execute("DROP TABLE IF EXISTS positions");
     await client.execute("DROP TABLE IF EXISTS account_history");
     await client.execute("DROP TABLE IF EXISTS price_orders");
+    await client.execute("DROP TABLE IF EXISTS position_close_events");
     logger.info("✅ 现有表已删除");
 
     // 重新创建表
