@@ -550,12 +550,21 @@ export async function updateTrailingStopLoss(
     const newStopLoss = stopLossResult.stopLossPrice;
     
     // 🎯 核心保护机制：只允许止损向有利方向移动
-    // 这是唯一的判断标准，不需要与入场价比较
+    // 这是移动止损的核心原则：锁定利润，而不是扩大风险
     if (side === "long") {
       // 多单：新止损必须 > 旧止损（向上移动）
       if (newStopLoss > currentStopLoss) {
         const improvement = ((newStopLoss - currentStopLoss) / currentStopLoss) * 100;
         const profitProtection = ((newStopLoss - entryPrice) / entryPrice) * 100;
+        
+        logger.info(`✅ ${symbol} 多单止损上移验证通过:`, {
+          entryPrice: formatStopLossPrice(symbolName, entryPrice),
+          currentPrice: formatStopLossPrice(symbolName, currentPrice),
+          oldStopLoss: formatStopLossPrice(symbolName, currentStopLoss),
+          newStopLoss: formatStopLossPrice(symbolName, newStopLoss),
+          improvement: `+${improvement.toFixed(2)}%`,
+          protection: `${profitProtection >= 0 ? '+' : ''}${profitProtection.toFixed(2)}%`
+        });
         
         return {
           shouldUpdate: true,
@@ -566,10 +575,16 @@ export async function updateTrailingStopLoss(
         };
       } else {
         // 拒绝下移
-        logger.debug(`${symbol} 多单拒绝止损下移: 新=${formatStopLossPrice(symbolName, newStopLoss)}, 旧=${formatStopLossPrice(symbolName, currentStopLoss)}`);
+        logger.warn(`⚠️ ${symbol} 多单拒绝止损下移（只能上移，不能下移）:`, {
+          entryPrice: formatStopLossPrice(symbolName, entryPrice),
+          currentPrice: formatStopLossPrice(symbolName, currentPrice),
+          currentStopLoss: formatStopLossPrice(symbolName, currentStopLoss),
+          attemptedStopLoss: formatStopLossPrice(symbolName, newStopLoss),
+          reason: '多单止损只能向上移动以锁定利润'
+        });
         return {
           shouldUpdate: false,
-          reason: `新止损(${formatStopLossPrice(symbolName, newStopLoss)})未高于当前止损(${formatStopLossPrice(symbolName, currentStopLoss)})，保持现有保护`,
+          reason: `多单止损不能下移（新止损 ${formatStopLossPrice(symbolName, newStopLoss)} <= 当前 ${formatStopLossPrice(symbolName, currentStopLoss)}）`,
         };
       }
     } else {
@@ -577,6 +592,15 @@ export async function updateTrailingStopLoss(
       if (newStopLoss < currentStopLoss) {
         const improvement = ((currentStopLoss - newStopLoss) / currentStopLoss) * 100;
         const profitProtection = ((entryPrice - newStopLoss) / entryPrice) * 100;
+        
+        logger.info(`✅ ${symbol} 空单止损下移验证通过:`, {
+          entryPrice: formatStopLossPrice(symbolName, entryPrice),
+          currentPrice: formatStopLossPrice(symbolName, currentPrice),
+          oldStopLoss: formatStopLossPrice(symbolName, currentStopLoss),
+          newStopLoss: formatStopLossPrice(symbolName, newStopLoss),
+          improvement: `+${improvement.toFixed(2)}%`,
+          protection: `${profitProtection >= 0 ? '+' : ''}${profitProtection.toFixed(2)}%`
+        });
         
         return {
           shouldUpdate: true,
@@ -587,10 +611,16 @@ export async function updateTrailingStopLoss(
         };
       } else {
         // 拒绝上移
-        logger.debug(`${symbol} 空单拒绝止损上移: 新=${formatStopLossPrice(symbolName, newStopLoss)}, 旧=${formatStopLossPrice(symbolName, currentStopLoss)}`);
+        logger.warn(`⚠️ ${symbol} 空单拒绝止损上移（只能下移，不能上移）:`, {
+          entryPrice: formatStopLossPrice(symbolName, entryPrice),
+          currentPrice: formatStopLossPrice(symbolName, currentPrice),
+          currentStopLoss: formatStopLossPrice(symbolName, currentStopLoss),
+          attemptedStopLoss: formatStopLossPrice(symbolName, newStopLoss),
+          reason: '空单止损只能向下移动以锁定利润'
+        });
         return {
           shouldUpdate: false,
-          reason: `新止损(${formatStopLossPrice(symbolName, newStopLoss)})未低于当前止损(${formatStopLossPrice(symbolName, currentStopLoss)})，保持现有保护`,
+          reason: `空单止损不能上移（新止损 ${formatStopLossPrice(symbolName, newStopLoss)} >= 当前 ${formatStopLossPrice(symbolName, currentStopLoss)}）`,
         };
       }
     }

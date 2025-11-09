@@ -226,27 +226,34 @@ export const updateTrailingStopTool = createTool({
   name: "updateTrailingStop",
   description: `更新移动止损 - 动态调整止损位，基于当前市场波动优化保护。
   
-核心原理（科学止损的精髓）：
-- ✅ 使用当前价格重新计算止损位（基于实时ATR和支撑/阻力）
-- ✅ 只允许止损向有利方向移动（这是唯一判断标准）
-- ✅ 多单：新止损 > 旧止损 → 允许更新（止损上移）
-- ✅ 空单：新止损 < 旧止损 → 允许更新（止损下移）
-- ❌ 拒绝任何降低保护的操作
+🔒 核心保护原则（严格执行）：
+- ✅ 多单：只能上移止损（新止损 > 旧止损），锁定利润
+- ✅ 空单：只能下移止损（新止损 < 旧止损），锁定利润
+- ❌ 绝不允许：多单下移止损 或 空单上移止损（会扩大风险）
 
-工作流程：
-1. 基于当前价格和市场波动重新计算科学止损位
+📐 科学计算方法：
+1. 基于当前价格（而非入场价格）重新计算止损位
+2. 考虑当前市场的 ATR 波动率
+3. 参考当前的支撑/阻力位
+4. 严格验证止损移动方向
+
+🎯 工作流程：
+1. 使用当前价格和当前 ATR 重新计算科学止损位
 2. 比较新止损与旧止损的关系
-3. 多单：如果新止损更高，允许更新
-4. 空单：如果新止损更低，允许更新
-5. 否则拒绝更新，保持现有保护
+3. 多单：如果新止损更高（向上移动），允许更新
+4. 空单：如果新止损更低（向下移动），允许更新
+5. 否则拒绝更新，保持现有保护水平
+
+⚠️ 重要提示：
+- 此工具只返回建议，不会实际修改交易所的止损单
+- 如需实际修改，请使用 updatePositionStopLoss 工具
+- updatePositionStopLoss 工具内部也有方向验证，双重保护
 
 适用场景：
-- 定期检查（如每15分钟）是否可以优化止损
+- 定期检查（如每15-30分钟）是否可以优化止损
 - 价格大幅移动后，重新评估合理止损位
 - 市场波动率变化，需要调整止损空间
-
-⚠️ 注意：此工具只返回建议，不会实际修改交易所的止损单。
-如需实际修改，请使用 updatePositionStopLoss 工具。`,
+- 持仓盈利达到一定阈值（如 +3%, +5%），考虑上移止损锁定利润`,
   parameters: z.object({
     symbol: z.enum(RISK_PARAMS.TRADING_SYMBOLS).describe("币种代码"),
     side: z.enum(["long", "short"]).describe("方向"),
@@ -324,20 +331,49 @@ export const updatePositionStopLossTool = createTool({
   name: "updatePositionStopLoss",
   description: `更新持仓的止损止盈订单 - 直接修改交易所服务器端的止损单。
 
+🔒 内置双重保护机制：
+1. 工具层验证：updateTrailingStop 检查并建议
+2. 执行层验证：updatePositionStopLoss 再次验证方向
+- ✅ 多单：新止损 > 旧止损 才允许执行
+- ✅ 空单：新止损 < 旧止损 才允许执行
+- ❌ 任何扩大风险的操作都会被拒绝
+
 ✨ 核心功能：
 - 取消旧的止损止盈订单
 - 创建新的止损止盈订单
 - 适用于 Gate.io 和 Binance 两个交易所
+- 自动保存到数据库
 
 使用场景：
 1. 移动止损：优化止损保护（多单上移/空单下移）
 2. 调整止盈：根据市场情况修改目标价位
 3. 重新设置：市场波动变化后重新计算
 
-建议工作流：
-1. 先调用 updateTrailingStop 检查是否需要更新
-2. 如果 shouldUpdate=true，再调用此工具实际更新
-3. 或者先调用 calculateStopLoss 获取新的止损位`,
+🔄 建议工作流（两步法，更安全）：
+步骤1: 先调用 updateTrailingStop 检查是否需要更新
+  const check = await updateTrailingStop({
+    symbol, side, entryPrice, currentPrice, currentStopLoss
+  });
+
+步骤2: 如果 shouldUpdate=true，再调用此工具实际更新
+  if (check.shouldUpdate) {
+    await updatePositionStopLoss({
+      symbol,
+      stopLoss: check.data.newStopLoss
+    });
+  }
+
+⚡ 快速方法（单步法，直接更新）：
+也可以直接调用此工具，内部会自动验证方向：
+  await updatePositionStopLoss({
+    symbol: "BTC_USDT",
+    stopLoss: 51500,  // 新止损价
+    takeProfit: 55000 // 新止盈价（可选）
+  });
+
+⚠️ 安全保证：
+无论使用哪种方法，系统都会严格验证止损移动方向，
+确保不会出现多单止损下移或空单止损上移的错误行为。`,
   parameters: z.object({
     symbol: z.enum(RISK_PARAMS.TRADING_SYMBOLS).describe("币种代码"),
     stopLoss: z.number().optional().describe("新的止损价格（可选，不传则取消止损）"),
@@ -361,6 +397,58 @@ export const updatePositionStopLossTool = createTool({
           success: false,
           message: `未找到 ${symbol} 的持仓，无法设置止损`,
         };
+      }
+
+      // 🔥 关键保护：如果提供了新止损价，必须验证方向
+      if (stopLoss !== undefined) {
+        // 从数据库读取当前止损价
+        const { createClient } = await import("@libsql/client");
+        const dbClient = createClient({
+          url: process.env.DATABASE_URL || "file:./.voltagent/trading.db",
+        });
+        
+        const result = await dbClient.execute({
+          sql: "SELECT stop_loss, side, entry_price FROM positions WHERE symbol = ?",
+          args: [symbol],
+        });
+        
+        if (result.rows.length > 0) {
+          const currentStopLoss = result.rows[0].stop_loss ? Number(result.rows[0].stop_loss) : null;
+          const side = result.rows[0].side as 'long' | 'short';
+          const entryPrice = Number(result.rows[0].entry_price);
+          
+          // 如果已存在止损，验证移动方向
+          if (currentStopLoss && currentStopLoss > 0) {
+            const isValidMove = side === 'long' 
+              ? stopLoss > currentStopLoss  // 多单：新止损必须更高
+              : stopLoss < currentStopLoss; // 空单：新止损必须更低
+            
+            if (!isValidMove) {
+              const symbolName = symbol.replace(/_USDT$/, '').replace(/USDT$/, '');
+              logger.error(`❌ 止损移动方向错误！${symbol} ${side}`, {
+                currentStopLoss: formatStopLossPrice(symbolName, currentStopLoss),
+                newStopLoss: formatStopLossPrice(symbolName, stopLoss),
+                direction: side === 'long' ? '多单只能上移' : '空单只能下移'
+              });
+              
+              return {
+                success: false,
+                message: `❌ 止损移动方向错误！${side === 'long' ? '多单' : '空单'}止损${side === 'long' ? '不能下移' : '不能上移'}（当前: ${formatStopLossPrice(symbolName, currentStopLoss)}, 新: ${formatStopLossPrice(symbolName, stopLoss)}）`,
+              };
+            }
+            
+            // 验证通过，记录日志
+            const improvement = Math.abs(stopLoss - currentStopLoss);
+            const improvementPercent = (improvement / currentStopLoss) * 100;
+            const symbolName = symbol.replace(/_USDT$/, '').replace(/USDT$/, '');
+            logger.info(`✅ 止损移动验证通过: ${symbol} ${side}`, {
+              old: formatStopLossPrice(symbolName, currentStopLoss),
+              new: formatStopLossPrice(symbolName, stopLoss),
+              improvement: `${improvementPercent.toFixed(2)}%`,
+              direction: side === 'long' ? '上移' : '下移'
+            });
+          }
+        }
       }
 
       // 🔧 如果没有传 takeProfit，从数据库读取原来的止盈价格，保持不变
