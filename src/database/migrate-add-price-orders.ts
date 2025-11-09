@@ -21,9 +21,9 @@
  */
 import "dotenv/config";
 import { createClient } from "@libsql/client";
-import { createPinoLogger } from "@voltagent/logger";
+import { createLogger } from "../utils/logger";
 
-const logger = createPinoLogger({
+const logger = createLogger({
   name: "db-migrate",
   level: "info",
 });

@@ -118,6 +118,23 @@ export interface PriceOrder {
   triggered_at?: string;
 }
 
+export interface PositionCloseEvent {
+  id: number;
+  symbol: string;
+  side: 'long' | 'short';
+  close_reason: 'stop_loss_triggered' | 'take_profit_triggered' | 'manual' | 'forced';
+  trigger_price?: number;
+  close_price: number;
+  entry_price: number;
+  quantity: number;
+  pnl: number;
+  pnl_percent: number;
+  trigger_order_id?: string;
+  close_trade_id?: string;
+  created_at: string;
+  processed: boolean;
+}
+
 /**
  * SQL 建表语句
  */
@@ -227,6 +244,24 @@ CREATE TABLE IF NOT EXISTS price_orders (
   triggered_at TEXT
 );
 
+-- 持仓平仓事件表（记录所有平仓事件，供AI决策使用）
+CREATE TABLE IF NOT EXISTS position_close_events (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  symbol TEXT NOT NULL,
+  side TEXT NOT NULL,
+  close_reason TEXT NOT NULL,
+  trigger_price REAL,
+  close_price REAL NOT NULL,
+  entry_price REAL NOT NULL,
+  quantity REAL NOT NULL,
+  pnl REAL NOT NULL,
+  pnl_percent REAL NOT NULL,
+  trigger_order_id TEXT,
+  close_trade_id TEXT,
+  created_at TEXT NOT NULL,
+  processed INTEGER DEFAULT 0
+);
+
 -- 创建索引
 CREATE INDEX IF NOT EXISTS idx_trades_timestamp ON trades(timestamp);
 CREATE INDEX IF NOT EXISTS idx_trades_symbol ON trades(symbol);
@@ -237,5 +272,7 @@ CREATE INDEX IF NOT EXISTS idx_decisions_timestamp ON agent_decisions(timestamp)
 CREATE INDEX IF NOT EXISTS idx_price_orders_symbol ON price_orders(symbol);
 CREATE INDEX IF NOT EXISTS idx_price_orders_status ON price_orders(status);
 CREATE INDEX IF NOT EXISTS idx_price_orders_order_id ON price_orders(order_id);
+CREATE INDEX IF NOT EXISTS idx_close_events_processed ON position_close_events(processed, created_at);
+CREATE INDEX IF NOT EXISTS idx_close_events_symbol ON position_close_events(symbol);
 `;
 

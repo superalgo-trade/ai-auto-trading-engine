@@ -22,9 +22,9 @@
 
 import "dotenv/config";
 import { getExchangeClient } from "../src/exchanges";
-import { createPinoLogger } from "@voltagent/logger";
+import { createLogger } from "../src/utils/logger";
 
-const logger = createPinoLogger({
+const logger = createLogger({
   name: "query-contracts",
   level: "info",
 });

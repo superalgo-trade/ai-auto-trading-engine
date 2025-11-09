@@ -20,7 +20,7 @@
  * Binance 交易所客户端实现 - 使用原生 fetch API
  */
 import crypto from 'crypto';
-import { createPinoLogger } from "@voltagent/logger";
+import { createLogger } from "../utils/logger";
 import { RISK_PARAMS } from "../config/riskParams";
 import type {
   IExchangeClient,
@@ -35,7 +35,7 @@ import type {
   TradeRecord,
 } from "./IExchangeClient";
 
-const logger = createPinoLogger({
+const logger = createLogger({
   name: "binance-exchange",
   level: "info",
 });
@@ -861,6 +861,8 @@ export class BinanceExchangeClient implements IExchangeClient {
         size: (trade.side === 'BUY' ? 1 : -1) * parseFloat(trade.qty),
         price: trade.price,
         role: trade.maker ? 'maker' : 'taker',
+        fee: trade.commission || '0',
+        timestamp: trade.time,
       }));
     } catch (error) {
       logger.error('获取成交记录失败:', error as Error);
@@ -1318,6 +1320,31 @@ export class BinanceExchangeClient implements IExchangeClient {
         takeProfitOrder: undefined
       };
     }
+  }
+
+  /**
+   * 获取条件单列表（Binance实现）
+   * @param contract 合约名称（可选）
+   * @param status 状态过滤（Binance不支持，忽略此参数）
+   */
+  async getPriceOrders(contract?: string, status?: string): Promise<any[]> {
+    const params: any = {};
+    if (contract) {
+      params.symbol = this.normalizeContract(contract);
+    }
+    
+    // Binance获取所有未成交订单（包含条件单）
+    const response = await this.privateRequest('/fapi/v1/openOrders', params, 'GET', 2);
+    
+    // 过滤出条件单（止损止盈订单）
+    const orders = (response || []).filter((order: any) => {
+      return order.type === 'STOP_MARKET' || 
+             order.type === 'STOP' || 
+             order.type === 'TAKE_PROFIT_MARKET' || 
+             order.type === 'TAKE_PROFIT';
+    });
+    
+    return orders;
   }
 
   /**

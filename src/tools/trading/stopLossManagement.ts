@@ -23,7 +23,7 @@
 
 import { createTool } from "@voltagent/core";
 import { z } from "zod";
-import { createPinoLogger } from "@voltagent/logger";
+import { createLogger } from "../../utils/logger";
 import { RISK_PARAMS } from "../../config/riskParams";
 import { formatStopLossPrice } from "../../utils/priceFormatter";
 import {
@@ -34,7 +34,7 @@ import {
   type StopLossConfig,
 } from "../../services/stopLossCalculator";
 
-const logger = createPinoLogger({
+const logger = createLogger({
   name: "stop-loss-management",
   level: "info",
 });

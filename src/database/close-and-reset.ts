@@ -22,11 +22,11 @@
  */
 import { createClient } from "@libsql/client";
 import { parsePositionSize } from "../utils";
-import { createPinoLogger } from "@voltagent/logger";
+import { createLogger } from "../utils/logger";
 import { getExchangeClient } from "../exchanges";
 import "dotenv/config";
 
-const logger = createPinoLogger({
+const logger = createLogger({
   name: "close-and-reset",
   level: "info",
 });

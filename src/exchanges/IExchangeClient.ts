@@ -130,10 +130,13 @@ export interface ContractInfo {
 export interface TradeRecord {
   id: string;
   contract: string;
-  size: string;
+  create_time?: number;  // 交易创建时间（毫秒时间戳）
+  order_id?: string;     // 订单ID
+  size: string | number; // 交易数量（可以是正负数表示买卖方向）
   price: string;
-  fee: string;
-  timestamp: number;
+  role?: string;         // maker or taker
+  fee?: string;
+  timestamp: number;     // 通用时间戳字段
   [key: string]: any;
 }
 
@@ -368,4 +371,12 @@ export interface IExchangeClient {
     stopLossOrder?: any;
     takeProfitOrder?: any;
   }>;
+
+  /**
+   * 获取条件单列表
+   * @param contract 合约名称（可选）
+   * @param status 状态过滤（可选）：'open'=活跃, 'finished'=已触发
+   * @returns 条件单列表
+   */
+  getPriceOrders(contract?: string, status?: string): Promise<any[]>;
 }

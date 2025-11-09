@@ -24,10 +24,10 @@ import { parsePositionSize } from "../utils";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { createClient } from "@libsql/client";
 import { getExchangeClient } from "../exchanges";
-import { createPinoLogger } from "@voltagent/logger";
+import { createLogger } from "../utils/logger";
 import { formatPrice, formatUSDT, formatPercent, getDecimalPlacesBySymbol } from "../utils/priceFormatter";
 
-const logger = createPinoLogger({
+const logger = createLogger({
   name: "api-routes",
   level: "info",
 });

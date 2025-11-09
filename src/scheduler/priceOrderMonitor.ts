@@ -1,0 +1,458 @@
+/**
+ * ai-auto-trading - AI 加密货币自动交易系统
+ * Copyright (C) 2025 losesky
+ * 
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ * 
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Affero General Public License for more details.
+ * 
+ * You should have received a copy of the GNU Affero General Public License
+ * along with this program. If not, see <https://www.gnu.org/licenses/>.
+ */
+
+/**
+ * 条件单监控服务
+ * 定期检测条件单触发情况，更新数据库状态，记录平仓交易
+ */
+import { createLogger } from "../utils/logger";
+import type { Client } from "@libsql/client";
+import type { IExchangeClient } from "../exchanges/IExchangeClient";
+
+/**
+ * 统一格式化成交数据，兼容币安和Gate.io
+ */
+function formatTradeRecord(trade: any): {
+  id: string;
+  price: string;
+  size: string;
+  fee: string;
+  timestamp: number;
+} {
+  return {
+    id: trade.id?.toString() || trade.orderId?.toString() || trade.tradeId?.toString() || '',
+    price: trade.price?.toString() || trade.avgPrice?.toString() || trade.deal_price?.toString() || '0',
+    size: trade.size?.toString() || trade.qty?.toString() || trade.amount?.toString() || '0',
+    fee: trade.fee?.toString() || trade.commission?.toString() || trade.fee_amount?.toString() || '0',
+    timestamp: Number(trade.timestamp || trade.time || trade.create_time || Date.now()),
+  };
+}
+
+const logger = createLogger({
+  name: "price-order-monitor",
+  level: "info",
+});
+
+interface DBPriceOrder {
+  id: number;
+  order_id: string;
+  symbol: string;
+  side: 'long' | 'short';
+  type: 'stop_loss' | 'take_profit';
+  trigger_price: string;
+  quantity: string;
+  created_at: string;
+}
+
+export class PriceOrderMonitor {
+  private checkInterval: NodeJS.Timeout | null = null;
+  private isRunning = false;
+  
+  constructor(
+    private dbClient: Client,
+    private exchangeClient: IExchangeClient
+  ) {}
+
+  /**
+   * 启动监控服务
+   */
+  async start() {
+    if (this.checkInterval) {
+      logger.warn('条件单监控服务已在运行');
+      return;
+    }
+
+    const intervalSeconds = parseInt(process.env.PRICE_ORDER_CHECK_INTERVAL || '30');
+    logger.info(`启动条件单监控服务，检测间隔: ${intervalSeconds}秒`);
+
+    // 延迟5分钟后再执行第一次检测，避免刚创建的条件单被误判
+    logger.info('等待5分钟后开始首次检测，避免误判刚创建的条件单...');
+    setTimeout(async () => {
+      await this.checkTriggeredOrders();
+    }, 300000);
+
+    // 定期执行
+    this.checkInterval = setInterval(async () => {
+      await this.checkTriggeredOrders();
+    }, intervalSeconds * 1000);
+  }
+
+  /**
+   * 停止监控服务
+   */
+  stop() {
+    if (this.checkInterval) {
+      clearInterval(this.checkInterval);
+      this.checkInterval = null;
+      logger.info('条件单监控服务已停止');
+    }
+  }
+
+  /**
+   * 检测已触发的条件单
+   */
+  private async checkTriggeredOrders() {
+    if (this.isRunning) {
+      logger.debug('上一次检测尚未完成，跳过本次检测');
+      return;
+    }
+
+    this.isRunning = true;
+    try {
+      // 1. 获取数据库中active的条件单
+      const activeOrders = await this.getActiveOrdersFromDB();
+      if (activeOrders.length === 0) {
+        logger.debug('没有活跃的条件单需要检测');
+        return;
+      }
+
+      logger.debug(`检测 ${activeOrders.length} 个活跃条件单`);
+
+      // 2. 获取交易所的条件单
+      const exchangeOrders = await this.exchangeClient.getPriceOrders();
+      
+      // 如果获取失败（返回空数组），不进行检测，避免误判
+      if (exchangeOrders.length === 0 && activeOrders.length > 0) {
+        logger.warn('⚠️ 无法从交易所获取条件单列表，跳过本次检测（可能是API错误）');
+        return;
+      }
+      
+      const exchangeOrderMap = new Map(exchangeOrders.map(o => [o.id?.toString(), o]));
+
+      // 3. 识别已触发的条件单
+      for (const dbOrder of activeOrders) {
+        try {
+          // 如果交易所没有这个订单了，可能被触发
+          if (!exchangeOrderMap.has(dbOrder.order_id)) {
+            await this.handleTriggeredOrder(dbOrder);
+          }
+        } catch (error: any) {
+          logger.error(`处理条件单 ${dbOrder.order_id} 失败:`, error);
+        }
+      }
+    } catch (error: any) {
+      logger.error('检测条件单触发失败:', error);
+    } finally {
+      this.isRunning = false;
+    }
+  }
+
+  /**
+   * 从数据库获取活跃的条件单
+   */
+  private async getActiveOrdersFromDB(): Promise<DBPriceOrder[]> {
+    const result = await this.dbClient.execute({
+      sql: `SELECT id, order_id, symbol, side, type, trigger_price, quantity, created_at
+            FROM price_orders
+            WHERE status = 'active'
+            ORDER BY symbol, created_at DESC`
+    });
+
+    return result.rows.map(row => ({
+      id: row.id as number,
+      order_id: row.order_id as string,
+      symbol: row.symbol as string,
+      side: row.side as 'long' | 'short',
+      type: row.type as 'stop_loss' | 'take_profit',
+      trigger_price: row.trigger_price as string,
+      quantity: row.quantity as string,
+      created_at: row.created_at as string
+    }));
+  }
+
+  /**
+   * 处理已触发的条件单
+   */
+  private async handleTriggeredOrder(order: DBPriceOrder) {
+    logger.info(`🔔 检测到条件单可能被触发: ${order.symbol} ${order.type} ${order.order_id}`);
+
+    // 1. 验证是否真的触发（查询交易记录）
+    const closeTrade = await this.findCloseTrade(order);
+    if (!closeTrade) {
+      // 没有真实平仓成交，仅取消条件单，不做触发处理
+      await this.updateOrderStatus(order.order_id, 'cancelled');
+      logger.info(`未找到真实平仓成交，仅取消条件单: ${order.symbol} ${order.type} ${order.order_id}`);
+      return;
+    }
+
+    logger.info(`✅ 确认条件单触发: ${order.symbol} ${order.type}, 平仓价格: ${closeTrade.price}`);
+
+    // 2. 更新触发的条件单状态
+    await this.updateOrderStatus(order.order_id, 'triggered');
+
+    // 3. 取消反向条件单
+    await this.cancelOppositeOrder(order);
+
+    // 4. 查询持仓信息（用于计算PnL）
+    const position = await this.getPositionInfo(order.symbol, order.side);
+    
+    // 5. 记录平仓交易
+    if (position) {
+      await this.recordCloseTrade(order, closeTrade, position);
+    } else {
+      logger.warn(`未找到 ${order.symbol} ${order.side} 的持仓信息，无法计算PnL`);
+    }
+
+    // 6. 删除持仓记录
+    await this.removePosition(order.symbol, order.side);
+
+    logger.info(`✅ ${order.symbol} ${order.type} 触发处理完成`);
+  }
+
+  /**
+   * 查找平仓交易记录
+   */
+  private async findCloseTrade(order: DBPriceOrder): Promise<any | null> {
+    try {
+      const contract = this.exchangeClient.normalizeContract(order.symbol);
+      const trades = await this.exchangeClient.getMyTrades(contract, 100);
+
+      const orderCreateTime = new Date(order.created_at).getTime();
+      const now = Date.now();
+      const timeWindowMs = 5 * 60 * 1000; // 5分钟时间窗口
+
+      // 查找符合条件的平仓交易
+      const closeTrade = trades.find(t => {
+        // 交易时间必须在条件单创建之后
+        const tradeTime = t.timestamp || t.create_time || 0;
+        if (tradeTime <= orderCreateTime) return false;
+
+        // 关键：只检查最近5分钟内的交易，排除历史旧记录
+        // 这样可以避免止损单重建时，误判历史平仓记录为触发
+        if (now - tradeTime > timeWindowMs) {
+          logger.debug(`跳过历史交易: 时间=${new Date(tradeTime).toISOString()}, 距今${Math.floor((now - tradeTime) / 60000)}分钟`);
+          return false;
+        }
+
+        // 检查交易方向（平仓方向与持仓相反）
+        const tradeSize = typeof t.size === 'number' ? t.size : parseFloat(t.size || '0');
+        const isCloseTrade = (order.side === 'long' && tradeSize < 0) || 
+                            (order.side === 'short' && tradeSize > 0);
+        
+        if (!isCloseTrade) return false;
+
+        // 验证价格是否触及触发价
+        const tradePrice = parseFloat(t.price);
+        const triggerPrice = parseFloat(order.trigger_price);
+
+        if (order.type === 'stop_loss') {
+          // 止损：多单向下突破，空单向上突破
+          return order.side === 'long' ? tradePrice <= triggerPrice : tradePrice >= triggerPrice;
+        } else {
+          // 止盈：多单向上突破，空单向下突破
+          return order.side === 'long' ? tradePrice >= triggerPrice : tradePrice <= triggerPrice;
+        }
+      });
+
+      if (closeTrade) {
+        const tradeTime = closeTrade.timestamp || closeTrade.create_time || 0;
+        logger.debug(`找到最近平仓交易: 时间=${new Date(tradeTime).toISOString()}, 价格=${closeTrade.price}`);
+      }
+
+      return closeTrade || null;
+    } catch (error: any) {
+      logger.error(`查找平仓交易失败:`, error);
+      return null;
+    }
+  }
+
+  /**
+   * 更新条件单状态
+   */
+  private async updateOrderStatus(orderId: string, status: 'triggered' | 'cancelled') {
+    const now = new Date().toISOString();
+    
+    await this.dbClient.execute({
+      sql: `UPDATE price_orders
+            SET status = ?,
+                updated_at = ?,
+                triggered_at = ?
+            WHERE order_id = ?`,
+      args: [status, now, status === 'triggered' ? now : null, orderId]
+    });
+
+    logger.debug(`更新条件单状态: ${orderId} -> ${status}`);
+  }
+
+  /**
+   * 取消反向条件单
+   */
+  private async cancelOppositeOrder(triggeredOrder: DBPriceOrder) {
+    try {
+      // 1. 查找反向条件单
+      const oppositeType = triggeredOrder.type === 'stop_loss' ? 'take_profit' : 'stop_loss';
+      
+      const result = await this.dbClient.execute({
+        sql: `SELECT * FROM price_orders 
+              WHERE symbol = ? 
+              AND side = ? 
+              AND type = ? 
+              AND status = 'active'
+              LIMIT 1`,
+        args: [triggeredOrder.symbol, triggeredOrder.side, oppositeType]
+      });
+
+      if (result.rows.length === 0) {
+        logger.debug(`未找到 ${triggeredOrder.symbol} 的反向条件单`);
+        return;
+      }
+
+      const opposite = result.rows[0];
+      const oppositeOrderId = opposite.order_id as string;
+
+      // 2. 取消交易所的条件单
+      try {
+        await this.exchangeClient.cancelOrder(oppositeOrderId);
+        logger.info(`✅ 已取消交易所条件单: ${oppositeOrderId}`);
+      } catch (error: any) {
+        logger.warn(`⚠️ 取消交易所条件单失败（可能已不存在）: ${error.message}`);
+      }
+
+      // 3. 更新数据库状态
+      await this.updateOrderStatus(oppositeOrderId, 'cancelled');
+      
+      logger.info(`✅ 已取消反向条件单: ${oppositeOrderId}`);
+    } catch (error: any) {
+      logger.error(`取消反向条件单失败:`, error);
+    }
+  }
+
+  /**
+   * 获取持仓信息
+   */
+  private async getPositionInfo(symbol: string, side: 'long' | 'short'): Promise<any | null> {
+    try {
+      const result = await this.dbClient.execute({
+        sql: `SELECT * FROM positions WHERE symbol = ? AND side = ? LIMIT 1`,
+        args: [symbol, side]
+      });
+
+      return result.rows.length > 0 ? result.rows[0] : null;
+    } catch (error: any) {
+      logger.error(`获取持仓信息失败:`, error);
+      return null;
+    }
+  }
+
+  /**
+   * 记录平仓交易
+   */
+  private async recordCloseTrade(
+    order: DBPriceOrder,
+    closeTrade: any,
+    position: any
+  ) {
+    try {
+      // 格式化成交数据，兼容所有交易所
+      const trade = formatTradeRecord(closeTrade);
+      // 计算盈亏
+      const entryPrice = parseFloat(position.entry_price as string);
+      const exitPrice = parseFloat(trade.price);
+      const quantity = Math.abs(parseFloat(trade.size));
+      const leverage = parseInt(position.leverage as string);
+      const contract = this.exchangeClient.normalizeContract(order.symbol);
+
+      const pnl = await this.exchangeClient.calculatePnl(
+        entryPrice,
+        exitPrice,
+        quantity,
+        order.side,
+        contract
+      );
+
+      // 计算盈亏百分比（考虑杠杆）
+      const priceChange = order.side === 'long' 
+        ? (exitPrice - entryPrice) / entryPrice 
+        : (entryPrice - exitPrice) / entryPrice;
+      const pnlPercent = priceChange * 100 * leverage;
+
+      // 插入交易记录
+      await this.dbClient.execute({
+        sql: `INSERT INTO trades 
+              (order_id, symbol, side, type, price, quantity, leverage, pnl, fee, timestamp, status)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        args: [
+          trade.id,
+          order.symbol,
+          order.side,
+          'close',
+          trade.price,
+          quantity,
+          leverage,
+          pnl,
+          trade.fee,
+          new Date(trade.timestamp).toISOString(),
+          'filled'
+        ]
+      });
+
+      // 记录平仓事件（供AI决策使用）
+      const closeReason = order.type === 'stop_loss' 
+        ? 'stop_loss_triggered' 
+        : 'take_profit_triggered';
+
+      await this.dbClient.execute({
+        sql: `INSERT INTO position_close_events 
+              (symbol, side, close_reason, trigger_price, close_price, entry_price, 
+               quantity, pnl, pnl_percent, trigger_order_id, close_trade_id, created_at, processed)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        args: [
+          order.symbol,
+          order.side,
+          closeReason,
+          parseFloat(order.trigger_price),
+          exitPrice,
+          entryPrice,
+          quantity,
+          pnl,
+          pnlPercent,
+          order.order_id,
+          trade.id,
+          new Date().toISOString(),
+          0 // 未处理
+        ]
+      });
+
+      logger.info(`✅ 已记录平仓交易: ${order.symbol} ${order.side}, PnL=${pnl.toFixed(2)} USDT (${pnlPercent.toFixed(2)}%)`);
+      logger.info(`📝 已记录平仓事件: ${order.symbol} ${closeReason}`);
+    } catch (error: any) {
+      logger.error(`记录平仓交易失败:`, error);
+      logger.error(`SQL插入参数:`, {
+        order,
+        closeTrade,
+        position
+      });
+    }
+  }
+
+  /**
+   * 删除持仓记录
+   */
+  private async removePosition(symbol: string, side: 'long' | 'short') {
+    try {
+      await this.dbClient.execute({
+        sql: `DELETE FROM positions WHERE symbol = ? AND side = ?`,
+        args: [symbol, side]
+      });
+
+      logger.debug(`已删除持仓记录: ${symbol} ${side}`);
+    } catch (error: any) {
+      logger.error(`删除持仓记录失败:`, error);
+    }
+  }
+}

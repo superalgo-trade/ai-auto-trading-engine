@@ -280,11 +280,20 @@ class TradingMonitor {
                 return;
             }
 
-            // 只显示活跃的条件单
-            const activeOrders = data.priceOrders.filter(order => order.status === 'active');
+            // 显示最近的条件单（包括已触发和已取消的，最多显示最近60条）
+            const recentOrders = data.priceOrders
+                .sort((a, b) => {
+                    // 按状态优先级排序：active > triggered > cancelled
+                    const statusOrder = { 'active': 1, 'triggered': 2, 'cancelled': 3 };
+                    if (statusOrder[a.status] !== statusOrder[b.status]) {
+                        return statusOrder[a.status] - statusOrder[b.status];
+                    }
+                    // 同状态按时间倒序
+                    return new Date(b.created_at) - new Date(a.created_at);
+                })
+                .slice(0, 60); // 只显示最近60条
             
-            // 如果没有活跃订单，显示空状态
-            if (activeOrders.length === 0) {
+            if (recentOrders.length === 0) {
                 if (priceOrdersBody) {
                     priceOrdersBody.innerHTML = '<tr><td colspan="8" class="empty-state">暂无条件单</td></tr>';
                 }
@@ -294,7 +303,7 @@ class TradingMonitor {
             // 按币种和方向分组，合并止损和止盈
             const groupedOrders = {};
             
-            activeOrders.forEach(order => {
+            recentOrders.forEach(order => {
                 const key = `${order.symbol}_${order.side}_${order.status}`;
                 
                 if (!groupedOrders[key]) {
@@ -825,17 +834,17 @@ class TradingMonitor {
             // 安全状态
             riskStatusEl.classList.add('safe');
             statusLabelEl.textContent = '风险状态：安全';
-            statusDescEl.textContent = '保证金比率低于50%为安全，超过180%需警惕';
-        } else if (marginRatio < 180) {
+            statusDescEl.textContent = '保证金比率低于50%为安全，超过80%需警惕';
+        } else if (marginRatio < 80) {
             // 警告状态
             riskStatusEl.classList.add('warning');
             statusLabelEl.textContent = '风险状态：警告';
-            statusDescEl.textContent = '保证金比率在50%-180%之间，建议关注仓位';
+            statusDescEl.textContent = '保证金比率在50%-80%之间，建议关注仓位';
         } else {
             // 危险状态
             riskStatusEl.classList.add('danger');
             statusLabelEl.textContent = '风险状态：危险';
-            statusDescEl.textContent = '保证金比率超过180%，强烈建议降低仓位！';
+            statusDescEl.textContent = '保证金比率超过80%，强烈建议降低仓位！';
         }
     }
 

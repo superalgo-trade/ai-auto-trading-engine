@@ -21,7 +21,7 @@
  */
 // @ts-ignore - gate-api 的类型定义可能不完整
 import * as GateApi from "gate-api";
-import { createPinoLogger } from "@voltagent/logger";
+import { createLogger } from "../utils/logger";
 import { RISK_PARAMS } from "../config/riskParams";
 import type {
   IExchangeClient,
@@ -36,7 +36,7 @@ import type {
   TradeRecord,
 } from "./IExchangeClient";
 
-const logger = createPinoLogger({
+const logger = createLogger({
   name: "gate-exchange",
   level: "info",
 });
@@ -477,25 +477,29 @@ export class GateExchangeClient implements IExchangeClient {
     }
   }
 
-  async getMyTrades(contract?: string, limit: number = 10): Promise<TradeRecord[]> {
+  async getMyTrades(contract?: string, limit: number = 100): Promise<TradeRecord[]> {
     try {
-      const options: any = { limit };
+      const opts: any = { limit };
       if (contract) {
-        options.contract = contract;
+        opts.contract = contract;
       }
       
-      const result = await this.futuresApi.getMyFuturesTrades(
+      // Gate.io API: getMyTrades - 获取我的历史成交记录
+      const result = await this.futuresApi.getMyTrades(
         this.settle,
-        options
+        opts
       );
       
       return result.body.map((trade: any) => ({
-        id: trade.id,
+        id: trade.id?.toString() || "",
         contract: trade.contract,
-        size: trade.size || "0",
+        create_time: trade.create_time ? Number.parseInt(trade.create_time) * 1000 : Date.now(),
+        order_id: trade.order_id?.toString() || "",
+        size: parseFloat(trade.size || "0"),
         price: trade.price || "0",
+        role: trade.role, // maker or taker
         fee: trade.fee || "0",
-        timestamp: Number.parseInt(trade.createTime) * 1000,
+        timestamp: trade.create_time ? Number.parseInt(trade.create_time) * 1000 : Date.now(),
         ...trade,
       }));
     } catch (error) {
@@ -797,30 +801,30 @@ export class GateExchangeClient implements IExchangeClient {
           
           // 验证止损价格的合理性 - 确保与当前价格有足够的安全距离
           // 检查止损价格是否在错误的方向(已经被触发)
-          const isInvalidStopLoss = (side === 'long' && stopLoss >= currentPrice) || 
-                                    (side === 'short' && stopLoss <= currentPrice);
+          // const isInvalidStopLoss = (side === 'long' && stopLoss >= currentPrice) || 
+          //                           (side === 'short' && stopLoss <= currentPrice);
           
-          if (isInvalidStopLoss) {
-            // 止损价格已经在错误的方向,需要调整
-            const minDistance = 0.005; // 最小0.5%的安全距离
-            const adjustedStopLoss = side === 'long' 
-              ? currentPrice * (1 - minDistance)  // 做多：向下调整至当前价的99.5%
-              : currentPrice * (1 + minDistance); // 做空：向上调整至当前价的100.5%
-            logger.warn(`⚠️ 止损价格 ${stopLoss} 已触发或太接近当前价 ${currentPrice}，调整为 ${adjustedStopLoss.toFixed(6)} (${side === 'long' ? '向下' : '向上'}${minDistance * 100}%)`);
-            stopLoss = adjustedStopLoss;
-          } else {
-            // 检查安全距离
-            const priceDeviation = Math.abs(stopLoss - currentPrice) / currentPrice;
-            const minSafeDistance = 0.003; // 最小0.3%的安全距离
+          // if (isInvalidStopLoss) {
+          //   // 止损价格已经在错误的方向,需要调整
+          //   const minDistance = 0.005; // 最小0.5%的安全距离
+          //   const adjustedStopLoss = side === 'long' 
+          //     ? currentPrice * (1 - minDistance)  // 做多：向下调整至当前价的99.5%
+          //     : currentPrice * (1 + minDistance); // 做空：向上调整至当前价的100.5%
+          //   logger.warn(`⚠️ 止损价格 ${stopLoss} 已触发或太接近当前价 ${currentPrice}，调整为 ${adjustedStopLoss.toFixed(6)} (${side === 'long' ? '向下' : '向上'}${minDistance * 100}%)`);
+          //   stopLoss = adjustedStopLoss;
+          // } else {
+          //   // 检查安全距离
+          //   const priceDeviation = Math.abs(stopLoss - currentPrice) / currentPrice;
+          //   const minSafeDistance = 0.003; // 最小0.3%的安全距离
             
-            if (priceDeviation < minSafeDistance) {
-              const adjustedStopLoss = side === 'long' 
-                ? currentPrice * (1 - minSafeDistance)
-                : currentPrice * (1 + minSafeDistance);
-              logger.warn(`⚠️ 止损价格 ${stopLoss} 距离当前价 ${currentPrice} 太近(${(priceDeviation * 100).toFixed(2)}%)，调整为 ${adjustedStopLoss.toFixed(6)}`);
-              stopLoss = adjustedStopLoss;
-            }
-          }
+          //   if (priceDeviation < minSafeDistance) {
+          //     const adjustedStopLoss = side === 'long' 
+          //       ? currentPrice * (1 - minSafeDistance)
+          //       : currentPrice * (1 + minSafeDistance);
+          //     logger.warn(`⚠️ 止损价格 ${stopLoss} 距离当前价 ${currentPrice} 太近(${(priceDeviation * 100).toFixed(2)}%)，调整为 ${adjustedStopLoss.toFixed(6)}`);
+          //     stopLoss = adjustedStopLoss;
+          //   }
+          // }
           
           // 格式化止损价格 - 使用合约的价格步长精度
           formattedStopLoss = await this.formatPriceByTickSize(contract, stopLoss);
@@ -854,21 +858,84 @@ export class GateExchangeClient implements IExchangeClient {
           const errorMsg = error.response?.body?.message || error.message;
           const errorDetail = error.response?.body || error.message;
           
-          // 记录详细的错误信息
-          logger.error(`❌ 创建止损单失败: ${errorMsg}`, { 
-            contract, 
-            posSize,
-            closeSize: closeSize,
-            stopLossPrice: formattedStopLoss || stopLoss,
-            currentPrice,
-            side,
-            errorDetail
-          });
-          
-          return {
-            success: false,
-            message: `创建止损单失败: ${errorMsg}`
-          };
+          // 如果是价格太接近的错误，尝试自动调整后重试
+          // logger.info(`❌ 尝试创建的止损单已低于安全距离，无需调整`, { 
+          //   contract, 
+          //   posSize,
+          //   closeSize: closeSize,
+          //   stopLossPrice: formattedStopLoss || stopLoss,
+          //   currentPrice,
+          //   side,
+          //   errorDetail
+          // });
+
+          if (errorMsg.includes('price') || errorMsg.includes('invalid') || error.status === 400) {
+            logger.warn(`⚠️ 创建止损单失败，尝试调整价格后重试...`);
+            
+            try {
+              // 更激进地调整价格：增加到1.5%的安全距离
+              const safeDistance = 0.015;
+              const adjustedStopLoss = side === 'long' 
+                ? currentPrice * (1 - safeDistance)
+                : currentPrice * (1 + safeDistance);
+              
+              formattedStopLoss = await this.formatPriceByTickSize(contract, adjustedStopLoss);
+              
+              const retryOrder = {
+                initial: {
+                  contract: contract,
+                  size: closeSize,
+                  price: '0',
+                  tif: 'ioc',
+                },
+                trigger: {
+                  strategy_type: 0,
+                  price_type: 0,
+                  price: formattedStopLoss,
+                  rule: side === 'long' ? 2 : 1,
+                }
+              };
+              
+              logger.info(`🔄 重试创建止损单: 触发价调整为 ${formattedStopLoss} (距当前价${(safeDistance * 100).toFixed(1)}%)`);
+              
+              const retryResult = await this.futuresApi.createPriceTriggeredOrder(
+                this.settle,
+                retryOrder as any
+              );
+              
+              stopLossOrderId = retryResult.body.id?.toString();
+              logger.info(`✅ ${contract} 止损单创建成功(重试): ID=${stopLossOrderId}, 触发价=${formattedStopLoss}`);
+            } catch (retryError: any) {
+              const retryErrorMsg = retryError.response?.body?.message || retryError.message;
+              logger.error(`❌ 创建止损单重试仍然失败: ${retryErrorMsg}`, { 
+                contract, 
+                adjustedPrice: formattedStopLoss,
+                currentPrice,
+                side
+              });
+              
+              return {
+                success: false,
+                message: `创建止损单失败(重试后): ${retryErrorMsg}`
+              };
+            }
+          } else {
+            // 记录详细的错误信息
+            logger.error(`❌ 创建止损单失败: ${errorMsg}`, { 
+              contract, 
+              posSize,
+              closeSize: closeSize,
+              stopLossPrice: formattedStopLoss || stopLoss,
+              currentPrice,
+              side,
+              errorDetail
+            });
+            
+            return {
+              success: false,
+              message: `创建止损单失败: ${errorMsg}`
+            };
+          }
         }
       }
 
@@ -1089,5 +1156,26 @@ export class GateExchangeClient implements IExchangeClient {
         takeProfitOrder: undefined
       };
     }
+  }
+
+  /**
+   * 获取条件单列表（Gate.io实现）
+   * @param contract 合约名称（可选）
+   * @param status 状态过滤：'open'=活跃, 'finished'=已触发
+   */
+  async getPriceOrders(contract?: string, status: string = 'open'): Promise<any[]> {
+    // Gate.io API: listPriceTriggeredOrders(settle, status, opts)
+    const opts: any = {};
+    if (contract) {
+      opts.contract = contract;
+    }
+    
+    const result = await this.futuresApi.listPriceTriggeredOrders(
+      this.settle,
+      status,  // status 作为第二个参数，不是在options中
+      opts
+    );
+    
+    return result.body || [];
   }
 }

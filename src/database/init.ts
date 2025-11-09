@@ -22,9 +22,9 @@
 import "dotenv/config";
 import { createClient } from "@libsql/client";
 import { CREATE_TABLES_SQL } from "./schema";
-import { createPinoLogger } from "@voltagent/logger";
+import { createLogger } from "../utils/logger";
 
-const logger = createPinoLogger({
+const logger = createLogger({
   name: "database-init",
   level: "info",
 });

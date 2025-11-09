@@ -21,7 +21,7 @@
  */
 import { Agent, Memory } from "@voltagent/core";
 import { LibSQLMemoryAdapter } from "@voltagent/libsql";
-import { createPinoLogger } from "@voltagent/logger";
+import { createLogger } from "../utils/logger";
 import { createOpenAI } from "@ai-sdk/openai";
 import * as tradingTools from "../tools/trading";
 import { formatChinaTime } from "../utils/timeUtils";
@@ -427,7 +427,7 @@ export function getStrategyParams(strategy: TradingStrategy): StrategyParams {
   return strategyConfigs[strategy];
 }
 
-const logger = createPinoLogger({
+const logger = createLogger({
   name: "trading-agent",
   level: "info",
 });
@@ -456,8 +456,9 @@ export function generateTradingPrompt(data: {
   positions: any[];
   tradeHistory?: any[];
   recentDecisions?: any[];
+  closeEvents?: any[];
 }): string {
-  const { minutesElapsed, iteration, intervalMinutes, marketData, accountInfo, positions, tradeHistory, recentDecisions } = data;
+  const { minutesElapsed, iteration, intervalMinutes, marketData, accountInfo, positions, tradeHistory, recentDecisions, closeEvents } = data;
   const currentTime = formatChinaTime();
   
   // 获取当前策略参数（用于每周期强调风控规则）
@@ -785,6 +786,55 @@ ${params.scientificStopLoss?.enabled ? `(1) 持仓管理（最优先 - 使用科
     }
     
     prompt += `\n参考上一次的决策结果，结合当前市场数据做出最佳判断。\n\n`;
+  }
+
+  // 近期平仓事件（24小时内）
+  if (closeEvents && closeEvents.length > 0) {
+    prompt += `\n📊 近期平仓事件（24小时内）\n`;
+    prompt += `以下是最近被止损/止盈触发的平仓记录，用于评估策略效果和优化未来决策：\n\n`;
+    
+    for (const event of closeEvents) {
+      const e = event as any;
+      const eventTime = formatChinaTime(e.created_at);
+      const reasonText = e.close_reason === 'stop_loss_triggered' ? '🛑 止损触发' : 
+                         e.close_reason === 'take_profit_triggered' ? '🎯 止盈触发' : 
+                         e.close_reason === 'manual' ? '📝 手动平仓' : '⚠️ 强制平仓';
+      
+      prompt += `${e.symbol} ${e.side === 'long' ? '多单' : '空单'} (${eventTime})\n`;
+      prompt += `  触发原因: ${reasonText}\n`;
+      prompt += `  开仓价: ${formatPrice(e.entry_price)}`;
+      
+      if (e.trigger_price) {
+        prompt += `, 触发价: ${formatPrice(e.trigger_price)}`;
+      }
+      
+      prompt += `, 成交价: ${formatPrice(e.close_price)}\n`;
+      prompt += `  盈亏: ${e.pnl >= 0 ? '+' : ''}${formatUSDT(e.pnl)} USDT (${e.pnl_percent >= 0 ? '+' : ''}${formatPercent(e.pnl_percent)}%)\n`;
+      
+      // 根据结果提供分析提示
+      if (e.close_reason === 'stop_loss_triggered' && e.pnl < 0) {
+        prompt += `  💡 分析：止损保护了本金，防止了更大亏损\n`;
+      } else if (e.close_reason === 'take_profit_triggered' && e.pnl > 0) {
+        prompt += `  💡 分析：成功止盈，锁定了利润\n`;
+      }
+      
+      prompt += `\n`;
+    }
+    
+    // 统计分析
+    const totalPnl = closeEvents.reduce((sum, e: any) => sum + (e.pnl || 0), 0);
+    const profitEvents = closeEvents.filter((e: any) => e.pnl > 0).length;
+    const lossEvents = closeEvents.filter((e: any) => e.pnl < 0).length;
+    
+    if (profitEvents > 0 || lossEvents > 0) {
+      const winRate = profitEvents / (profitEvents + lossEvents) * 100;
+      prompt += `近期平仓事件统计：\n`;
+      prompt += `  - 止损/止盈触发次数: ${closeEvents.length}次\n`;
+      prompt += `  - 盈利平仓: ${profitEvents}次, 亏损平仓: ${lossEvents}次\n`;
+      prompt += `  - 胜率: ${formatPercent(winRate, 1)}%\n`;
+      prompt += `  - 净盈亏: ${totalPnl >= 0 ? '+' : ''}${formatUSDT(totalPnl)} USDT\n`;
+      prompt += `\n💡 策略优化建议：分析这些平仓事件，思考如何改进入场时机和止损止盈设置。\n\n`;
+    }
   }
 
   return prompt;

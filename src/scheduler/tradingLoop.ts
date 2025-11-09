@@ -21,7 +21,7 @@
  */
 import cron from "node-cron";
 import { parsePositionSize } from "../utils";
-import { createPinoLogger } from "@voltagent/logger";
+import { createLogger } from "../utils/logger";
 import { createClient } from "@libsql/client";
 import { createTradingAgent, generateTradingPrompt, getAccountRiskConfig, getTradingStrategy, getStrategyParams } from "../agents/tradingAgent";
 import { getExchangeClient } from "../exchanges";
@@ -30,7 +30,7 @@ import { RISK_PARAMS } from "../config/riskParams";
 import { getQuantoMultiplier } from "../utils/contractUtils";
 import { formatPrice, formatUSDT, formatPercent, formatATR, formatStopLossPrice, getDecimalPlacesBySymbol } from "../utils/priceFormatter";
 
-const logger = createPinoLogger({
+const logger = createLogger({
   name: "trading-loop",
   level: "info",
 });
@@ -1399,7 +1399,7 @@ async function executeTradingDecision() {
       // 例如：5% 止损距离 * 10倍杠杆 * 1.5 = -75% 盈亏百分比
       const EXTREME_STOP_LOSS = -(MAX_STOP_LOSS_DISTANCE_PERCENT * leverage * 1.5);
       
-      logger.info(`${symbol} 极端止损检查: 当前盈亏=${formatPercent(pnlPercent)}% (含杠杆${leverage}x), 极端止损线=${formatPercent(EXTREME_STOP_LOSS)}% (${MAX_STOP_LOSS_DISTANCE_PERCENT}%价格距离*${leverage}x杠杆*1.5倍缓冲), 科学止损应该已在交易所服务器端执行`);
+      // logger.info(`${symbol} 极端止损检查: 当前盈亏=${formatPercent(pnlPercent)}% (含杠杆${leverage}x), 极端止损线=${formatPercent(EXTREME_STOP_LOSS)}% (${MAX_STOP_LOSS_DISTANCE_PERCENT}%价格距离*${leverage}x杠杆*1.5倍缓冲), 科学止损应该已在交易所服务器端执行`);
       
       if (pnlPercent <= EXTREME_STOP_LOSS) {
         shouldClose = true;
@@ -1630,7 +1630,31 @@ async function executeTradingDecision() {
       // 不影响主流程，继续执行
     }
     
-    // 9. 生成提示词并调用 Agent
+    // 9. 获取近期平仓事件（24小时内，未处理的）
+    let closeEvents: any[] = [];
+    try {
+      const result = await dbClient.execute({
+        sql: `SELECT * FROM position_close_events 
+              WHERE created_at > datetime('now', '-24 hours')
+              ORDER BY created_at DESC
+              LIMIT 10`
+      });
+      closeEvents = result.rows || [];
+      
+      // 标记所有查询到的事件为已处理
+      if (closeEvents.length > 0) {
+        await dbClient.execute({
+          sql: `UPDATE position_close_events 
+                SET processed = 1 
+                WHERE created_at > datetime('now', '-24 hours') AND processed = 0`
+        });
+      }
+    } catch (error) {
+      logger.warn("获取近期平仓事件失败:", error as any);
+      // 不影响主流程，继续执行
+    }
+    
+    // 10. 生成提示词并调用 Agent
     const prompt = generateTradingPrompt({
       minutesElapsed,
       iteration: iterationCount,
@@ -1640,6 +1664,7 @@ async function executeTradingDecision() {
       positions,
       tradeHistory,
       recentDecisions,
+      closeEvents,
     });
     
     // 输出完整提示词到日志
@@ -1903,14 +1928,8 @@ export async function initTradingSystem() {
   
   logger.info(`最终配置: 止损线=${accountRiskConfig.stopLossUsdt} USDT, 止盈线=${accountRiskConfig.takeProfitUsdt} USDT`);
   
-  // 3. 🔧 启动时清理孤儿止损止盈订单
-  try {
-    logger.info("检查并清理孤儿止损止盈订单...");
-    await syncPositionsFromGate();
-    logger.info("✅ 孤儿订单清理完成");
-  } catch (error: any) {
-    logger.error(`清理孤儿订单失败: ${error.message}`);
-  }
+  // 注意：孤儿订单清理已由条件单监控服务(priceOrderMonitor)处理
+  // 移除启动时的清理逻辑，避免误标记条件单为cancelled
 }
 
 /**

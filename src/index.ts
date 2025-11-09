@@ -17,36 +17,29 @@
  */
 
 import "dotenv/config";
-import { createPinoLogger } from "@voltagent/logger";
 import { serve } from "@hono/node-server";
 import { createApiRoutes } from "./api/routes";
 import { startTradingLoop, initTradingSystem } from "./scheduler/tradingLoop";
 import { startAccountRecorder } from "./scheduler/accountRecorder";
+import { PriceOrderMonitor } from "./scheduler/priceOrderMonitor";
 import { initDatabase } from "./database/init";
 import { RISK_PARAMS } from "./config/riskParams";
+import { createClient } from "@libsql/client";
+import { getExchangeClient } from "./exchanges";
+import { createLogger } from "./utils/logger";
 
 // 设置时区为中国时间（Asia/Shanghai，UTC+8）
 process.env.TZ = 'Asia/Shanghai';
 
-// 创建日志实例（使用中国时区）
-const logger = createPinoLogger({
-  name: "ai-btc",
-  level: "info",
-  formatters: {
-    timestamp: () => {
-      // 使用系统时区设置，已经是 Asia/Shanghai
-      const now = new Date();
-      // 正确格式化：使用 toLocaleString 获取中国时间，然后转换为 ISO 格式
-      const chinaOffset = 8 * 60; // 中国时区偏移（分钟）
-      const utc = now.getTime() + (now.getTimezoneOffset() * 60 * 1000);
-      const chinaTime = new Date(utc + (chinaOffset * 60 * 1000));
-      return `, "time": "${chinaTime.toISOString().replace('Z', '+08:00')}"`;
-    }
-  }
+// 创建日志实例
+const logger = createLogger({
+  name: "ai-trading",
+  level: "info"
 });
 
 // 全局服务器实例
 let server: any = null;
+let priceOrderMonitor: PriceOrderMonitor | null = null;
 
 /**
  * 主函数
@@ -66,14 +59,19 @@ async function main() {
   const apiRoutes = createApiRoutes();
   
   const port = Number.parseInt(process.env.PORT || "3141");
+  const host = process.env.HOST || "0.0.0.0";
   
   server = serve({
     fetch: apiRoutes.fetch,
     port,
+    hostname: host,
   });
   
-  logger.info(`Web 服务器已启动: http://localhost:${port}`);
-  logger.info(`监控界面: http://localhost:${port}/`);
+  logger.info(`Web 服务器已启动: http://${host}:${port}`);
+  logger.info(`监控界面: http://localhost:${port}/ (本地访问)`);
+  if (host === "0.0.0.0") {
+    logger.info(`局域网访问: http://<你的局域网IP>:${port}/`);
+  }
   
   // 4. 启动交易循环
   logger.info("启动交易循环...");
@@ -82,6 +80,20 @@ async function main() {
   // 5. 启动账户资产记录器
   logger.info("启动账户资产记录器...");
   startAccountRecorder();
+  
+  // 6. 启动条件单监控服务
+  const monitorEnabled = process.env.PRICE_ORDER_MONITOR_ENABLED !== 'false';
+  if (monitorEnabled) {
+    logger.info("启动条件单监控服务...");
+    const dbClient = createClient({
+      url: process.env.DATABASE_URL || "file:./.voltagent/trading.db",
+    });
+    const exchangeClient = getExchangeClient();
+    priceOrderMonitor = new PriceOrderMonitor(dbClient, exchangeClient);
+    await priceOrderMonitor.start();
+  } else {
+    logger.info("条件单监控服务已禁用（PRICE_ORDER_MONITOR_ENABLED=false）");
+  }
   
   logger.info("\n" + "=".repeat(80));
   logger.info("系统启动完成！");
@@ -112,6 +124,13 @@ async function gracefulShutdown(signal: string) {
   logger.info(`\n\n收到 ${signal} 信号，正在关闭系统...`);
   
   try {
+    // 停止条件单监控服务
+    if (priceOrderMonitor) {
+      logger.info("正在停止条件单监控服务...");
+      priceOrderMonitor.stop();
+      logger.info("条件单监控服务已停止");
+    }
+    
     // 关闭服务器
     if (server) {
       logger.info("正在关闭 Web 服务器...");

@@ -20,12 +20,12 @@
  * 交易所工厂
  * 根据配置创建相应的交易所客户端
  */
-import { createPinoLogger } from "@voltagent/logger";
+import { createLogger } from "../utils/logger";
 import type { IExchangeClient, ExchangeConfig } from "./IExchangeClient";
 import { GateExchangeClient } from "./GateExchangeClient";
 import { BinanceExchangeClient } from "./BinanceExchangeClient";
 
-const logger = createPinoLogger({
+const logger = createLogger({
   name: "exchange-factory",
   level: "info",
 });

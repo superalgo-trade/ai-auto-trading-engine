@@ -21,10 +21,10 @@
  */
 import "dotenv/config";
 import { createClient } from "@libsql/client";
-import { createPinoLogger } from "@voltagent/logger";
+import { createLogger } from "../utils/logger";
 import { getExchangeClient } from "../exchanges/index.js";
 
-const logger = createPinoLogger({
+const logger = createLogger({
   name: "sync-price-orders",
   level: "info",
 });

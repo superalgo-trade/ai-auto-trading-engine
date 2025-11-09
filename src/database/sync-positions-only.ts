@@ -23,10 +23,10 @@
 import "dotenv/config";
 import { parsePositionSize } from "../utils";
 import { createClient } from "@libsql/client";
-import { createPinoLogger } from "@voltagent/logger";
+import { createLogger } from "../utils/logger";
 import { getExchangeClient } from "../exchanges";
 
-const logger = createPinoLogger({
+const logger = createLogger({
   name: "sync-positions",
   level: "info",
 });

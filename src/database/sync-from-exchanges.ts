@@ -24,12 +24,12 @@ import "dotenv/config";
 import { parsePositionSize } from "../utils";
 import { createClient } from "@libsql/client";
 import { CREATE_TABLES_SQL } from "./schema";
-import { createPinoLogger } from "@voltagent/logger";
+import { createLogger } from "../utils/logger";
 import { getExchangeClient } from "../exchanges";
 import * as fs from "node:fs";
 import * as path from "node:path";
 
-const logger = createPinoLogger({
+const logger = createLogger({
   name: "sync-from-exchange",
   level: "info",
 });

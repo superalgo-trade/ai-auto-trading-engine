@@ -24,13 +24,13 @@ import { parsePositionSize } from "../../utils";
 import { z } from "zod";
 import { getExchangeClient } from "../../exchanges";
 import { createClient } from "@libsql/client";
-import { createPinoLogger } from "@voltagent/logger";
+import { createLogger } from "../../utils/logger";
 import { getChinaTimeISO } from "../../utils/timeUtils";
 import { RISK_PARAMS } from "../../config/riskParams";
 import { getQuantoMultiplier } from "../../utils/contractUtils";
 import { formatStopLossPrice } from "../../utils/priceFormatter";
 
-const logger = createPinoLogger({
+const logger = createLogger({
   name: "trade-execution",
   level: "info",
 });
