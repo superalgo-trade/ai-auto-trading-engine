@@ -1036,6 +1036,8 @@ export class BinanceExchangeClient implements IExchangeClient {
     success: boolean;
     stopLossOrderId?: string;
     takeProfitOrderId?: string;
+    actualStopLoss?: number;
+    actualTakeProfit?: number;
     message?: string;
   }> {
     try {
@@ -1064,6 +1066,8 @@ export class BinanceExchangeClient implements IExchangeClient {
 
       let stopLossOrderId: string | undefined;
       let takeProfitOrderId: string | undefined;
+      let actualStopLoss: number | undefined = stopLoss;
+      let actualTakeProfit: number | undefined = takeProfit;
 
       // 创建止损订单（STOP_MARKET）
       if (stopLoss !== undefined && stopLoss > 0) {
@@ -1197,6 +1201,8 @@ export class BinanceExchangeClient implements IExchangeClient {
         success: true,
         stopLossOrderId,
         takeProfitOrderId,
+        actualStopLoss: stopLoss, // 返回实际使用的止损价格
+        actualTakeProfit: takeProfit, // 返回实际使用的止盈价格
         message: `止损止盈已设置${stopLoss ? ` 止损=${stopLoss}` : ''}${takeProfit ? ` 止盈=${takeProfit}` : ''}`
       };
 

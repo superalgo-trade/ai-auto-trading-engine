@@ -572,9 +572,22 @@ IMPORTANT:
           if (setStopLossResult.success) {
             slOrderId = setStopLossResult.stopLossOrderId;
             tpOrderId = setStopLossResult.takeProfitOrderId;
+            
+            // 使用交易所返回的实际价格（可能被调整过）
+            const actualStopLoss = setStopLossResult.actualStopLoss || calculatedStopLoss;
+            const actualTakeProfit = setStopLossResult.actualTakeProfit || calculatedTakeProfit;
+            
+            // 如果价格被调整，记录日志
+            if (actualStopLoss !== calculatedStopLoss) {
+              logger.info(`⚠️  止损价格已由交易所调整: ${formatStopLossPrice(symbolName, calculatedStopLoss)} → ${formatStopLossPrice(symbolName, actualStopLoss)}`);
+            }
+            if (actualTakeProfit !== calculatedTakeProfit) {
+              logger.info(`⚠️  止盈价格已由交易所调整: ${formatStopLossPrice(symbolName, calculatedTakeProfit)} → ${formatStopLossPrice(symbolName, actualTakeProfit)}`);
+            }
+            
             logger.info(`✅ 止损止盈订单已设置 (止损单ID: ${slOrderId}, 止盈单ID: ${tpOrderId})`);
             
-            // 保存条件单到数据库
+            // 保存条件单到数据库（使用实际价格）
             try {
               const now = new Date().toISOString();
               if (slOrderId) {
@@ -582,7 +595,7 @@ IMPORTANT:
                   sql: `INSERT INTO price_orders 
                         (order_id, symbol, side, type, trigger_price, order_price, quantity, status, created_at)
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                  args: [slOrderId, symbol, side, 'stop_loss', calculatedStopLoss, 0, finalQuantity, 'active', now]
+                  args: [slOrderId, symbol, side, 'stop_loss', actualStopLoss, 0, finalQuantity, 'active', now]
                 });
               }
               if (tpOrderId) {
@@ -590,7 +603,7 @@ IMPORTANT:
                   sql: `INSERT INTO price_orders 
                         (order_id, symbol, side, type, trigger_price, order_price, quantity, status, created_at)
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                  args: [tpOrderId, symbol, side, 'take_profit', calculatedTakeProfit, 0, finalQuantity, 'active', now]
+                  args: [tpOrderId, symbol, side, 'take_profit', actualTakeProfit, 0, finalQuantity, 'active', now]
                 });
               }
             } catch (dbError: any) {

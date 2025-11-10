@@ -347,6 +347,8 @@ export interface IExchangeClient {
     success: boolean;
     stopLossOrderId?: string;
     takeProfitOrderId?: string;
+    actualStopLoss?: number; // 实际使用的止损价格（可能被交易所调整）
+    actualTakeProfit?: number; // 实际使用的止盈价格（可能被交易所调整）
     message?: string;
   }>;
 
