@@ -1545,7 +1545,7 @@ async function executeTradingDecision() {
                 pos.leverage || 1,
                 pnl, // 已验证和修正的盈亏
                 totalFee,
-                getChinaTimeISO(),
+                new Date().toISOString(), // 统一使用UTC ISO格式
                 orderFilled ? "filled" : "pending",
               ],
             });

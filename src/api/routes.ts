@@ -214,11 +214,11 @@ export function createApiRoutes() {
       const symbol = c.req.query("symbol"); // 可选，筛选特定币种
       
       // 从数据库获取历史交易记录
-      let sql = `SELECT * FROM trades ORDER BY timestamp DESC LIMIT ?`;
+      let sql = `SELECT * FROM trades ORDER BY id DESC LIMIT ?`;
       let args: any[] = [limit];
       
       if (symbol) {
-        sql = `SELECT * FROM trades WHERE symbol = ? ORDER BY timestamp DESC LIMIT ?`;
+        sql = `SELECT * FROM trades WHERE symbol = ? ORDER BY id DESC LIMIT ?`;
         args = [symbol, limit];
       }
       
@@ -233,6 +233,17 @@ export function createApiRoutes() {
       
       // 转换数据库格式到前端需要的格式
       const trades = result.rows.map((row: any) => {
+        // 标准化时间戳格式：统一转换为UTC ISO格式
+        let normalizedTimestamp = row.timestamp;
+        try {
+          const date = new Date(row.timestamp as string);
+          if (!isNaN(date.getTime())) {
+            normalizedTimestamp = date.toISOString();
+          }
+        } catch (e) {
+          logger.warn(`时间戳格式异常: ${row.timestamp}`);
+        }
+        
         return {
           id: row.id,
           orderId: row.order_id,
@@ -244,7 +255,7 @@ export function createApiRoutes() {
           leverage: Number.parseInt(row.leverage || "1"),
           pnl: row.pnl ? Number.parseFloat(row.pnl) : null,
           fee: Number.parseFloat(row.fee || "0"),
-          timestamp: row.timestamp,
+          timestamp: normalizedTimestamp,
           status: row.status,
         };
       });

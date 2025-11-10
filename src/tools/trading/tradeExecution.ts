@@ -508,7 +508,7 @@ IMPORTANT:
           finalQuantity,   // 使用实际成交数量
           leverage,
           fee,            // 手续费
-          getChinaTimeISO(),
+          new Date().toISOString(), // 统一使用UTC ISO格式
           dbStatus,
         ],
       });
@@ -722,7 +722,7 @@ IMPORTANT:
             tpOrderId || null,
             slOrderId || null,
             order.id?.toString() || "",
-            getChinaTimeISO(),
+            new Date().toISOString(), // 统一使用UTC ISO格式
           ],
         });
       }
@@ -1135,14 +1135,14 @@ export const closePositionTool = createTool({
           leverage,
           pnl,              // 净盈亏（已扣除手续费）
           totalFee,         // 总手续费（开仓+平仓）
-          getChinaTimeISO(),
+          new Date().toISOString(), // 统一使用UTC ISO格式
           dbStatus,
         ],
       });
       
       // 📝 记录平仓事件到 position_close_events 表
       // 这样可以追踪每次平仓的原因和详情
-      const closeEventTime = getChinaTimeISO();
+      const closeEventTime = new Date().toISOString(); // 统一使用UTC ISO格式
       
       // 计算盈亏百分比（含杠杆）
       const pnlPercent = entryPrice > 0 
