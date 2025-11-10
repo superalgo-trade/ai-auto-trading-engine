@@ -23,6 +23,7 @@
 
 import { createTool } from "@voltagent/core";
 import { z } from "zod";
+import { createClient } from "@libsql/client";
 import { createLogger } from "../../utils/logger";
 import { RISK_PARAMS } from "../../config/riskParams";
 import { formatStopLossPrice } from "../../utils/priceFormatter";
@@ -37,6 +38,10 @@ import {
 const logger = createLogger({
   name: "stop-loss-management",
   level: "info",
+});
+
+const dbClient = createClient({
+  url: process.env.DATABASE_URL || "file:./.voltagent/trading.db",
 });
 
 /**
@@ -268,6 +273,30 @@ export const updateTrailingStopTool = createTool({
           success: false,
           message: "移动止损未启用，请在环境变量中设置 ENABLE_TRAILING_STOP_LOSS=true",
         };
+      }
+
+      // 🔒 冷却期检查：防止在分批止盈后立即移动止损
+      // 检查该持仓是否在最近5分钟内执行过分批止盈
+      const recentPartialTakeProfit = await dbClient.execute({
+        sql: `SELECT timestamp FROM partial_take_profit_history 
+              WHERE symbol = ? AND status = 'completed' 
+              ORDER BY timestamp DESC LIMIT 1`,
+        args: [symbol],
+      });
+
+      if (recentPartialTakeProfit.rows.length > 0) {
+        const lastExecutionTime = new Date(recentPartialTakeProfit.rows[0].timestamp as string);
+        const now = new Date();
+        const minutesSinceLastExecution = (now.getTime() - lastExecutionTime.getTime()) / (1000 * 60);
+        
+        // 如果在最近5分钟内执行过分批止盈,拒绝移动止损
+        if (minutesSinceLastExecution < 5) {
+          logger.info(`${symbol} 在 ${minutesSinceLastExecution.toFixed(1)} 分钟前刚执行过分批止盈，冷却期内拒绝移动止损`);
+          return {
+            success: false,
+            message: `${symbol} 在 ${minutesSinceLastExecution.toFixed(1)} 分钟前刚执行过分批止盈，本周期无需再次调整止损（冷却期：5分钟）`,
+          };
+        }
       }
 
       const config: StopLossConfig = {

@@ -100,12 +100,45 @@ export interface StrategyParams {
     level2: { trigger: number; stopAt: number };
     level3: { trigger: number; stopAt: number };
   };
+  
+  // ===== 分批止盈配置（基于风险倍数 R-Multiple）=====
   partialTakeProfit: {
-    // 分批止盈配置（根据策略杠杆调整）
+    enabled: boolean;  // 是否启用分批止盈
+    // 第一阶段：1R (盈利 = 1倍风险)
+    stage1: {
+      rMultiple: number;        // 风险倍数（如 1）
+      closePercent: number;     // 平仓百分比（如 33.33 = 1/3）
+      moveStopTo: 'entry' | 'custom';  // 移动止损至：entry=成本价, custom=自定义
+      description: string;
+    };
+    // 第二阶段：2R (盈利 = 2倍风险)
+    stage2: {
+      rMultiple: number;        // 风险倍数（如 2）
+      closePercent: number;     // 平仓百分比（如 33.33 = 1/3）
+      moveStopTo: 'previous' | 'custom';  // 移动止损至：previous=上一阶段R位置
+      description: string;
+    };
+    // 第三阶段：3R+ (盈利 ≥ 3倍风险)
+    stage3: {
+      rMultiple: number;        // 风险倍数（如 3）
+      closePercent: number;     // 平仓百分比（如 0 = 不平仓）
+      useTrailingStop: boolean; // 使用移动止损
+      description: string;
+    };
+    // 极限止盈（兜底保护）
+    extremeTakeProfit?: {
+      rMultiple: number;        // 风险倍数（如 5）
+      description: string;
+    };
+  };
+  
+  // ===== 传统分批止盈配置（已弃用，仅供参考）=====
+  partialTakeProfitLegacy?: {
     stage1: { trigger: number; closePercent: number }; // 第一阶段：平仓50%
     stage2: { trigger: number; closePercent: number }; // 第二阶段：平仓剩余50%
     stage3: { trigger: number; closePercent: number }; // 第三阶段：全部清仓
   };
+  
   peakDrawdownProtection: number; // 峰值回撤保护阈值（百分比）
   volatilityAdjustment: {
     // 波动率调整系数
@@ -187,10 +220,36 @@ export function getStrategyParams(strategy: TradingStrategy): StrategyParams {
         level3: { trigger: 15, stopAt: 8 },    // 科学：盈利 15% 检查 | 固定：移至 +8%
       },
       partialTakeProfit: {
-        // 超短线策略：快速分批止盈
-        stage1: { trigger: 15, closePercent: 50 },  // +15% 平仓50%
-        stage2: { trigger: 25, closePercent: 50 },  // +25% 平仓剩余50%
-        stage3: { trigger: 35, closePercent: 100 }, // +35% 全部清仓
+        // 超短线策略：基于R倍数的分批止盈
+        enabled: true,
+        stage1: {
+          rMultiple: 1,
+          closePercent: 33.33,
+          moveStopTo: 'entry',
+          description: '1R平仓1/3，止损移至成本价（保本交易）',
+        },
+        stage2: {
+          rMultiple: 2,
+          closePercent: 33.33,
+          moveStopTo: 'previous',
+          description: '2R平仓1/3，止损移至1R（锁定1倍风险利润）',
+        },
+        stage3: {
+          rMultiple: 3,
+          closePercent: 0,
+          useTrailingStop: true,
+          description: '3R+启用移动止损，让利润奔跑',
+        },
+        extremeTakeProfit: {
+          rMultiple: 5,
+          description: '5R极限止盈兜底',
+        },
+      },
+      partialTakeProfitLegacy: {
+        // 传统配置（已弃用，仅供参考）
+        stage1: { trigger: 15, closePercent: 50 },
+        stage2: { trigger: 25, closePercent: 50 },
+        stage3: { trigger: 35, closePercent: 100 },
       },
       peakDrawdownProtection: 20, // 超短线：20%峰值回撤保护（快速保护利润）
       volatilityAdjustment: {
@@ -242,10 +301,36 @@ export function getStrategyParams(strategy: TradingStrategy): StrategyParams {
         level3: { trigger: 50, stopAt: 35 },  // 科学：盈利 50% 检查 | 固定：移至 +35%
       },
       partialTakeProfit: {
-        // 波段策略：更晚分批止盈，追求趋势利润最大化
-        stage1: { trigger: 50, closePercent: 40 },  // +50% 平仓40%（保留60%追求更大利润）
-        stage2: { trigger: 80, closePercent: 60 },  // +80% 平仓剩余60%（累计平仓100%）
-        stage3: { trigger: 120, closePercent: 100 },// +120% 全部清仓
+        // 波段策略：基于R倍数的分批止盈
+        enabled: true,
+        stage1: {
+          rMultiple: 1.5,
+          closePercent: 30,
+          moveStopTo: 'entry',
+          description: '1.5R平仓30%，止损移至成本价（保本）',
+        },
+        stage2: {
+          rMultiple: 3,
+          closePercent: 35,
+          moveStopTo: 'previous',
+          description: '3R平仓35%，止损移至1.5R',
+        },
+        stage3: {
+          rMultiple: 4.5,
+          closePercent: 0,
+          useTrailingStop: true,
+          description: '4.5R+启用移动止损，博取大趋势',
+        },
+        extremeTakeProfit: {
+          rMultiple: 8,
+          description: '8R极限止盈兜底（波段策略更高）',
+        },
+      },
+      partialTakeProfitLegacy: {
+        // 传统配置（已弃用）
+        stage1: { trigger: 50, closePercent: 40 },
+        stage2: { trigger: 80, closePercent: 60 },
+        stage3: { trigger: 120, closePercent: 100 },
       },
       peakDrawdownProtection: 35, // 波段策略：35%峰值回撤保护（给趋势更多空间）
       volatilityAdjustment: {
@@ -297,10 +382,36 @@ export function getStrategyParams(strategy: TradingStrategy): StrategyParams {
         level3: { trigger: 20, stopAt: 12 }, // 基准：盈利达到 +20% 时，止损线移至 +12%
       },
       partialTakeProfit: {
-        // 保守策略：较早分批止盈，提前锁定利润
-        stage1: { trigger: 20, closePercent: 50 },  // +20% 平仓50%
-        stage2: { trigger: 30, closePercent: 50 },  // +30% 平仓剩余50%
-        stage3: { trigger: 40, closePercent: 100 }, // +40% 全部清仓
+        // 保守策略：基于R倍数的分批止盈，较早锁定利润
+        enabled: true,
+        stage1: {
+          rMultiple: 1,
+          closePercent: 40,
+          moveStopTo: 'entry',
+          description: '1R平仓40%，止损移至成本价（保守策略：提早锁定更多）',
+        },
+        stage2: {
+          rMultiple: 1.5,
+          closePercent: 40,
+          moveStopTo: 'previous',
+          description: '1.5R平仓40%，止损移至1R（累计平仓80%）',
+        },
+        stage3: {
+          rMultiple: 2.5,
+          closePercent: 0,
+          useTrailingStop: true,
+          description: '2.5R+启用移动止损（保留20%博取趋势）',
+        },
+        extremeTakeProfit: {
+          rMultiple: 4,
+          description: '4R极限止盈兜底（保守策略：更早兜底）',
+        },
+      },
+      partialTakeProfitLegacy: {
+        // 传统配置（已弃用）
+        stage1: { trigger: 20, closePercent: 50 },
+        stage2: { trigger: 30, closePercent: 50 },
+        stage3: { trigger: 40, closePercent: 100 },
       },
       peakDrawdownProtection: 25, // 保守策略：25%峰值回撤保护（更早保护利润）
       volatilityAdjustment: {
@@ -352,10 +463,36 @@ export function getStrategyParams(strategy: TradingStrategy): StrategyParams {
         level3: { trigger: 20, stopAt: 15 }, // 基准：盈利达到 +20% 时，止损线移至 +15%
       },
       partialTakeProfit: {
-        // 平衡策略：标准分批止盈
-        stage1: { trigger: 30, closePercent: 20 },  // +30% 平仓20%
-        stage2: { trigger: 40, closePercent: 50 },  // +40% 平仓剩余30%
-        stage3: { trigger: 50, closePercent: 100 }, // +50% 全部清仓
+        // 平衡策略：基于R倍数的标准分批止盈
+        enabled: true,
+        stage1: {
+          rMultiple: 1,
+          closePercent: 33.33,
+          moveStopTo: 'entry',
+          description: '1R平仓1/3，止损移至成本价（标准保本）',
+        },
+        stage2: {
+          rMultiple: 2,
+          closePercent: 33.33,
+          moveStopTo: 'previous',
+          description: '2R平仓1/3，止损移至1R（标准锁利）',
+        },
+        stage3: {
+          rMultiple: 3,
+          closePercent: 0,
+          useTrailingStop: true,
+          description: '3R+启用移动止损（标准趋势追踪）',
+        },
+        extremeTakeProfit: {
+          rMultiple: 5,
+          description: '5R极限止盈兜底',
+        },
+      },
+      partialTakeProfitLegacy: {
+        // 传统配置（已弃用）
+        stage1: { trigger: 30, closePercent: 20 },
+        stage2: { trigger: 40, closePercent: 50 },
+        stage3: { trigger: 50, closePercent: 100 },
       },
       peakDrawdownProtection: 30, // 平衡策略：30%峰值回撤保护（标准平衡点）
       volatilityAdjustment: {
@@ -407,10 +544,36 @@ export function getStrategyParams(strategy: TradingStrategy): StrategyParams {
         level3: { trigger: 30, stopAt: 18 }, // 基准：盈利达到 +30% 时，止损线移至 +18%
       },
       partialTakeProfit: {
-        // 激进策略：更晚分批止盈，追求更高利润
-        stage1: { trigger: 40, closePercent: 50 },  // +40% 平仓50%
-        stage2: { trigger: 50, closePercent: 50 },  // +50% 平仓剩余50%
-        stage3: { trigger: 60, closePercent: 100 }, // +60% 全部清仓
+        // 激进策略：基于R倍数，更晚分批，追求更高利润
+        enabled: true,
+        stage1: {
+          rMultiple: 1.5,
+          closePercent: 25,
+          moveStopTo: 'entry',
+          description: '1.5R平仓25%，止损移至成本价（激进：锁定更少，追求更多）',
+        },
+        stage2: {
+          rMultiple: 3,
+          closePercent: 25,
+          moveStopTo: 'previous',
+          description: '3R平仓25%，止损移至1.5R（累计平仓50%）',
+        },
+        stage3: {
+          rMultiple: 4,
+          closePercent: 0,
+          useTrailingStop: true,
+          description: '4R+启用移动止损（保留50%博取大趋势）',
+        },
+        extremeTakeProfit: {
+          rMultiple: 8,
+          description: '8R极限止盈兜底（激进策略：更高目标）',
+        },
+      },
+      partialTakeProfitLegacy: {
+        // 传统配置（已弃用）
+        stage1: { trigger: 40, closePercent: 50 },
+        stage2: { trigger: 50, closePercent: 50 },
+        stage3: { trigger: 60, closePercent: 100 },
       },
       peakDrawdownProtection: 35, // 激进策略：35%峰值回撤保护（给利润更多奔跑空间）
       volatilityAdjustment: {
@@ -482,54 +645,191 @@ export function generateTradingPrompt(data: {
 └─────────────────────────────────────────┘
 
 【AI战术决策 - 强烈建议遵守】
-┌─────────────────────────────────────────────────────┐
-${params.scientificStopLoss?.enabled ? `│ 科学止损：                                          │
-│   • 基于 ATR${params.scientificStopLoss.atrMultiplier}x + 支撑/阻力位                        │
-│   • 止损距离: ${params.scientificStopLoss.minDistance}%-${params.scientificStopLoss.maxDistance}% (价格变化，不含杠杆)          │
-│   • 实际亏损 = 止损距离 × 杠杆倍数                  │
-│     例：2%止损距离 × 10x杠杆 = -20%实际亏损         │
-│   • 开仓前检查: checkOpenPosition()                 │
-│   • 计算止损: calculateStopLoss()                   │
-│   • 动态调整: updateTrailingStop()                  │` : `│ 策略止损：                  │
+┌────────────────────────────────────────────────────────────────┐
+${params.scientificStopLoss?.enabled ? `│ 科学止损（交易所服务器端自动执行）：                           │
+│   • 开仓时已自动设置止损条件单，24/7监控                       │
+│   • AI职责：✅ 监控状态，✅ 必要时优化（updateTrailingStop）   │
+│   • AI职责：❌ 不要手动平仓（除非条件单异常）                  │
+│   • 止损距离: ${params.scientificStopLoss.minDistance}%-${params.scientificStopLoss.maxDistance}% (ATR${params.scientificStopLoss.atrMultiplier}x + 支撑/阻力位)                    │
+│                                                                │` : `│ 策略止损：                  │
 │   策略止损线: ${formatPercent(params.stopLoss.low)}% ~ ${formatPercent(params.stopLoss.high)}%          │
-│   根据杠杆倍数动态调整                  │`}
-${params.scientificStopLoss?.enabled ? `│ 移动止损：                                          │
-│   • 每周期检查盈利持仓，使用 updateTrailingStop()   │
-│   • 基于当前 ATR 和支撑位重新计算止损               │
-│   • 实际更新交易所订单：updatePositionStopLoss()    │
-│   • 参考触发点: ≥+${formatPercent(params.trailingStop.level1.trigger)}%, ≥+${formatPercent(params.trailingStop.level2.trigger)}%, ≥+${formatPercent(params.trailingStop.level3.trigger)}%         │` : `│ 移动止盈：                  │
+│   根据杠杆倍数动态调整                  │
+│                                                                │`}
+${params.scientificStopLoss?.enabled ? `│ 移动止损优化（可选，非必须）：                                 │
+│   • 对于盈利持仓，可调用 updateTrailingStop() 检查优化机会     │
+│   • 如果 shouldUpdate=true，调用 updatePositionStopLoss() 执行 │
+│   • 参考触发点: ≥+${formatPercent(params.trailingStop.level1.trigger)}%, ≥+${formatPercent(params.trailingStop.level2.trigger)}%, ≥+${formatPercent(params.trailingStop.level3.trigger)}%                    │
+│   • ⚠️ 分批止盈后无需手动移动止损（已自动处理）                │
+│                                                                │` : `│ 移动止盈：                  │
 │   • 盈利≥+${formatPercent(params.trailingStop.level1.trigger)}% → 止损移至+${formatPercent(params.trailingStop.level1.stopAt)}%        │
 │   • 盈利≥+${formatPercent(params.trailingStop.level2.trigger)}% → 止损移至+${formatPercent(params.trailingStop.level2.stopAt)}%       │
-│   • 盈利≥+${formatPercent(params.trailingStop.level3.trigger)}% → 止损移至+${formatPercent(params.trailingStop.level3.stopAt)}%      │`}
-│ 分批止盈：                                          │
-│   • 盈利≥+${formatPercent(params.partialTakeProfit.stage1.trigger)}% → 平仓${formatPercent(params.partialTakeProfit.stage1.closePercent)}%                       │
-│   • 盈利≥+${formatPercent(params.partialTakeProfit.stage2.trigger)}% → 平仓${formatPercent(params.partialTakeProfit.stage2.closePercent)}%                       │
-│   • 盈利≥+${formatPercent(params.partialTakeProfit.stage3.trigger)}% → 平仓${formatPercent(params.partialTakeProfit.stage3.closePercent)}%                      │
-│ 峰值回撤：≥${formatPercent(params.peakDrawdownProtection)}% → 危险信号，立即平仓              │
-└─────────────────────────────────────────────────────┘
+│   • 盈利≥+${formatPercent(params.trailingStop.level3.trigger)}% → 止损移至+${formatPercent(params.trailingStop.level3.stopAt)}%      │
+│                                                                │`}
+│ 分批止盈（基于风险倍数 R-Multiple）：                          │
+│   • 工具会自动计算 R-Multiple，AI 无需手动计算                 │
+│   • ${params.partialTakeProfit.stage1.description}                      │
+│   • ${params.partialTakeProfit.stage2.description}                          │
+│   • ${params.partialTakeProfit.stage3.description}                            │
+│   • 极限兜底: ${params.partialTakeProfit.extremeTakeProfit?.description || '5R极限止盈'}                                   │
+│   • ⚡ 波动率自适应: 低波动 R×0.8，高波动 R×1.2                │
+│   • 使用工具: checkPartialTakeProfitOpportunity()              │
+│                executePartialTakeProfit()                      │
+│   • ⚠️ 分批止盈会自动移动止损，无需再调用 updateTrailingStop   │
+│                                                                │
+│ 峰值回撤：≥${formatPercent(params.peakDrawdownProtection)}% → 危险信号，立即平仓                         │
+└────────────────────────────────────────────────────────────────┘
+
 【决策流程 - 按优先级执行】
-${params.scientificStopLoss?.enabled ? `(1) 持仓管理（最优先 - 使用科学止损）：
-   a) 检查科学止损：calculateStopLoss() 计算当前合理止损位
-   b) 考虑移动止损：updateTrailingStop() 优化止损保护（多单上移/空单下移）
-   c) 如果 shouldUpdate=true：立即调用 updatePositionStopLoss() 更新交易所订单
-   d) 执行平仓决策：检查止损/止盈/峰值回撤 → closePosition
+${params.scientificStopLoss?.enabled ? `
+(1) 持仓管理（最优先）：
+
+   步骤1：检查分批止盈机会（首要任务，每个持仓必查）
+   ├─ 调用 checkPartialTakeProfitOpportunity() 查看所有持仓
+   ├─ 工具返回 canExecute=true → 立即调用 executePartialTakeProfit(symbol, stage)
+   ├─ 工具自动完成：
+   │   • 计算当前 R-Multiple（无需 AI 手动计算）
+   │   • 分析 ATR 波动率动态调整阈值（0.8x-1.5x）
+   │   • 执行分批平仓（stage1/2/3）
+   │   • 自动移动止损到保本或更高
+   └─ ⚠️ 执行后：该持仓本周期跳过步骤2
+
+   步骤2：优化移动止损（仅对未执行分批止盈的盈利持仓，可选）
+   ├─ 条件：盈利 ≥ +${formatPercent(params.trailingStop.level1.trigger)}% 但未达到分批止盈阈值
+   ├─ 调用 updateTrailingStop() 检查是否应该上移止损
+   ├─ 返回 shouldUpdate=true → 调用 updatePositionStopLoss() 更新交易所订单
+   └─ 说明：这是可选优化，不是必须操作
+
+   步骤3：检查平仓触发（最后检查）
+   ├─ 峰值回撤 ≥ ${formatPercent(params.peakDrawdownProtection)}% → 危险信号，考虑平仓
+   ├─ 趋势明确反转（3+时间框架） → 考虑平仓
+   ├─ 持仓时间 ≥ 36小时 → 强制平仓
+   └─ ⚠️ "接近止损线"不是主动平仓理由（交易所条件单会自动触发）
 
 (2) 新开仓评估（科学过滤 + 自动止损单）：
    a) 分析市场数据：识别双向机会（做多/做空）
    b) 开仓前检查：checkOpenPosition() 一次性完成止损验证和计算
    c) 执行开仓：openPosition（自动设置止损止盈订单到交易所）
    ⚠️ 重要：openPosition() 会在交易所服务器端自动设置止损单，24/7保护资金
-   ⚠️ 注意：checkOpenPosition() 已包含止损计算，不要再调用 calculateStopLoss()
    
-(3) 加仓评估（谨慎使用科学止损）：
-   盈利>5%且趋势强化 → checkOpenPosition() 检查后 openPosition` : `(1) 持仓管理（最优先）：
-   检查每个持仓的止损/止盈/峰值回撤 → closePosition
+(3) 加仓评估（谨慎使用）：
+   盈利>5%且趋势强化 → checkOpenPosition() 检查后 openPosition` : `
+(1) 持仓管理（最优先）：
+
+   步骤1：检查分批止盈机会（首要任务）
+   ├─ 调用 checkPartialTakeProfitOpportunity() 查看所有持仓
+   ├─ 工具返回 canExecute=true → 立即调用 executePartialTakeProfit()
+   └─ 工具会自动执行分批平仓并移动止损
+
+   步骤2：检查平仓触发
+   ├─ 峰值回撤 ≥ ${formatPercent(params.peakDrawdownProtection)}% → 危险信号
+   ├─ 趋势反转 → closePosition
+   └─ 持仓时间 ≥ 36小时 → 强制平仓
    
 (2) 新开仓评估：
    分析市场数据 → 识别双向机会（做多/做空） → openPosition
    
 (3) 加仓评估：
    盈利>5%且趋势强化 → openPosition（≤50%原仓位，相同或更低杠杆）`}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+⚠️ 重要：止损管理的工具调用规则
+
+规则1：分批止盈优先
+- 每个周期首先检查 checkPartialTakeProfitOpportunity()
+- 如果执行了 executePartialTakeProfit()，该持仓本周期不要再调用 updateTrailingStop()
+- 原因：executePartialTakeProfit 已经自动移动了止损
+
+规则2：移动止损是可选优化（仅适用于科学止损模式）
+- updateTrailingStop() 仅用于盈利但未达到分批止盈阈值的持仓
+- 不是每个周期都必须调用
+- 主要目的是在分批止盈之间提供额外保护
+
+规则3：不要重复计算 R-Multiple
+- R-Multiple 由工具自动计算，AI 不要尝试手动计算
+- 工具会考虑做多/做空方向、杠杆等复杂因素
+- AI 只需要调用工具并根据返回结果决策
+
+规则4：止损单由交易所自动触发
+- 开仓时已设置止损条件单，AI 无需频繁检查
+- 只有在明确的趋势反转时才考虑主动平仓
+- "接近止损线"不是主动平仓的理由
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📚 工具调用案例说明（请严格遵循）
+
+【正确案例1: 分批止盈优先，避免重复】
+1 调用 checkPartialTakeProfitOpportunity()
+    返回: { "BTC": { "currentR": 1.2, "canExecuteStages": [1] } }
+2 调用 executePartialTakeProfit('BTC', '1')
+    返回: 成功，平仓33.33%，止损已自动移至成本价
+3 ✅ 本周期结束，不再调用 updateTrailingStop('BTC')
+    原因: executePartialTakeProfit 已经移动过止损了
+4 ✅ 下个周期重新开始，再次检查 checkPartialTakeProfitOpportunity()
+
+【正确案例2: 移动止损优化（未达到分批止盈阈值）】
+1 调用 checkPartialTakeProfitOpportunity()
+    返回: { "BTC": { "currentR": 0.8, "canExecuteStages": [] } }
+    说明: 盈利 +6%，但未达到 1R 阈值（需要1.0R）
+2 ✅ 调用 updateTrailingStop('BTC', ...)
+    返回: shouldUpdate=true, 建议移动止损至 +3%
+3 ✅ 调用 updatePositionStopLoss('BTC', newStopLoss)
+    执行实际更新
+
+【错误案例1: 重复移动止损 ❌】
+1 调用 executePartialTakeProfit('BTC', '1') → ✅ 成功
+2 ❌ 再次调用 updateTrailingStop('BTC', ...)
+    → 错误! 已经移动过止损了，5分钟冷却期内不允许重复执行
+    → 工具会返回 success=false，提示冷却期限制
+
+【错误案例2: 误判"接近止损"主动平仓 ❌】
+情况: 持仓盈亏 -8%, 止损线 -10%
+❌ 错误做法: AI 主动调用 closePosition()
+    理由: "太接近止损了，为了保险主动平仓"
+    问题: 交易所已经设置了止损条件单，会自动触发，无需手动干预
+✅ 正确做法: 信任交易所的止损单，只在以下情况主动平仓：
+    • 趋势明确反转（3+时间框架信号一致）
+    • 峰值回撤 ≥ ${formatPercent(params.peakDrawdownProtection)}%
+    • 持仓时间 ≥ 36小时
+
+【正确案例3: 波动率动态调整（AI 无需手动计算）】
+策略配置: 1R 阈值 = 1.0
+当前市场: 高波动（ATR=3.5%）
+系统自动: 1R → 0.8R（降低25%阈值，更早止盈）
+持仓状态: 0.9R
+
+❌ 错误思维: "配置说1R才能止盈，现在只有0.9R，不能执行"
+✅ 正确做法:
+1 调用 checkPartialTakeProfitOpportunity()
+    返回: { "BTC": { 
+      "currentR": 0.9, 
+      "canExecuteStages": [1],
+      "recommendation": "建议执行阶段1（0.80R，高波动调整）"
+    }}
+2 工具已经判断 0.9R ≥ 0.8R（调整后），可以执行
+3 ✅ 直接调用 executePartialTakeProfit('BTC', '1')
+    → AI 不要自己计算 R-Multiple 或判断阈值
+    → 完全信任工具的返回结果
+
+【正确案例4: 分批止盈的完整流程】
+初始: BTC 做多，入场价 50000，止损 48000（-2000 = -4%）
+
+周期1: 价格 52000
+  checkPartialTakeProfitOpportunity() → currentR=1.0, canExecuteStages=[1]
+  executePartialTakeProfit('BTC', '1') → 平仓33.33%，止损→50000（保本）
+
+周期2: 价格 54000
+  checkPartialTakeProfitOpportunity() → currentR=2.0, canExecuteStages=[2]
+  executePartialTakeProfit('BTC', '2') → 平仓33.33%，止损→52000（1R）
+
+周期3: 价格 56000
+  checkPartialTakeProfitOpportunity() → currentR=3.0, canExecuteStages=[3]
+  executePartialTakeProfit('BTC', '3') → 保留33.33%，启用移动止损
+
+周期4+: 价格波动
+  每个周期调用 updateTrailingStop('BTC', ...)
+  根据市场波动动态上移止损，让利润奔跑
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -886,7 +1186,6 @@ function generateInstructions(strategy: TradingStrategy, intervalMinutes: number
    - **做多机会**：当市场呈现上涨趋势时，开多单获利
    - **做空机会**：当市场呈现下跌趋势时，开空单同样能获利
    - **关键认知**：下跌中做空和上涨中做多同样能赚钱，不要只盯着做多机会
-   - **市场是双向的**：如果连续多个周期空仓，很可能是忽视了做空机会
    - 永续合约做空没有借币成本，只需关注资金费率即可
 5. **多时间框架分析**：您分析多个时间框架（15分钟、30分钟、1小时、4小时）的模式，以识别高概率入场点。${params.entryCondition}。
 6. **仓位管理（${params.name}策略）**：${params.riskTolerance}。最多同时持有${RISK_PARAMS.MAX_POSITIONS}个持仓。
@@ -934,7 +1233,7 @@ function generateInstructions(strategy: TradingStrategy, intervalMinutes: number
   
   【系统硬性底线 - 强制执行，不可违反】：
   * 科学止损保护：交易所服务器端24/7监控，触及止损位立即平仓
-  * 极端保护：如亏损超过科学止损阈值（${params.scientificStopLoss?.maxDistance || 5}%）且止损单未生效，系统强制介入
+  * 极端保护：如亏损超过科学止损阈值且止损单未生效，系统强制介入
   * 持仓时间 ≥ 36小时：强制平仓
   
   【AI战术决策 - 专业建议，灵活执行】：
@@ -996,21 +1295,33 @@ function generateInstructions(strategy: TradingStrategy, intervalMinutes: number
      * 可升级：如需动态止损，可启用科学移动止损（.env中SCIENTIFIC_STOP_LOSS_ENABLED=true）
      `}
   
-  (3) 止盈策略（灵活决策，不要死板）：
+  (3) 止盈策略（基于风险倍数，灵活决策）：
+     * 🎯 新功能：专业级分批止盈系统（R-Multiple）
+       - 使用 checkPartialTakeProfitOpportunity() 检查机会
+       - 使用 executePartialTakeProfit(symbol, stage) 执行分批
+       - 系统会自动移动止损保护利润
+     
+     * 分批止盈策略（${params.name}）：
+       ┌────────────────────────────────────────┐
+       │ ${params.partialTakeProfit.stage1.description.padEnd(40)} │
+       │ ${params.partialTakeProfit.stage2.description.padEnd(40)} │
+       │ ${params.partialTakeProfit.stage3.description.padEnd(40)} │
+       │ ${(params.partialTakeProfit.extremeTakeProfit?.description || '5R极限止盈兜底').padEnd(40)} │
+       └────────────────────────────────────────┘
+     
      * 重要原则：止盈要灵活，根据实际市场情况决定！
-       - 策略中的止盈目标（+${params.partialTakeProfit.stage1.trigger}%/+${params.partialTakeProfit.stage2.trigger}%/+${params.partialTakeProfit.stage3.trigger}%）仅供参考，不是硬性规则
+       - R倍数是参考标准，不是硬性规则
        - 2%-3%的盈利也是有意义的波段，不要贪心等待大目标
        - 根据市场实际情况灵活决策：
          * 趋势减弱/出现反转信号 → 立即止盈，哪怕只有2-3%
          * 震荡行情、阻力位附近 → 可以提前止盈，落袋为安
          * 趋势强劲、没有明显阻力 → 可以让利润继续奔跑
          * 持仓时间已久(4小时+)且有盈利 → 考虑主动止盈
-     * 参考建议（仅供参考，不是强制）：
-       - 盈利 ≥ +${formatPercent(params.partialTakeProfit.stage1.trigger)}% → 可考虑平仓${formatPercent(params.partialTakeProfit.stage1.closePercent)}%
-       - 盈利 ≥ +${formatPercent(params.partialTakeProfit.stage2.trigger)}% → 可考虑平仓剩余${formatPercent(params.partialTakeProfit.stage2.closePercent)}%
-       - 盈利 ≥ +${formatPercent(params.partialTakeProfit.stage3.trigger)}% → 可全部清仓${formatPercent(params.partialTakeProfit.stage3.closePercent)}%
-     * 执行方式：使用 closePosition 的 percentage 参数
-       - 示例：closePosition(symbol: 'BTC', percentage: 50) 可平掉50%仓位
+     
+     * 执行方式：
+       - 分批止盈：executePartialTakeProfit(symbol: 'BTC', stage: '1')
+       - 手动平仓：closePosition(symbol: 'BTC', percentage: 50)
+     
      * 记住：小的确定性盈利 > 大的不确定性盈利！
   
   (4) 峰值回撤保护（危险信号）：
@@ -1118,7 +1429,7 @@ function generateInstructions(strategy: TradingStrategy, intervalMinutes: number
       - 如果当前盈利回落到移动止损线以下
       - 立即调用 closePosition 平仓保护利润
       - 如需动态止损保护，可启用科学移动止损（.env中SCIENTIFIC_STOP_LOSS_ENABLED=true）
-      `}
+     `}
    
    c) 止盈决策（灵活判断，不要死守目标）：
       - 重要：止盈要根据市场实际情况灵活决策，不要死板！
@@ -1129,11 +1440,12 @@ function generateInstructions(strategy: TradingStrategy, intervalMinutes: number
         * 持仓时间>4小时且盈利>2% → 可主动止盈
         * 盈利达到5-8%但趋势减弱 → 建议分批止盈50%
         * 盈利达到10%+但出现回调迹象 → 建议至少止盈50%
-      - 策略目标（+${params.partialTakeProfit.stage1.trigger}%/+${params.partialTakeProfit.stage2.trigger}%/+${params.partialTakeProfit.stage3.trigger}%）仅供参考，不是必须等到的
+      - 策略目标（R-Multiple分批止盈）仅供参考，不是必须等到的
       - 执行方式：
         * 全部止盈：closePosition({ symbol: 'BTC' })
         * 部分止盈：closePosition({ symbol: 'BTC', percentage: 50 })
-      - 记住：2%-3%的确定性盈利胜过10%的不确定性盈利！
+        * R-Multiple止盈：executePartialTakeProfit({ symbol: 'BTC', stage: '1' })
+      - 记住：小的确定性盈利胜过10%的不确定性盈利！
       
       ⚠️ 主动平仓释放资金的严格标准（仅在以下情况才可考虑）：
       
@@ -1142,8 +1454,8 @@ function generateInstructions(strategy: TradingStrategy, intervalMinutes: number
       ✅ 可以主动平仓的情况（基于持仓本身的质量判断）：
       
       1. 止盈平仓（推荐）：
-         - 持仓已达到止盈目标（盈利≥${params.partialTakeProfit.stage1.trigger}%）
-         - 且出现以下任一信号：
+         - 持仓已达到分批止盈机会（使用checkPartialTakeProfitOpportunity检查）
+         - 或盈利≥5%且出现以下任一信号：
            * 趋势开始减弱（至少2个时间框架显示动能衰减）
            * 达到关键阻力位/支撑位
            * RSI进入超买/超卖区域且开始回调
@@ -1220,9 +1532,9 @@ function generateInstructions(strategy: TradingStrategy, intervalMinutes: number
    a) 盈利状况（40分）：
       说明：以下百分比都是基于 pnl_percent（已包含杠杆效应）
       例如：10倍杠杆，价格上涨1.5%，pnl_percent = +15%
-      - 盈利 ≥ ${params.partialTakeProfit.stage2.trigger}%：40分
-      - 盈利 ${params.partialTakeProfit.stage1.trigger}%-${params.partialTakeProfit.stage2.trigger}%：30分
-      - 盈利 5%-${params.partialTakeProfit.stage1.trigger}%：20分
+      - 盈利 ≥ 20%：40分
+      - 盈利 10%-20%：30分
+      - 盈利 5%-10%：20分
       - 盈利 0%-5%：10分
       - 亏损 0%-5%：5分
       - 亏损 > 5%：0分（但也不应该主动平仓！）
@@ -1388,69 +1700,8 @@ function generateInstructions(strategy: TradingStrategy, intervalMinutes: number
 - AI战术决策（专业建议，灵活执行）：
   * 科学止损范围：${params.scientificStopLoss?.minDistance}%-${params.scientificStopLoss?.maxDistance}%（基于ATR${params.scientificStopLoss?.atrMultiplier}x和支撑位）
   * 移动止损（${params.name}策略）：达到+${formatPercent(params.trailingStop.level1.trigger)}%/+${formatPercent(params.trailingStop.level2.trigger)}%/+${formatPercent(params.trailingStop.level3.trigger)}%时调用updateTrailingStop()检查
-  * 分批止盈（${params.name}策略）：+${formatPercent(params.partialTakeProfit.stage1.trigger)}%/+${formatPercent(params.partialTakeProfit.stage2.trigger)}%/+${formatPercent(params.partialTakeProfit.stage3.trigger)}%（使用 percentage 参数）
+  * 分批止盈（${params.name}策略）：${params.partialTakeProfit.stage1.rMultiple}R/${params.partialTakeProfit.stage2.rMultiple}R/${params.partialTakeProfit.stage3.rMultiple}R（使用checkPartialTakeProfitOpportunity检查，executePartialTakeProfit执行）
   * 峰值回撤 ≥ ${formatPercent(params.peakDrawdownProtection)}%：危险信号，强烈建议平仓
-
-仓位管理：
-- 严禁双向持仓：同一币种不能同时持有多单和空单
-- 允许加仓：对盈利>5%的持仓，趋势强化时可加仓≤50%，最多2次
-- 杠杆限制：加仓时必须使用相同或更低杠杆（禁止提高）
-- 最多持仓：${RISK_PARAMS.MAX_POSITIONS}个币种
-- 双向交易：做多和做空都能赚钱，不要只盯着做多机会
-
-执行参数：
-- 执行周期：每${intervalMinutes}分钟
-- 杠杆范围：${params.leverageMin}-${params.leverageMax}倍（${params.leverageRecommend.normal}/${params.leverageRecommend.good}/${params.leverageRecommend.strong}）
-- 仓位大小：${params.positionSizeRecommend.normal}（普通）/${params.positionSizeRecommend.good}（良好）/${params.positionSizeRecommend.strong}（强）
-- 交易费用：0.1%往返，潜在利润≥2-3%才交易
-
-决策优先级：
-1. 账户健康检查（回撤保护） → 立即调用 getAccountBalance
-2. 现有持仓管理（止损/止盈） → 立即调用 getPositions + closePosition
-3. 分析市场寻找机会 → 立即调用 getTechnicalIndicators
-4. 评估并执行新开仓 → 立即调用 openPosition
-
-世界顶级交易员智慧：
-- **数据驱动+经验判断**：基于技术指标和多时间框架分析，同时运用您的专业判断和市场洞察力
-
-- **趋势为友**：顺应趋势是核心原则，但您有能力识别反转机会（3个时间框架反转是强烈警告信号）
-
-- **保护现有持仓**：永远不要为了新机会而破坏现有持仓！这是顶级交易员的铁律！
-  * "接近止损线"不是主动平仓的理由，止损线会自动保护你
-  * 如果真的认为没希望，应该基于"趋势反转"判断，而不是"接近止损"
-  * 记住：市场给你设定止损线的机会，就是在给你反弹的机会
-
-- **持仓上限管理智慧**：
-  * 达到${RISK_PARAMS.MAX_POSITIONS}个持仓 = 说明你已经在市场中有足够的风险暴露
-  * 此时应该专注于管理现有持仓，而不是追逐新机会
-  * 顶级交易员的特点：知道何时不交易比知道何时交易更重要
-  * 平仓的唯一理由：持仓本身的质量问题（止盈/反转/横盘），而不是外部因素（新机会/持仓上限）
-
-- **止损线的真正含义**：
-  * 止损线是最后防线，不是"提前平仓"的信号
-  * 如果距离止损线还有空间 = 市场还在给你机会 = 应该继续持有
-  * 主动平仓应该基于"趋势判断"，而不是"距离止损线远近"
-  * 频繁的主动止损会导致"割在地板上"
-
-- **机会成本思维**：
-  * 放弃一个机会的成本 = 0（因为机会会再来）
-  * 破坏一个盈利持仓的成本 = 已实现的盈利 + 未来的潜在盈利
-  * 提前止损一个可能反弹的持仓 = 额外的亏损 + 错失反弹机会
-  * 永远选择成本更低的决策！
-
-- **灵活止盈止损**：策略建议的止损和止盈点是参考基准，您可以根据关键支撑位、趋势强度、市场情绪灵活调整
-
-- **让利润奔跑**：盈利交易要让它充分奔跑，但要用移动止损保护利润，避免贪婪导致回吐
-
-- **快速止损**：亏损交易要果断止损，不要让小亏变大亏，保护本金永远是第一位
-
-- **概率思维**：您的专业能力让胜率更高，但市场永远有不确定性，用概率和期望值思考
-
-- **风控红线**：在系统硬性底线（科学止损保护、36小时强制平仓）内您有完全自主权
-
-- **科学止损信任**：止损单已在交易所服务器端设置，24/7保护资金，无需人工干预
-
-- **技术说明**：pnl_percent已包含杠杆效应，直接比较即可
 
 仓位管理：
 - 严禁双向持仓：同一币种不能同时持有多单和空单
@@ -1527,6 +1778,8 @@ export function createTradingAgent(intervalMinutes: number = 5) {
       tradingTools.checkOpenPositionTool,
       tradingTools.updateTrailingStopTool,
       tradingTools.updatePositionStopLossTool,
+      tradingTools.partialTakeProfitTool,
+      tradingTools.checkPartialTakeProfitOpportunityTool,
     ],
     memory,
   });

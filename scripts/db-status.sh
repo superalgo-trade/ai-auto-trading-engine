@@ -151,6 +151,61 @@ async function showStatus() {
       console.log('   持仓数:', dec.positions_count);
     }
     
+    // 条件单（止损止盈订单）记录数
+    const priceOrdersCount = await client.execute('SELECT COUNT(*) as count FROM price_orders');
+    console.log('');
+    console.log('📋 条件单记录数:', (priceOrdersCount.rows[0] as any).count);
+    
+    // 活跃的条件单
+    const activePriceOrders = await client.execute(\"SELECT * FROM price_orders WHERE status='active' ORDER BY created_at DESC LIMIT 5\");
+    if (activePriceOrders.rows.length > 0) {
+      console.log('');
+      console.log('活跃条件单:');
+      for (const order of activePriceOrders.rows) {
+        const o = order as any;
+        const typeLabel = o.type === 'stop_loss' ? '止损' : '止盈';
+        console.log(\`   \${o.symbol} [\${typeLabel}] 触发价: \${o.trigger_price} | 订单ID: \${o.order_id}\`);
+      }
+    }
+    
+    // 平仓事件记录数
+    const closeEventsCount = await client.execute('SELECT COUNT(*) as count FROM position_close_events');
+    console.log('');
+    console.log('🔔 平仓事件记录数:', (closeEventsCount.rows[0] as any).count);
+    
+    // 最近的平仓事件
+    const recentCloseEvents = await client.execute('SELECT * FROM position_close_events ORDER BY created_at DESC LIMIT 5');
+    if (recentCloseEvents.rows.length > 0) {
+      console.log('');
+      console.log('最近 5 次平仓事件:');
+      for (const event of recentCloseEvents.rows) {
+        const e = event as any;
+        const time = new Date(e.created_at).toLocaleString('zh-CN');
+        const reasonLabel = e.close_reason === 'stop_loss_triggered' ? '止损触发' : 
+                           e.close_reason === 'take_profit_triggered' ? '止盈触发' :
+                           e.close_reason === 'manual' ? '手动平仓' : '强制平仓';
+        const pnlSign = parseFloat(e.pnl) >= 0 ? '+' : '';
+        console.log(\`   [\${time}] \${e.symbol} [\${reasonLabel}] @ \${e.close_price} | 盈亏: \${pnlSign}\${parseFloat(e.pnl).toFixed(2)} USDT (\${pnlSign}\${parseFloat(e.pnl_percent).toFixed(2)}%)\`);
+      }
+    }
+    
+    // 分批止盈历史记录
+    const partialTPCount = await client.execute('SELECT COUNT(*) as count FROM partial_take_profit_history');
+    console.log('');
+    console.log('🎯 分批止盈记录数:', (partialTPCount.rows[0] as any).count);
+    
+    // 最近的分批止盈记录
+    const recentPartialTP = await client.execute('SELECT * FROM partial_take_profit_history ORDER BY timestamp DESC LIMIT 5');
+    if (recentPartialTP.rows.length > 0) {
+      console.log('');
+      console.log('最近 5 次分批止盈:');
+      for (const tp of recentPartialTP.rows) {
+        const t = tp as any;
+        const time = new Date(t.timestamp).toLocaleString('zh-CN');
+        console.log(\`   [\${time}] \${t.symbol} Stage\${t.stage} (R=\${t.r_multiple.toFixed(2)}) 平仓\${t.close_percent}% @ \${t.trigger_price} | 盈亏: +\${t.pnl.toFixed(2)} USDT\`);
+      }
+    }
+    
     client.close();
   } catch (error) {
     console.error('❌ 查询失败:', error);

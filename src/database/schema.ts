@@ -136,6 +136,25 @@ export interface PositionCloseEvent {
 }
 
 /**
+ * 分批止盈历史记录（基于风险倍数）
+ */
+export interface PartialTakeProfitHistory {
+  id: number;
+  symbol: string;
+  stage: number;                    // 阶段：1=1R, 2=2R, 3=3R+
+  r_multiple: number;               // 当时的R倍数
+  trigger_price: number;            // 触发价格
+  close_percent: number;            // 平仓百分比
+  closed_quantity: number;          // 已平仓数量
+  remaining_quantity: number;       // 剩余数量
+  pnl: number;                      // 本次盈亏
+  new_stop_loss_price?: number;     // 新的止损价格
+  status: 'completed' | 'failed';   // 状态
+  notes?: string;                   // 备注
+  timestamp: string;                // 执行时间
+}
+
+/**
  * SQL 建表语句
  */
 export const CREATE_TABLES_SQL = `
@@ -262,6 +281,23 @@ CREATE TABLE IF NOT EXISTS position_close_events (
   processed INTEGER DEFAULT 0
 );
 
+-- 分批止盈历史记录表
+CREATE TABLE IF NOT EXISTS partial_take_profit_history (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  symbol TEXT NOT NULL,
+  stage INTEGER NOT NULL,
+  r_multiple REAL NOT NULL,
+  trigger_price REAL NOT NULL,
+  close_percent REAL NOT NULL,
+  closed_quantity REAL NOT NULL,
+  remaining_quantity REAL NOT NULL,
+  pnl REAL NOT NULL,
+  new_stop_loss_price REAL,
+  status TEXT NOT NULL DEFAULT 'completed',
+  notes TEXT,
+  timestamp TEXT NOT NULL
+);
+
 -- 创建索引
 CREATE INDEX IF NOT EXISTS idx_trades_timestamp ON trades(timestamp);
 CREATE INDEX IF NOT EXISTS idx_trades_symbol ON trades(symbol);
@@ -274,5 +310,7 @@ CREATE INDEX IF NOT EXISTS idx_price_orders_status ON price_orders(status);
 CREATE INDEX IF NOT EXISTS idx_price_orders_order_id ON price_orders(order_id);
 CREATE INDEX IF NOT EXISTS idx_close_events_processed ON position_close_events(processed, created_at);
 CREATE INDEX IF NOT EXISTS idx_close_events_symbol ON position_close_events(symbol);
+CREATE INDEX IF NOT EXISTS idx_partial_taking_profit_symbol ON partial_take_profit_history(symbol);
+CREATE INDEX IF NOT EXISTS idx_partial_taking_profit_status ON partial_take_profit_history(status);
 `;
 

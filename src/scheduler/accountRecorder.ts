@@ -33,6 +33,8 @@ const logger = createLogger({
 
 const dbClient = createClient({
   url: process.env.DATABASE_URL || "file:./.voltagent/trading.db",
+  syncUrl: process.env.DATABASE_SYNC_URL,
+  syncInterval: 1000,
 });
 
 /**

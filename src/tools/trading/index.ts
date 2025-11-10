@@ -55,3 +55,9 @@ export {
   stopLossManagementTools,
 } from "./stopLossManagement";
 
+// 止盈管理工具（基于风险倍数）
+export {
+  partialTakeProfitTool,
+  checkPartialTakeProfitOpportunityTool,
+} from "./takeProfitManagement";
+

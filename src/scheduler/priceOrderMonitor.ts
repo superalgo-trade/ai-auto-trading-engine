@@ -21,6 +21,7 @@
  * 定期检测条件单触发情况，更新数据库状态，记录平仓交易
  */
 import { createLogger } from "../utils/logger";
+import { getChinaTimeISO } from "../utils/timeUtils";
 import type { Client } from "@libsql/client";
 import type { IExchangeClient } from "../exchanges/IExchangeClient";
 
@@ -431,7 +432,23 @@ export class PriceOrderMonitor {
         : (entryPrice - exitPrice) / entryPrice;
       const pnlPercent = priceChange * 100 * leverage;
 
-      // 插入交易记录
+      // 插入交易记录（使用中国时区时间，与开仓记录保持一致）
+      const closeTime = new Date(trade.timestamp);
+      const chinaTimeStr = closeTime.toLocaleString('zh-CN', {
+        timeZone: 'Asia/Shanghai',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false
+      });
+      // 转换为 ISO 格式: 2025-11-10T15:48:32+08:00
+      const [datePart, timePart] = chinaTimeStr.split(' ');
+      const [month, day, year] = datePart.split('/');
+      const chinaTimeISO = `${year}-${month}-${day}T${timePart}+08:00`;
+      
       await this.dbClient.execute({
         sql: `INSERT INTO trades 
               (order_id, symbol, side, type, price, quantity, leverage, pnl, fee, timestamp, status)
@@ -446,7 +463,7 @@ export class PriceOrderMonitor {
           leverage,
           pnl,
           trade.fee,
-          new Date(trade.timestamp).toISOString(),
+          chinaTimeISO,
           'filled'
         ]
       });
