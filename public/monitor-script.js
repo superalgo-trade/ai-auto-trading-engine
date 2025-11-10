@@ -300,28 +300,46 @@ class TradingMonitor {
                 return;
             }
             
-            // 按币种和方向分组，合并止损和止盈
+            // 按币种、方向和创建时间分组，合并止损和止盈
             const groupedOrders = {};
             
             recentOrders.forEach(order => {
-                const key = `${order.symbol}_${order.side}_${order.status}`;
+                // 使用创建时间的时间戳来区分不同批次的订单
+                // 同一批次创建的订单时间戳应该非常接近，我们按秒级别分组
+                const createdTimestamp = new Date(order.created_at).getTime();
+                const key = `${order.symbol}_${order.side}_${Math.floor(createdTimestamp / 1000)}`;
                 
                 if (!groupedOrders[key]) {
                     groupedOrders[key] = {
                         symbol: order.symbol,
                         side: order.side,
-                        status: order.status,
+                        status: order.status,  // 使用第一个订单的状态
                         quantity: order.quantity,
                         created_at: order.created_at,
                         stopLoss: null,
-                        takeProfit: null
+                        takeProfit: null,
+                        stopLossStatus: null,
+                        takeProfitStatus: null
                     };
                 }
                 
                 if (order.type === 'stop_loss') {
                     groupedOrders[key].stopLoss = order.trigger_price;
+                    groupedOrders[key].stopLossStatus = order.status;
                 } else if (order.type === 'take_profit') {
                     groupedOrders[key].takeProfit = order.trigger_price;
+                    groupedOrders[key].takeProfitStatus = order.status;
+                }
+                
+                // 更新组的整体状态:如果有任何一个是triggered,则显示triggered;否则如果有active显示active
+                if (order.status === 'triggered') {
+                    groupedOrders[key].status = 'triggered';
+                } else if (order.status === 'active' && groupedOrders[key].status !== 'triggered') {
+                    groupedOrders[key].status = 'active';
+                } else if (groupedOrders[key].status === order.status) {
+                    // 保持当前状态
+                } else if (!groupedOrders[key].status || groupedOrders[key].status === 'cancelled') {
+                    groupedOrders[key].status = order.status;
                 }
             });
 
@@ -360,24 +378,32 @@ class TradingMonitor {
                         const currentPriceText = currentPrice ? 
                             `$${formatPriceBySymbol(group.symbol, currentPrice)}` : '--';
                         
-                        // 止损价格显示（带偏差百分比）
+                        // 止损价格显示（带偏差百分比和状态标识）
                         let stopLossText = '--';
                         if (group.stopLoss && currentPrice) {
                             const deviation = ((group.stopLoss - currentPrice) / currentPrice * 100);
                             const deviationText = deviation >= 0 ? `+${deviation.toFixed(2)}` : deviation.toFixed(2);
-                            stopLossText = `$${formatPriceBySymbol(group.symbol, group.stopLoss)} <span class="deviation">(${deviationText}%)</span>`;
+                            const statusBadge = group.stopLossStatus === 'triggered' ? ' <span class="status-badge triggered">✓</span>' :
+                                               group.stopLossStatus === 'cancelled' ? ' <span class="status-badge cancelled">✕</span>' : '';
+                            stopLossText = `$${formatPriceBySymbol(group.symbol, group.stopLoss)} <span class="deviation">(${deviationText}%)</span>${statusBadge}`;
                         } else if (group.stopLoss) {
-                            stopLossText = `$${formatPriceBySymbol(group.symbol, group.stopLoss)}`;
+                            const statusBadge = group.stopLossStatus === 'triggered' ? ' <span class="status-badge triggered">✓</span>' :
+                                               group.stopLossStatus === 'cancelled' ? ' <span class="status-badge cancelled">✕</span>' : '';
+                            stopLossText = `$${formatPriceBySymbol(group.symbol, group.stopLoss)}${statusBadge}`;
                         }
                         
-                        // 止盈价格显示（带偏差百分比）
+                        // 止盈价格显示（带偏差百分比和状态标识）
                         let takeProfitText = '--';
                         if (group.takeProfit && currentPrice) {
                             const deviation = ((group.takeProfit - currentPrice) / currentPrice * 100);
                             const deviationText = deviation >= 0 ? `+${deviation.toFixed(2)}` : deviation.toFixed(2);
-                            takeProfitText = `$${formatPriceBySymbol(group.symbol, group.takeProfit)} <span class="deviation">(${deviationText}%)</span>`;
+                            const statusBadge = group.takeProfitStatus === 'triggered' ? ' <span class="status-badge triggered">✓</span>' :
+                                               group.takeProfitStatus === 'cancelled' ? ' <span class="status-badge cancelled">✕</span>' : '';
+                            takeProfitText = `$${formatPriceBySymbol(group.symbol, group.takeProfit)} <span class="deviation">(${deviationText}%)</span>${statusBadge}`;
                         } else if (group.takeProfit) {
-                            takeProfitText = `$${formatPriceBySymbol(group.symbol, group.takeProfit)}`;
+                            const statusBadge = group.takeProfitStatus === 'triggered' ? ' <span class="status-badge triggered">✓</span>' :
+                                               group.takeProfitStatus === 'cancelled' ? ' <span class="status-badge cancelled">✕</span>' : '';
+                            takeProfitText = `$${formatPriceBySymbol(group.symbol, group.takeProfit)}${statusBadge}`;
                         }
                         
                         return `

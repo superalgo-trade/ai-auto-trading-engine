@@ -1041,6 +1041,30 @@ body {
     color: #888;
 }
 
+/* 止损止盈状态标识样式 */
+.positions-table .status-badge {
+    display: inline-block;
+    font-size: 0.75em;
+    font-weight: bold;
+    padding: 2px 6px;
+    border-radius: 3px;
+    margin-left: 6px;
+    vertical-align: middle;
+}
+
+.positions-table .status-badge.triggered {
+    background-color: rgba(0, 255, 170, 0.2);
+    color: var(--accent-green);
+    border: 1px solid var(--accent-green);
+    text-shadow: 0 0 3px var(--accent-green);
+}
+
+.positions-table .status-badge.cancelled {
+    background-color: rgba(136, 136, 136, 0.2);
+    color: #888;
+    border: 1px solid #666;
+}
+
 /* Trades Section */
 .trades-section {
     grid-column: 1 / 3;
