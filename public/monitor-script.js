@@ -1012,7 +1012,7 @@ class TradingMonitor {
     parseDuration(durationStr) {
         let seconds = 0;
         const dayMatch = durationStr.match(/(\d+)天/);
-        const hourMatch = durationStr.match(/(\d+)小时/);
+        const hourMatch = durationStr.match(/(\d+)(小时|时)/);
         const minMatch = durationStr.match(/(\d+)分/);
         
         if (dayMatch) seconds += parseInt(dayMatch[1]) * 86400;
