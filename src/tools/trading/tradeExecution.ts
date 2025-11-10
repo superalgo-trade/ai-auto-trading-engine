@@ -769,8 +769,15 @@ export const closePositionTool = createTool({
   parameters: z.object({
     symbol: z.enum(RISK_PARAMS.TRADING_SYMBOLS).describe("币种代码"),
     percentage: z.number().min(1).max(100).default(100).describe("平仓百分比（1-100）"),
+    reason: z.enum([
+      'manual_close',      // AI手动平仓（默认）
+      'trend_reversal',    // 趋势反转平仓
+      'ai_decision',       // AI主动平仓
+      'peak_drawdown',     // 峰值回撤平仓
+      'time_limit',        // 持仓时间到期
+    ]).optional().describe("平仓原因代码（可选）：trend_reversal=趋势反转, manual_close=AI手动平仓（默认）, peak_drawdown=峰值回撤, time_limit=持仓时间到期"),
   }),
-  execute: async ({ symbol, percentage }) => {
+  execute: async ({ symbol, percentage, reason = 'manual_close' }) => {
     const exchangeClient = getExchangeClient();
     const contract = exchangeClient.normalizeContract(symbol);
     
@@ -1100,6 +1107,35 @@ export const closePositionTool = createTool({
           dbStatus,
         ],
       });
+      
+      // 📝 记录平仓事件到 position_close_events 表
+      // 这样可以追踪每次平仓的原因和详情
+      const closeEventTime = getChinaTimeISO();
+      await dbClient.execute({
+        sql: `INSERT INTO position_close_events 
+              (symbol, side, entry_price, exit_price, quantity, leverage, 
+               pnl, fee, close_reason, trigger_type, order_id, 
+               created_at, processed)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        args: [
+          symbol,
+          side,
+          entryPrice,
+          actualExitPrice,
+          actualCloseSize,
+          leverage,
+          pnl,
+          totalFee,
+          reason,          // 使用传入的平仓原因代码
+          'ai_decision',   // 触发类型：AI决策
+          order.id?.toString() || "",
+          closeEventTime,
+          1,  // 已处理
+        ],
+      });
+      
+      logger.info(`📝 已记录平仓事件: ${symbol} ${side} 原因=${reason}`);
+
       
       // 🔥 关键修复：平仓时必须取消交易所的所有条件单
       // 使用交易所的 cancelPositionStopLoss 方法一次性取消所有条件单

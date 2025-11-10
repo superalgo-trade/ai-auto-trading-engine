@@ -364,3 +364,104 @@ export const syncPositionsTool = createTool({
   },
 });
 
+/**
+ * 查询平仓事件历史工具
+ */
+export const getCloseEventsTool = createTool({
+  name: "getCloseEvents",
+  description: "查询平仓事件历史，了解每次平仓的原因和详情",
+  parameters: z.object({
+    symbol: z.string().optional().describe("币种代码（可选，不填则查询所有）"),
+    limit: z.number().min(1).max(100).default(20).describe("查询数量限制"),
+  }),
+  execute: async ({ symbol, limit }) => {
+    try {
+      let sql = `
+        SELECT 
+          id,
+          symbol,
+          side,
+          entry_price,
+          exit_price,
+          quantity,
+          leverage,
+          pnl,
+          fee,
+          close_reason,
+          trigger_type,
+          order_id,
+          created_at,
+          processed
+        FROM position_close_events
+      `;
+      
+      const args: any[] = [];
+      
+      if (symbol) {
+        sql += " WHERE symbol = ?";
+        args.push(symbol);
+      }
+      
+      sql += " ORDER BY created_at DESC LIMIT ?";
+      args.push(limit);
+      
+      const result = await dbClient.execute({ sql, args });
+      
+      const events = result.rows.map(row => ({
+        id: row.id,
+        symbol: row.symbol,
+        side: row.side,
+        entryPrice: Number.parseFloat(row.entry_price as string),
+        exitPrice: Number.parseFloat(row.exit_price as string),
+        quantity: Number.parseFloat(row.quantity as string),
+        leverage: Number.parseInt(row.leverage as string),
+        pnl: Number.parseFloat(row.pnl as string),
+        fee: Number.parseFloat(row.fee as string),
+        closeReason: row.close_reason as string,
+        triggerType: row.trigger_type as string,
+        orderId: row.order_id as string,
+        createdAt: row.created_at as string,
+        processed: Boolean(row.processed),
+      }));
+      
+      // 翻译平仓原因
+      const reasonMap: Record<string, string> = {
+        'stop_loss_triggered': '止损触发',
+        'take_profit_triggered': '止盈触发',
+        'manual_close': 'AI手动平仓',
+        'ai_decision': 'AI主动平仓',
+        'trend_reversal': '趋势反转平仓',
+        'forced_close': '系统强制平仓',
+        'partial_close': '分批平仓',
+        'peak_drawdown': '峰值回撤平仓',
+        'time_limit': '持仓时间到期',
+      };
+      
+      const triggerTypeMap: Record<string, string> = {
+        'stop_loss': '止损单',
+        'take_profit': '止盈单',
+        'ai_decision': 'AI决策',
+        'system_rule': '系统规则',
+        'manual': '手动操作',
+      };
+      
+      return {
+        success: true,
+        events: events.map(e => ({
+          ...e,
+          closeReasonText: reasonMap[e.closeReason] || e.closeReason,
+          triggerTypeText: triggerTypeMap[e.triggerType] || e.triggerType,
+        })),
+        total: events.length,
+        message: `查询到 ${events.length} 条平仓事件`,
+      };
+    } catch (error: any) {
+      return {
+        success: false,
+        error: error.message,
+        message: `查询平仓事件失败: ${error.message}`,
+      };
+    }
+  },
+});
+

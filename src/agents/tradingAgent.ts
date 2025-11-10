@@ -659,7 +659,7 @@ ${params.scientificStopLoss?.enabled ? `│ 移动止损优化（可选，非必
 │   • 对于盈利持仓，可调用 updateTrailingStop() 检查优化机会     │
 │   • 如果 shouldUpdate=true，调用 updatePositionStopLoss() 执行 │
 │   • 参考触发点: ≥+${formatPercent(params.trailingStop.level1.trigger)}%, ≥+${formatPercent(params.trailingStop.level2.trigger)}%, ≥+${formatPercent(params.trailingStop.level3.trigger)}%                    │
-│   • ⚠️ 分批止盈后无需手动移动止损（已自动处理）                 │
+│   • ⚠️ 分批止盈后无需手动移动止损（已自动处理）                │
 │                                                                │` : `│ 移动止盈：                  │
 │   • 盈利≥+${formatPercent(params.trailingStop.level1.trigger)}% → 止损移至+${formatPercent(params.trailingStop.level1.stopAt)}%        │
 │   • 盈利≥+${formatPercent(params.trailingStop.level2.trigger)}% → 止损移至+${formatPercent(params.trailingStop.level2.stopAt)}%       │
@@ -674,7 +674,7 @@ ${params.scientificStopLoss?.enabled ? `│ 移动止损优化（可选，非必
 │   • ⚡ 波动率自适应: 低波动 R×0.8，高波动 R×1.2                │
 │   • 使用工具: checkPartialTakeProfitOpportunity()              │
 │                executePartialTakeProfit()                      │
-│   • ⚠️ 分批止盈会自动移动止损，无需再调用 updateTrailingStop    │
+│   • ⚠️ 分批止盈会自动移动止损，无需再调用 updateTrailingStop   │
 │                                                                │
 │ 峰值回撤：≥${formatPercent(params.peakDrawdownProtection)}% → 危险信号，立即平仓                         │
 └────────────────────────────────────────────────────────────────┘
@@ -721,9 +721,9 @@ ${params.scientificStopLoss?.enabled ? `
    └─ 工具会自动执行分批平仓并移动止损
 
    步骤2：检查平仓触发
-   ├─ 峰值回撤 ≥ ${formatPercent(params.peakDrawdownProtection)}% → 危险信号
-   ├─ 趋势反转 → closePosition
-   └─ 持仓时间 ≥ 36小时 → 强制平仓
+   ├─ 峰值回撤 ≥ ${formatPercent(params.peakDrawdownProtection)}% → 危险信号，调用 closePosition({ symbol, reason: 'peak_drawdown' })
+   ├─ 趋势反转（3+时间框架信号一致）→ 调用 closePosition({ symbol, reason: 'trend_reversal' })
+   └─ 持仓时间 ≥ 36小时 → 调用 closePosition({ symbol, reason: 'time_limit' })
    
 (2) 新开仓评估：
    分析市场数据 → 识别双向机会（做多/做空） → openPosition
@@ -789,9 +789,9 @@ ${params.scientificStopLoss?.enabled ? `
     理由: "太接近止损了，为了保险主动平仓"
     问题: 交易所已经设置了止损条件单，会自动触发，无需手动干预
 ✅ 正确做法: 信任交易所的止损单，只在以下情况主动平仓：
-    • 趋势明确反转（3+时间框架信号一致）
-    • 峰值回撤 ≥ ${formatPercent(params.peakDrawdownProtection)}%
-    • 持仓时间 ≥ 36小时
+    • 趋势明确反转（3+时间框架信号一致）→ closePosition({ symbol, reason: 'trend_reversal' })
+    • 峰值回撤 ≥ ${formatPercent(params.peakDrawdownProtection)}% → closePosition({ symbol, reason: 'peak_drawdown' })
+    • 持仓时间 ≥ 36小时 → closePosition({ symbol, reason: 'time_limit' })
 
 【正确案例3: 波动率动态调整（AI 无需手动计算）】
 策略配置: 1R 阈值 = 1.0
@@ -1168,9 +1168,9 @@ function generateInstructions(strategy: TradingStrategy, intervalMinutes: number
 2. **入场条件**：${params.entryCondition}
 3. **仓位管理规则（核心）**：
    - **同一币种只能持有一个方向的仓位**：不允许同时持有 BTC 多单和 BTC 空单
-   - **趋势反转必须先平仓**：如果当前持有 BTC 多单，想开 BTC 空单时，必须先平掉多单
+   - **趋势反转必须先平仓**：如果当前持有 BTC 多单，想开 BTC 空单时，必须先平掉多单（使用 closePosition({ symbol: 'BTC', reason: 'trend_reversal' })）
    - **防止对冲风险**：双向持仓会导致资金锁定、双倍手续费和额外风险
-   - **执行顺序**：趋势反转时 → 先执行 closePosition 平掉原仓位 → 再执行 openPosition 开新方向
+   - **执行顺序**：趋势反转时 → 先执行 closePosition({ symbol, reason: 'trend_reversal' }) 平掉原仓位 → 再执行 openPosition 开新方向
    - **加仓机制（风险倍增，谨慎执行）**：对于已有持仓的币种，如果趋势强化且局势有利，**允许加仓**：
      * **加仓条件**（全部满足才可加仓）：
        - 持仓方向正确且已盈利（pnl_percent > 5%，必须有足够利润缓冲）
@@ -1316,7 +1316,6 @@ function generateInstructions(strategy: TradingStrategy, intervalMinutes: number
          * 趋势减弱/出现反转信号 → 立即止盈，哪怕只有2-3%
          * 震荡行情、阻力位附近 → 可以提前止盈，落袋为安
          * 趋势强劲、没有明显阻力 → 可以让利润继续奔跑
-         * 持仓时间已久(4小时+)且有盈利 → 考虑主动止盈
      
      * 执行方式：
        - 分批止盈：executePartialTakeProfit(symbol: 'BTC', stage: '1')
@@ -1347,6 +1346,7 @@ function generateInstructions(strategy: TradingStrategy, intervalMinutes: number
 1. 账户健康检查（最优先，必须执行）：
    - 立即调用 getAccountBalance 获取账户净值和可用余额
    - 了解账户回撤情况，谨慎管理风险
+   - 如需了解近期平仓历史（可选）：调用 getCloseEventsHistory 查看最近的平仓记录和原因
 
 2. 现有持仓管理（优先于开新仓，必须实际执行工具）：
    - 立即调用 getPositions 获取所有持仓信息
@@ -1670,11 +1670,11 @@ function generateInstructions(strategy: TradingStrategy, intervalMinutes: number
 - 市场数据：getMarketPrice、getTechnicalIndicators、getFundingRate、getOrderBook
 - 持仓管理：
   * openPosition（市价单，自动设置止损止盈订单）
-  * closePosition（市价单）
+  * closePosition（市价单，支持 reason 参数记录平仓原因：trend_reversal=趋势反转, peak_drawdown=峰值回撤, time_limit=时间到期, manual_close=手动平仓）
   * cancelOrder、setStopLoss、setTakeProfit
   * updateTrailingStop（检查是否应该优化止损保护）
   * updatePositionStopLoss（实际更新交易所止损订单）
-- 账户信息：getAccountBalance、getPositions、getOpenOrders
+- 账户信息：getAccountBalance、getPositions、getOpenOrders、getCloseEvents（查询平仓事件历史）
 - 风险分析：calculateRisk、checkOrderStatus、calculateStopLoss、checkOpenPosition
 
 世界顶级交易员行动准则：
@@ -1774,6 +1774,7 @@ export function createTradingAgent(intervalMinutes: number = 5) {
       tradingTools.checkOrderStatusTool,
       tradingTools.calculateRiskTool,
       tradingTools.syncPositionsTool,
+      tradingTools.getCloseEventsTool,
       tradingTools.calculateStopLossTool,
       tradingTools.checkOpenPositionTool,
       tradingTools.updateTrailingStopTool,

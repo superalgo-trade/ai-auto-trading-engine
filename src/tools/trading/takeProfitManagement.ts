@@ -642,7 +642,41 @@ export const partialTakeProfitTool = createTool({
         notes: `阶段${stageNum}完成：R=${currentR.toFixed(2)}, 平仓${closePercent}%, PnL=${pnl.toFixed(2)} USDT`,
       });
       
-      // 11. 返回成功
+      // 11. 同时记录到通用平仓事件表（供 getCloseEvents 查询）
+      try {
+        // 估算手续费（开仓 + 平仓）
+        const estimatedFee = Math.abs(pnl * 0.001); // 约 0.1% 的手续费估算
+        
+        await dbClient.execute({
+          sql: `INSERT INTO position_close_events 
+                (symbol, side, entry_price, exit_price, quantity, leverage, 
+                 pnl, fee, close_reason, trigger_type, order_id, 
+                 created_at, processed)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          args: [
+            symbol,
+            side,
+            entryPrice,
+            currentPrice,      // 使用当前价格作为退出价格
+            closeQuantity,
+            leverage,
+            pnl,
+            estimatedFee,
+            'partial_close',   // ⭐ 平仓原因：分批平仓
+            'ai_decision',     // 触发类型：AI决策
+            `partial_${symbol}_stage${stageNum}_${Date.now()}`, // 生成唯一订单ID
+            getChinaTimeISO(),
+            1,  // 已处理
+          ],
+        });
+        
+        logger.info(`📝 已记录分批平仓事件到 position_close_events 表: ${symbol} 阶段${stageNum}`);
+      } catch (error: any) {
+        logger.error(`记录分批平仓事件到 position_close_events 失败: ${error.message}`);
+        // 不影响主流程，继续执行
+      }
+      
+      // 12. 返回成功
       return {
         success: true,
         message: `✅ 阶段${stageNum}分批止盈完成`,

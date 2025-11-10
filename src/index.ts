@@ -97,18 +97,18 @@ async function main() {
     logger.info("条件单监控服务已禁用（PRICE_ORDER_MONITOR_ENABLED=false）");
   }
   
-  logger.info("\n" + "=".repeat(80));
+  logger.info("=".repeat(80));
   logger.info("系统启动完成！");
   logger.info("=".repeat(80));
-  logger.info(`\n监控界面: http://localhost:${port}/`);
+  logger.info(`监控界面: http://localhost:${port}/`);
   logger.info(`交易间隔: ${process.env.TRADING_INTERVAL_MINUTES || 5} 分钟`);
   logger.info(`账户记录间隔: ${process.env.ACCOUNT_RECORD_INTERVAL_MINUTES || 10} 分钟`);
   logger.info(`支持币种: ${RISK_PARAMS.TRADING_SYMBOLS.join(', ')}`);
   logger.info(`最大杠杆: ${RISK_PARAMS.MAX_LEVERAGE}x`);
   logger.info(`最大持仓数: ${RISK_PARAMS.MAX_POSITIONS}`);
-  logger.info(`\n🔴 账户止损线: ${process.env.ACCOUNT_STOP_LOSS_USDT || 50} USDT (触发后全部清仓并退出)`);
+  logger.info(`🔴 账户止损线: ${process.env.ACCOUNT_STOP_LOSS_USDT || 50} USDT (触发后全部清仓并退出)`);
   logger.info(`🟢 账户止盈线: ${process.env.ACCOUNT_TAKE_PROFIT_USDT || 10000} USDT (触发后全部清仓并退出)`);
-  logger.info("\n按 Ctrl+C 停止系统\n");
+  logger.info(`⚠️ 按 Ctrl+C 停止系统`);
 }
 
 // 错误处理

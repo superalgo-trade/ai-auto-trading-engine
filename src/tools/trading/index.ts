@@ -44,6 +44,7 @@ export {
   checkOrderStatusTool,
   calculateRiskTool,
   syncPositionsTool,
+  getCloseEventsTool,
 } from "./accountManagement";
 
 // 止损管理工具
