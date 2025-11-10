@@ -395,12 +395,12 @@ export function createApiRoutes() {
       
       // 获取最大单笔盈利和亏损
       const maxWinResult = await dbClient.execute(
-        "SELECT MAX(pnl) as max_win FROM trades WHERE type = 'close' AND pnl IS NOT NULL"
+        "SELECT MAX(pnl) as max_win FROM trades WHERE type = 'close' AND pnl IS NOT NULL AND pnl > 0"
       );
       const maxWin = (maxWinResult.rows[0] as any).max_win || 0;
       
       const maxLossResult = await dbClient.execute(
-        "SELECT MIN(pnl) as max_loss FROM trades WHERE type = 'close' AND pnl IS NOT NULL"
+        "SELECT MIN(pnl) as max_loss FROM trades WHERE type = 'close' AND pnl IS NOT NULL AND pnl < 0"
       );
       const maxLoss = (maxLossResult.rows[0] as any).max_loss || 0;
       

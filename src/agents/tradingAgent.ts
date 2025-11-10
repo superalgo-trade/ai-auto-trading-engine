@@ -940,23 +940,26 @@ function generateInstructions(strategy: TradingStrategy, intervalMinutes: number
   【AI战术决策 - 专业建议，灵活执行】：
   
   核心原则（必读）：
-  • 止损 = 严格遵守：止损线是硬性规则，必须严格执行，仅可微调±1%
+  • 止损 = 严格遵守：止损线是硬性规则，必须严格执行
   • 止盈 = 灵活判断：止盈要根据市场实际情况决定，2-3%盈利也可止盈，不要死等高目标
   • 小确定性盈利 > 大不确定性盈利：宁可提前止盈，不要贪心回吐
   • 趋势是朋友，反转是敌人：出现反转信号立即止盈，不管盈利多少
   • 实战经验：盈利≥5%且持仓超过3小时，没有强趋势信号时可以主动平仓落袋为安
   
-  (1) 止损策略（必须严格遵守，这是保护本金的生命线）：
-     * 策略止损线（必须遵守，不可随意突破）：
-       - ${params.leverageMin}-${Math.floor((params.leverageMin + params.leverageMax) / 2)}倍杠杆：止损线 ${formatPercent(params.stopLoss.low)}%（必须执行）
-       - ${Math.floor((params.leverageMin + params.leverageMax) / 2)}-${Math.ceil((params.leverageMin + params.leverageMax) * 0.75)}倍杠杆：止损线 ${formatPercent(params.stopLoss.mid)}%（必须执行）
-       - ${Math.ceil((params.leverageMin + params.leverageMax) * 0.75)}-${params.leverageMax}倍杠杆：止损线 ${formatPercent(params.stopLoss.high)}%（必须执行）
-     * 微调空间：仅可根据关键支撑位/阻力位微调±1%（不能超过）
-     * 重要警告：
-       - 触及止损线必须立即平仓，不要犹豫，不要等待反弹
-       - 突破止损线后继续持有将导致更大亏损
-       - 极少例外：仅限明确的假突破+关键支撑位（需要充分证据）
-     * 说明：pnl_percent已包含杠杆效应，直接比较即可
+  (1) 止损策略（由交易所自动执行）：
+     * 自动止损单（已在交易所服务器端设置）：
+       - ${params.leverageMin}-${Math.floor((params.leverageMin + params.leverageMax) / 2)}倍杠杆：止损线 ${formatPercent(params.stopLoss.low)}%（交易所自动执行）
+       - ${Math.floor((params.leverageMin + params.leverageMax) / 2)}-${Math.ceil((params.leverageMin + params.leverageMax) * 0.75)}倍杠杆：止损线 ${formatPercent(params.stopLoss.mid)}%（交易所自动执行）
+       - ${Math.ceil((params.leverageMin + params.leverageMax) * 0.75)}-${params.leverageMax}倍杠杆：止损线 ${formatPercent(params.stopLoss.high)}%（交易所自动执行）
+     * AI的角色：
+       - ✅ 监控：确认止损单存在且有效
+       - ✅ 优化：盈利后可以上移止损（updateTrailingStop + updatePositionStopLoss）
+       - ❌ 不干预：不要因为价格接近止损线就主动平仓
+     * 为什么不主动平仓？
+       - 交易所条件单响应时间 < 1秒，AI决策需要等待下个周期（可能延迟数分钟）
+       - 条件单在交易所服务器端24/7监控，程序崩溃也不影响
+       - 避免误判：市场可能出现假突破，条件单更精确
+     * 说明：pnl_percent已包含杠杆效应，但由交易所自动判断和执行
   
   (2) 移动止损策略（保护利润的核心机制）：
      ${params.scientificStopLoss?.enabled && RISK_PARAMS.ENABLE_TRAILING_STOP_LOSS ? `
@@ -1040,17 +1043,17 @@ function generateInstructions(strategy: TradingStrategy, intervalMinutes: number
    
    ⚠️ 重要原则：永远不要为了开新仓而平掉健康的持仓！
    
-   a) 止损决策（必须严格遵守，不可灵活）：
-      - 重要：止损线是硬性规则，必须严格遵守，不像止盈可以灵活！
+   a) 止损决策：
       ${params.scientificStopLoss?.enabled ? `
-      ⭐ 科学止损（当前启用）：
-      - 调用 calculateStopLoss() 重新计算当前合理止损位
-      - 基于 ATR${params.scientificStopLoss.atrMultiplier}x 和支撑/阻力位动态计算
+      科学止损（当前启用，由交易所自动执行，AI无需干预）：
+      - 开仓时已在交易所设置止损条件单（24/7自动监控）
+      - 止损单在交易所服务器端执行，触及止损价立即平仓（< 1秒）
+      - AI职责：
+        * ✅ 监控止损单状态（确保存在且有效）
+        * ✅ 必要时优化止损位（通过 updateTrailingStop）
+        * ❌ 不要主动平仓（除非条件单异常）
       - 止损范围：${params.scientificStopLoss.minDistance}%-${params.scientificStopLoss.maxDistance}%
-      - 如果当前价格触及科学止损位：
-        * 立即调用 closePosition 平仓（不要犹豫）
-        * 市场波动加剧时，科学止损会自动放宽空间
-      - 记住：止损是保护本金的生命线！
+      - 记住：交易所自动止损比AI手动平仓快100倍！
       ` : `
       固定止损（当前使用）：
       - 检查 pnl_percent 是否触及策略止损线：
