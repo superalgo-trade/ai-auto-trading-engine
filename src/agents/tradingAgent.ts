@@ -475,9 +475,9 @@ export function generateTradingPrompt(data: {
 
 【硬性风控底线 - 系统强制执行】
 ┌─────────────────────────────────────────┐
-│ 科学止损保护：交易所服务器端24/7监控   │
-│   • 触及止损位立即平仓（不受程序限制） │
-│   • 如超过止损阈值未平仓：系统强制介入 │
+│ 科学止损保护：交易所服务器端24/7监控    │
+│   • 触及止损位立即平仓（不受程序限制）  │
+│   • 如超过止损阈值未平仓：系统强制介入  │
 │ 持仓时间 ≥ 36小时：强制平仓             │
 └─────────────────────────────────────────┘
 
@@ -485,7 +485,7 @@ export function generateTradingPrompt(data: {
 ┌─────────────────────────────────────────────────────┐
 ${params.scientificStopLoss?.enabled ? `│ 科学止损：                                          │
 │   • 基于 ATR${params.scientificStopLoss.atrMultiplier}x + 支撑/阻力位                        │
-│   • 止损距离: ${params.scientificStopLoss.minDistance}%-${params.scientificStopLoss.maxDistance}% (价格变化，不含杠杆)        │
+│   • 止损距离: ${params.scientificStopLoss.minDistance}%-${params.scientificStopLoss.maxDistance}% (价格变化，不含杠杆)          │
 │   • 实际亏损 = 止损距离 × 杠杆倍数                  │
 │     例：2%止损距离 × 10x杠杆 = -20%实际亏损         │
 │   • 开仓前检查: checkOpenPosition()                 │

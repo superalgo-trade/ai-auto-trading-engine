@@ -80,11 +80,9 @@ export class PriceOrderMonitor {
     const intervalSeconds = parseInt(process.env.PRICE_ORDER_CHECK_INTERVAL || '30');
     logger.info(`启动条件单监控服务，检测间隔: ${intervalSeconds}秒`);
 
-    // 延迟5分钟后再执行第一次检测，避免刚创建的条件单被误判
-    logger.info('等待5分钟后开始首次检测，避免误判刚创建的条件单...');
-    setTimeout(async () => {
-      await this.checkTriggeredOrders();
-    }, 300000);
+    // 立即执行第一次检测，捕获系统离线期间触发的条件单
+    logger.info('立即执行首次检测，捕获系统离线期间的平仓事件...');
+    await this.checkTriggeredOrders();
 
     // 定期执行
     this.checkInterval = setInterval(async () => {
@@ -199,16 +197,33 @@ export class PriceOrderMonitor {
     await this.cancelOppositeOrder(order);
 
     // 5. 查询持仓信息（用于计算PnL）
-    const position = await this.getPositionInfo(order.symbol, order.side);
+    let position = await this.getPositionInfo(order.symbol, order.side);
+    
+    // 如果数据库中没有持仓记录，尝试从开仓交易记录中查找
+    if (!position) {
+      logger.warn(`数据库中未找到 ${order.symbol} ${order.side} 的持仓信息，尝试从交易记录查找开仓信息...`);
+      const openTrade = await this.findOpenTrade(order.symbol, order.side);
+      if (openTrade) {
+        // 使用开仓交易信息构建持仓对象
+        position = {
+          symbol: openTrade.symbol,
+          side: openTrade.side,
+          entry_price: openTrade.price,
+          quantity: openTrade.quantity,
+          leverage: openTrade.leverage,
+        };
+        logger.info(`✅ 从交易记录恢复持仓信息: ${order.symbol} @ ${position.entry_price}`);
+      }
+    }
     
     // 6. 记录平仓交易
     if (position) {
       await this.recordCloseTrade(order, closeTrade, position);
     } else {
-      logger.warn(`未找到 ${order.symbol} ${order.side} 的持仓信息，无法计算PnL`);
+      logger.error(`❌ 无法获取 ${order.symbol} ${order.side} 的持仓信息，跳过平仓记录`);
     }
 
-    // 7. 删除持仓记录
+    // 7. 删除持仓记录（如果存在）
     await this.removePosition(order.symbol, order.side);
 
     logger.info(`✅ ${order.symbol} ${order.type} 触发处理完成`);
@@ -224,18 +239,21 @@ export class PriceOrderMonitor {
 
       const orderCreateTime = new Date(order.created_at).getTime();
       const now = Date.now();
-      const timeWindowMs = 5 * 60 * 1000; // 5分钟时间窗口
+      
+      // 扩展时间窗口：条件单创建后24小时内的交易都要检查
+      // 这样可以捕获系统离线期间触发的止损/止盈
+      const maxTimeWindowMs = 24 * 60 * 60 * 1000; // 24小时
 
-      // 查找符合条件的平仓交易
-      const closeTrade = trades.find(t => {
+      // 查找所有符合条件的平仓交易
+      const closeTrades = trades.filter(t => {
         // 交易时间必须在条件单创建之后
         const tradeTime = t.timestamp || t.create_time || 0;
-        if (tradeTime <= orderCreateTime) return false;
+        if (tradeTime <= orderCreateTime) {
+          return false;
+        }
 
-        // 关键：只检查最近5分钟内的交易，排除历史旧记录
-        // 这样可以避免止损单重建时，误判历史平仓记录为触发
-        if (now - tradeTime > timeWindowMs) {
-          logger.debug(`跳过历史交易: 时间=${new Date(tradeTime).toISOString()}, 距今${Math.floor((now - tradeTime) / 60000)}分钟`);
+        // 只检查条件单创建后24小时内的交易
+        if (tradeTime - orderCreateTime > maxTimeWindowMs) {
           return false;
         }
 
@@ -259,14 +277,46 @@ export class PriceOrderMonitor {
         }
       });
 
-      if (closeTrade) {
-        const tradeTime = closeTrade.timestamp || closeTrade.create_time || 0;
-        logger.debug(`找到最近平仓交易: 时间=${new Date(tradeTime).toISOString()}, 价格=${closeTrade.price}`);
+      if (closeTrades.length === 0) {
+        return null;
       }
 
-      return closeTrade || null;
+      // 如果有多笔交易，选择最早的一笔（最接近触发时刻）
+      const closeTrade = closeTrades.reduce((earliest, current) => {
+        const currentTime = current.timestamp || current.create_time || 0;
+        const earliestTime = earliest.timestamp || earliest.create_time || 0;
+        return currentTime < earliestTime ? current : earliest;
+      });
+
+      const tradeTime = closeTrade.timestamp || closeTrade.create_time || 0;
+      const minutesAgo = Math.floor((now - tradeTime) / 60000);
+      logger.debug(`找到平仓交易: 时间=${new Date(tradeTime).toISOString()}, 价格=${closeTrade.price}, 距今${minutesAgo}分钟`);
+
+      return closeTrade;
     } catch (error: any) {
       logger.error(`查找平仓交易失败:`, error);
+      return null;
+    }
+  }
+
+  /**
+   * 查找开仓交易记录
+   */
+  private async findOpenTrade(symbol: string, side: 'long' | 'short'): Promise<any | null> {
+    try {
+      const result = await this.dbClient.execute({
+        sql: `SELECT * FROM trades 
+              WHERE symbol = ? 
+              AND side = ? 
+              AND type = 'open' 
+              ORDER BY timestamp DESC 
+              LIMIT 1`,
+        args: [symbol, side]
+      });
+
+      return result.rows.length > 0 ? result.rows[0] : null;
+    } catch (error: any) {
+      logger.error(`查找开仓交易失败:`, error);
       return null;
     }
   }

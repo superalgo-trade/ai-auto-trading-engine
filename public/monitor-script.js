@@ -280,7 +280,7 @@ class TradingMonitor {
                 return;
             }
 
-            // 显示最近的条件单（包括已触发和已取消的，最多显示最近60条）
+            // 显示最近的条件单（包括已触发和已取消的，最多显示最近100条）
             const recentOrders = data.priceOrders
                 .sort((a, b) => {
                     // 按状态优先级排序：active > triggered > cancelled
@@ -291,7 +291,7 @@ class TradingMonitor {
                     // 同状态按时间倒序
                     return new Date(b.created_at) - new Date(a.created_at);
                 })
-                .slice(0, 60); // 只显示最近60条
+                .slice(0, 100); // 只显示最近60条
             
             if (recentOrders.length === 0) {
                 if (priceOrdersBody) {

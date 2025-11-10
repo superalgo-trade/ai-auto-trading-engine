@@ -425,7 +425,7 @@ export const updatePositionStopLossTool = createTool({
             
             if (!isValidMove) {
               const symbolName = symbol.replace(/_USDT$/, '').replace(/USDT$/, '');
-              logger.error(`❌ 止损移动方向错误！${symbol} ${side}`, {
+              logger.warn(`❌ 止损移动方向错误！${symbol} ${side}`, {
                 currentStopLoss: formatStopLossPrice(symbolName, currentStopLoss),
                 newStopLoss: formatStopLossPrice(symbolName, stopLoss),
                 direction: side === 'long' ? '多单只能上移' : '空单只能下移'
