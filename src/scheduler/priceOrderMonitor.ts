@@ -365,21 +365,69 @@ export class PriceOrderMonitor {
 
       const opposite = result.rows[0];
       const oppositeOrderId = opposite.order_id as string;
+      const contract = this.exchangeClient.normalizeContract(triggeredOrder.symbol);
 
       // 2. 取消交易所的条件单
       try {
-        await this.exchangeClient.cancelOrder(oppositeOrderId);
-        logger.info(`✅ 已取消交易所条件单: ${oppositeOrderId}`);
+        // 先尝试从交易所查询条件单，确认是否存在
+        const exchangePriceOrders = await this.exchangeClient.getPriceOrders(contract);
+        
+        // 统一格式：确保有id字段（兼容币安和Gate.io）
+        const normalizedOrders = exchangePriceOrders.map(o => ({
+          ...o,
+          id: o.id?.toString() || o.orderId?.toString() || o.order_id?.toString()
+        }));
+        
+        const exchangeOrder = normalizedOrders.find(o => o.id === oppositeOrderId);
+        
+        if (exchangeOrder) {
+          // 订单存在，执行取消
+          if (this.exchangeClient.getExchangeName() === 'binance') {
+            // 币安需要使用特定的取消条件单API
+            await this.cancelBinanceConditionalOrder(oppositeOrderId, contract);
+          } else {
+            // Gate.io 直接使用 cancelOrder
+            await this.exchangeClient.cancelOrder(oppositeOrderId);
+          }
+          logger.info(`✅ 已取消交易所条件单: ${contract} ${oppositeOrderId}`);
+        } else {
+          logger.debug(`交易所条件单 ${oppositeOrderId} 已不存在（可能已触发或取消），无需取消`);
+        }
       } catch (error: any) {
-        logger.warn(`⚠️ 取消交易所条件单失败（可能已不存在）: ${error.message}`);
+        logger.warn(`⚠️ 取消交易所条件单失败: ${error.message}`);
       }
 
-      // 3. 更新数据库状态
+      // 3. 更新数据库状态（无论交易所是否取消成功，都要更新本地状态）
       await this.updateOrderStatus(oppositeOrderId, 'cancelled');
       
-      logger.info(`✅ 已取消反向条件单: ${oppositeOrderId}`);
+      logger.info(`✅ 已更新本地反向条件单状态为cancelled: ${oppositeOrderId}`);
     } catch (error: any) {
       logger.error(`取消反向条件单失败:`, error);
+    }
+  }
+
+  /**
+   * 取消币安的条件单
+   */
+  private async cancelBinanceConditionalOrder(orderId: string, symbol: string): Promise<void> {
+    const exchangeClient = this.exchangeClient as any;
+    
+    try {
+      // 币安的条件单取消需要 symbol 参数
+      await exchangeClient.privateRequest('/fapi/v1/order', {
+        symbol,
+        orderId
+      }, 'DELETE');
+      
+      logger.debug(`已取消币安条件单 ${orderId}`);
+    } catch (error: any) {
+      // 如果订单已经不存在，不应该抛出错误
+      if (error.message?.includes('Unknown order') || 
+          error.message?.includes('Order does not exist')) {
+        logger.debug(`订单 ${orderId} 已不存在，无需取消`);
+        return;
+      }
+      throw error;
     }
   }
 
@@ -432,22 +480,13 @@ export class PriceOrderMonitor {
         : (entryPrice - exitPrice) / entryPrice;
       const pnlPercent = priceChange * 100 * leverage;
 
-      // 插入交易记录（使用中国时区时间，与开仓记录保持一致）
-      const closeTime = new Date(trade.timestamp);
-      const chinaTimeStr = closeTime.toLocaleString('zh-CN', {
-        timeZone: 'Asia/Shanghai',
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit',
-        hour12: false
-      });
-      // 转换为 ISO 格式: 2025-11-10T15:48:32+08:00
-      const [datePart, timePart] = chinaTimeStr.split(' ');
-      const [month, day, year] = datePart.split('/');
-      const chinaTimeISO = `${year}-${month}-${day}T${timePart}+08:00`;
+      // 插入交易记录（timestamp是毫秒时间戳，转换为ISO 8601格式）
+      // trade.timestamp 是UTC时间戳，直接转换为ISO格式即可
+      const closeTimeISO = new Date(trade.timestamp).toISOString();
+      
+      logger.debug(`准备记录平仓交易: symbol=${order.symbol}, side=${order.side}, ` +
+        `entry=${entryPrice}, exit=${exitPrice}, qty=${quantity}, pnl=${pnl.toFixed(2)}, ` +
+        `time=${closeTimeISO}`);
       
       await this.dbClient.execute({
         sql: `INSERT INTO trades 
@@ -463,10 +502,13 @@ export class PriceOrderMonitor {
           leverage,
           pnl,
           trade.fee,
-          chinaTimeISO,
+          closeTimeISO,
           'filled'
         ]
       });
+      
+      logger.info(`✅ 已记录平仓交易到数据库: ${order.symbol} ${order.side}, ` +
+        `order_id=${trade.id}, PnL=${pnl.toFixed(2)} USDT (${pnlPercent.toFixed(2)}%)`);
 
       // 记录平仓事件（供AI决策使用）
       const closeReason = order.type === 'stop_loss' 
@@ -504,14 +546,33 @@ export class PriceOrderMonitor {
         ]
       });
 
-      logger.info(`✅ 已记录平仓交易: ${order.symbol} ${order.side}, PnL=${pnl.toFixed(2)} USDT (${pnlPercent.toFixed(2)}%)`);
-      logger.info(`📝 已记录平仓事件: ${order.symbol} ${closeReason}`);
+      logger.info(`📝 已记录平仓事件到数据库: ${order.symbol} ${closeReason}`);
+
+      logger.info(`📝 已记录平仓事件到数据库: ${order.symbol} ${closeReason}`);
+      
+      // 验证记录是否成功插入
+      const verifyResult = await this.dbClient.execute({
+        sql: `SELECT COUNT(*) as count FROM trades WHERE order_id = ? AND type = 'close'`,
+        args: [trade.id]
+      });
+      const recordCount = Number(verifyResult.rows[0]?.count || 0);
+      if (recordCount > 0) {
+        logger.info(`✅ 验证成功: 平仓交易已存入数据库 (order_id: ${trade.id})`);
+      } else {
+        logger.error(`❌ 验证失败: 平仓交易未找到 (order_id: ${trade.id})`);
+      }
     } catch (error: any) {
       logger.error(`记录平仓交易失败:`, error);
       logger.error(`SQL插入参数:`, {
-        order,
-        closeTrade,
-        position
+        orderId: order.order_id,
+        symbol: order.symbol,
+        side: order.side,
+        type: 'close',
+        tradeId: closeTrade?.id || closeTrade?.orderId,
+        position: {
+          entry_price: position?.entry_price,
+          leverage: position?.leverage
+        }
       });
     }
   }
