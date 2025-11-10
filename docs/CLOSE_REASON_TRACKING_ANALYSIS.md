@@ -1,5 +1,110 @@
 # 平仓原因追踪完整性分析
 
+## 📋 核心概念说明
+
+### 平仓原因（close_reason）vs 触发类型（trigger_type）
+
+**平仓原因（close_reason）**: 描述"为什么"平仓
+
+- 例如：止损触发、止盈触发、趋势反转、峰值回撤等
+
+**触发类型（trigger_type）**: 描述"谁"或"通过什么机制"触发平仓
+
+- `exchange_order`: 交易所条件单自动触发（止损/止盈订单）
+- `ai_decision`: AI主动决策平仓
+- `system_risk`: 系统风控强制平仓
+- `manual_operation`: 人工手动操作
+
+### 平仓原因与触发类型的映射关系
+
+| close_reason | 中文名称 | trigger_type | 说明 |
+|-------------|---------|--------------|------|
+| `stop_loss_triggered` | 止损触发 | `exchange_order` | 交易所条件单自动触发 |
+| `take_profit_triggered` | 止盈触发 | `exchange_order` | 交易所条件单自动触发 |
+| `manual_close` | AI手动平仓 | `ai_decision` | AI调用工具主动平仓 |
+| `ai_decision` | AI主动平仓 | `ai_decision` | AI调用工具主动平仓 |
+| `trend_reversal` | 趋势反转平仓 | `ai_decision` | AI检测到趋势反转后平仓 |
+| `peak_drawdown` | 峰值回撤平仓 | `ai_decision` | AI检测到回撤过大后平仓 |
+| `time_limit` | 持仓时间到期 | `ai_decision` | AI检测到持仓时间过长后平仓 |
+| `partial_close` | 分批平仓 | `ai_decision` | AI执行分批止盈策略 |
+| `trailing_stop` | 移动止损触发 | `exchange_order` | 交易所移动止损单触发 |
+| `forced_close` | 系统强制平仓 | `system_risk` | 系统风控强制平仓或爆仓 |
+
+### 数据库字段设计
+
+`position_close_events` 表应包含以下字段：
+
+```sql
+CREATE TABLE position_close_events (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  symbol TEXT NOT NULL,              -- 交易对
+  side TEXT NOT NULL,                -- 方向（long/short）
+  close_reason TEXT NOT NULL,        -- 平仓原因代码
+  trigger_type TEXT NOT NULL,        -- 触发类型
+  trigger_price REAL,                -- 触发价格
+  close_price REAL NOT NULL,         -- 实际成交价格
+  entry_price REAL NOT NULL,         -- 开仓价格
+  quantity REAL NOT NULL,            -- 平仓数量
+  leverage INTEGER NOT NULL,         -- 杠杆倍数
+  pnl REAL NOT NULL,                 -- 盈亏金额
+  pnl_percent REAL NOT NULL,         -- 盈亏百分比
+  fee REAL,                          -- 手续费
+  trigger_order_id TEXT,             -- 触发订单ID
+  close_trade_id TEXT,               -- 平仓交易ID
+  order_id TEXT,                     -- 关联订单ID
+  created_at TEXT NOT NULL,          -- 创建时间
+  processed INTEGER DEFAULT 0        -- 是否已处理
+);
+```
+
+---
+
+## 🔧 系统实现概况
+
+### 已实现的触发类型对应关系
+
+| 触发类型 | 中文名称 | 应用场景 | 代码位置 |
+|---------|---------|---------|---------|
+| `exchange_order` | 交易所条件单 | 止损/止盈订单触发 | `priceOrderMonitor.ts` |
+| `ai_decision` | AI决策 | AI主动平仓、分批止盈 | `tradeExecution.ts`, `takeProfitManagement.ts` |
+| `system_risk` | 系统风控 | 36小时强制平仓、科学止损失效保护 | `tradingLoop.ts` |
+| `manual_operation` | 手动操作 | 预留：人工手动操作（未实现） | - |
+
+### 数据记录完整性
+
+所有平仓事件都会记录以下完整信息：
+
+- ✅ `symbol`: 交易对
+- ✅ `side`: 方向（long/short）
+- ✅ `close_reason`: 平仓原因代码
+- ✅ `trigger_type`: 触发类型（2025-11-10 新增）
+- ✅ `entry_price`: 开仓价格
+- ✅ `exit_price`: 平仓价格
+- ✅ `quantity`: 平仓数量
+- ✅ `leverage`: 杠杆倍数（2025-11-10 新增）
+- ✅ `pnl`: 盈亏金额
+- ✅ `pnl_percent`: 盈亏百分比（2025-11-10 新增）
+- ✅ `fee`: 手续费（2025-11-10 新增）
+- ✅ `order_id`: 关联订单ID（2025-11-10 新增）
+- ✅ `created_at`: 创建时间
+- ✅ `processed`: 处理状态
+
+### 数据库迁移
+
+如果您的数据库是旧版本，需要运行以下迁移脚本添加新字段：
+
+```bash
+npx tsx src/database/add-trigger-type-column.ts
+```
+
+迁移脚本会自动：
+
+1. 检测并添加缺失的字段（`trigger_type`, `leverage`, `fee`, `order_id`）
+2. 根据 `close_reason` 自动推断已有记录的 `trigger_type`
+3. 设置默认值（leverage=1, fee=0）
+
+---
+
 ## 📊 当前支持的平仓原因清单
 
 ### 在 `accountManagement.ts` 中定义的 reasonMap
@@ -52,8 +157,8 @@ await this.dbClient.execute({
 1. 开仓时在交易所设置止损条件单
 2. 价格触及止损线 → 交易所自动触发平仓
 3. `priceOrderMonitor` 监测到订单成交
-4. 记录 `close_reason = 'stop_loss_triggered'` 到 `position_close_events` 表
-5. 前端查询时显示 "止损触发"
+4. 记录 `close_reason = 'stop_loss_triggered'`, `trigger_type = 'exchange_order'` 到 `position_close_events` 表
+5. 前端查询时显示 "止损触发" + "交易所条件单"
 
 ---
 
@@ -120,8 +225,8 @@ export const closePositionTool = createTool({
 
 1. AI 决策需要平仓
 2. 调用 `closePosition({ symbol: 'BTC', reason: 'manual_close' })`
-3. 工具执行平仓并记录 `close_reason`
-4. 前端显示对应的中文翻译
+3. 工具执行平仓并记录 `close_reason` 和 `trigger_type = 'ai_decision'`
+4. 前端显示对应的中文翻译 "AI手动平仓" + "AI决策"
 
 ---
 
@@ -466,6 +571,60 @@ if (accountDrawdown > 0.20) {  // 账户回撤超过20%
 ## 🔧 修复历史
 
 ### 2025-11-10 修复记录
+
+#### ✅ 已完成：触发类型（trigger_type）系统完善
+
+**问题**:
+
+1. 数据库 schema 缺少 `trigger_type` 字段，但代码中在使用
+2. `trigger_type` 被硬编码为 `'ai_decision'`，无法区分不同的触发机制
+3. 缺少 `leverage`, `pnl_percent`, `fee`, `order_id` 等关键字段
+
+**影响**:
+
+- 无法区分平仓是由交易所条件单触发还是AI主动平仓
+- 无法区分系统风控强制平仓
+- 数据不完整，影响分析和决策
+
+**修复方案**:
+
+1. **更新数据库 schema** (`src/database/schema.ts`):
+   - 添加 `trigger_type TEXT NOT NULL` 字段
+   - 添加 `leverage INTEGER NOT NULL` 字段
+   - 添加 `pnl_percent REAL NOT NULL` 字段
+   - 添加 `fee REAL` 字段
+   - 添加 `order_id TEXT` 字段
+
+2. **创建数据库迁移脚本** (`src/database/add-trigger-type-column.ts`):
+   - 自动检测并添加缺失字段
+   - 根据 `close_reason` 推断 `trigger_type`
+   - 设置默认值
+
+3. **定义触发类型映射**:
+   - `exchange_order`: 交易所条件单自动触发（止损/止盈订单）
+   - `ai_decision`: AI主动决策平仓
+   - `system_risk`: 系统风控强制平仓
+   - `manual_operation`: 人工手动操作（预留）
+
+4. **更新所有平仓事件记录点**:
+   - `priceOrderMonitor.ts`: 止损/止盈订单触发 → `trigger_type = 'exchange_order'`
+   - `tradeExecution.ts`: AI工具调用 → `trigger_type = 'ai_decision'`
+   - `takeProfitManagement.ts`: 分批止盈 → `trigger_type = 'ai_decision'`
+   - `tradingLoop.ts`: 系统风控强制平仓 → `trigger_type = 'system_risk'`
+
+5. **更新 accountManagement.ts**:
+   - 更新查询语句包含 `trigger_type` 字段
+   - 更新 `triggerTypeMap` 翻译映射
+
+**修复效果**:
+
+- ✅ 所有平仓事件都明确记录触发类型
+- ✅ 可以区分交易所自动触发、AI决策、系统风控三种机制
+- ✅ 数据记录完整，包含杠杆、盈亏百分比、手续费等关键信息
+- ✅ 查询工具正确翻译并显示触发类型
+- ✅ 保持向后兼容，旧数据可通过迁移脚本自动修复
+
+---
 
 #### ✅ 已完成：`partial_close` - 分批平仓事件记录
 

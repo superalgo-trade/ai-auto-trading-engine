@@ -122,15 +122,19 @@ export interface PositionCloseEvent {
   id: number;
   symbol: string;
   side: 'long' | 'short';
-  close_reason: 'stop_loss_triggered' | 'take_profit_triggered' | 'manual' | 'forced';
+  close_reason: 'stop_loss_triggered' | 'take_profit_triggered' | 'manual_close' | 'ai_decision' | 'trend_reversal' | 'peak_drawdown' | 'time_limit' | 'partial_close' | 'trailing_stop' | 'forced_close';
+  trigger_type: 'exchange_order' | 'ai_decision' | 'system_risk' | 'manual_operation';
   trigger_price?: number;
   close_price: number;
   entry_price: number;
   quantity: number;
+  leverage: number;
   pnl: number;
   pnl_percent: number;
+  fee?: number;
   trigger_order_id?: string;
   close_trade_id?: string;
+  order_id?: string;
   created_at: string;
   processed: boolean;
 }
@@ -269,14 +273,18 @@ CREATE TABLE IF NOT EXISTS position_close_events (
   symbol TEXT NOT NULL,
   side TEXT NOT NULL,
   close_reason TEXT NOT NULL,
+  trigger_type TEXT NOT NULL,
   trigger_price REAL,
   close_price REAL NOT NULL,
   entry_price REAL NOT NULL,
   quantity REAL NOT NULL,
+  leverage INTEGER NOT NULL,
   pnl REAL NOT NULL,
   pnl_percent REAL NOT NULL,
+  fee REAL,
   trigger_order_id TEXT,
   close_trade_id TEXT,
+  order_id TEXT,
   created_at TEXT NOT NULL,
   processed INTEGER DEFAULT 0
 );

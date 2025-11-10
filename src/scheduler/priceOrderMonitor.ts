@@ -473,23 +473,32 @@ export class PriceOrderMonitor {
         ? 'stop_loss_triggered' 
         : 'take_profit_triggered';
 
+      // 计算总手续费（开仓 + 平仓，这里只有平仓的，估算开仓手续费）
+      const closeFee = parseFloat(trade.fee || '0');
+      const estimatedOpenFee = Math.abs(entryPrice * quantity * 0.0002); // 估算开仓手续费
+      const totalFee = closeFee + estimatedOpenFee;
+
       await this.dbClient.execute({
         sql: `INSERT INTO position_close_events 
-              (symbol, side, close_reason, trigger_price, close_price, entry_price, 
-               quantity, pnl, pnl_percent, trigger_order_id, close_trade_id, created_at, processed)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+              (symbol, side, close_reason, trigger_type, trigger_price, close_price, entry_price, 
+               quantity, leverage, pnl, pnl_percent, fee, trigger_order_id, close_trade_id, order_id, created_at, processed)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         args: [
           order.symbol,
           order.side,
           closeReason,
+          'exchange_order',  // 触发类型：交易所条件单
           parseFloat(order.trigger_price),
           exitPrice,
           entryPrice,
           quantity,
+          position.leverage || 1,
           pnl,
           pnlPercent,
+          totalFee,
           order.order_id,
           trade.id,
+          order.order_id,
           new Date().toISOString(),
           0 // 未处理
         ]

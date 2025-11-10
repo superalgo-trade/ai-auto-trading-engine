@@ -1550,6 +1550,45 @@ async function executeTradingDecision() {
               ],
             });
             logger.info(`已记录强制平仓交易到数据库: ${symbol}, 盈亏=${pnl.toFixed(2)} USDT, 原因=${closeReason}`);
+            
+            // 📝 记录平仓事件到 position_close_events 表
+            try {
+              const pnlPercent = pos.entry_price > 0 
+                ? ((finalPrice - pos.entry_price) / pos.entry_price * 100 * (side === 'long' ? 1 : -1) * (pos.leverage || 1))
+                : 0;
+              
+              // 根据平仓原因判断触发类型
+              // 36小时强制平仓和科学止损失效保护都是系统风控触发
+              const triggerType = 'system_risk';  // 系统风控强制平仓
+                
+              await dbClient.execute({
+                sql: `INSERT INTO position_close_events 
+                      (symbol, side, entry_price, exit_price, quantity, leverage, 
+                       pnl, pnl_percent, fee, close_reason, trigger_type, order_id, 
+                       created_at, processed)
+                      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                args: [
+                  symbol,
+                  side,
+                  pos.entry_price,
+                  finalPrice,
+                  actualQuantity,
+                  pos.leverage || 1,
+                  pnl,
+                  pnlPercent,
+                  totalFee,
+                  'forced_close',  // 平仓原因：系统强制平仓
+                  triggerType,     // 触发类型：系统风控
+                  order.id?.toString() || "",
+                  getChinaTimeISO(),
+                  1,  // 已处理
+                ],
+              });
+              logger.info(`📝 已记录平仓事件: ${symbol} ${side} 原因=forced_close, 触发类型=${triggerType}`);
+            } catch (eventError: any) {
+              logger.error(`记录平仓事件失败: ${eventError.message}`);
+              // 不影响主流程
+            }
           } catch (dbError: any) {
             logger.error(`记录强制平仓交易失败: ${dbError.message}`);
             // 即使数据库写入失败，也记录到日志以便后续补救
@@ -1684,8 +1723,9 @@ async function executeTradingDecision() {
         temperature: 0.4,
       });
       
-      // 从响应中提取AI的完整回复，不进行任何切分
+      // 从响应中提取AI的完整回复和工具调用记录
       let decisionText = "";
+      const toolCallsRecord: any[] = [];
       
       // 添加调试日志，查看响应的原始结构
       logger.debug(`响应类型: ${typeof response}`);
@@ -1735,6 +1775,18 @@ async function executeTradingDecision() {
           // 只添加非空文本，避免重复
           if (stepText) {
             allTexts.push(stepText);
+          }
+          
+          // 提取工具调用记录
+          if (step.toolCalls && Array.isArray(step.toolCalls)) {
+            for (const toolCall of step.toolCalls) {
+              toolCallsRecord.push({
+                tool: toolCall.toolName || 'unknown',
+                args: toolCall.args || {},
+                result: step.toolResults?.find((r: any) => r.toolCallId === toolCall.toolCallId)?.result || null
+              });
+              logger.debug(`  记录工具调用: ${toolCall.toolName}`);
+            }
           }
         }
         
@@ -1799,7 +1851,10 @@ async function executeTradingDecision() {
       
       logger.info("=".repeat(80) + "\n");
       
-      // 保存决策记录
+      // 保存决策记录，包含工具调用信息
+      const actionsJson = JSON.stringify(toolCallsRecord);
+      logger.debug(`工具调用记录: ${actionsJson}`);
+      
       await dbClient.execute({
         sql: `INSERT INTO agent_decisions 
               (timestamp, iteration, market_analysis, decision, actions_taken, account_value, positions_count)
@@ -1809,7 +1864,7 @@ async function executeTradingDecision() {
           iterationCount,
           JSON.stringify(marketData),
           decisionText,
-          "[]",
+          actionsJson,  // 使用提取的工具调用记录
           accountInfo.totalBalance,
           positions.length,
         ],

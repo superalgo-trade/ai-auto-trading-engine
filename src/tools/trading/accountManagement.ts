@@ -438,11 +438,10 @@ export const getCloseEventsTool = createTool({
       };
       
       const triggerTypeMap: Record<string, string> = {
-        'stop_loss': '止损单',
-        'take_profit': '止盈单',
+        'exchange_order': '交易所条件单',
         'ai_decision': 'AI决策',
-        'system_rule': '系统规则',
-        'manual': '手动操作',
+        'system_risk': '系统风控',
+        'manual_operation': '手动操作',
       };
       
       return {

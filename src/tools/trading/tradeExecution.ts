@@ -1111,12 +1111,18 @@ export const closePositionTool = createTool({
       // 📝 记录平仓事件到 position_close_events 表
       // 这样可以追踪每次平仓的原因和详情
       const closeEventTime = getChinaTimeISO();
+      
+      // 计算盈亏百分比（含杠杆）
+      const pnlPercent = entryPrice > 0 
+        ? ((actualExitPrice - entryPrice) / entryPrice * 100 * (side === 'long' ? 1 : -1) * leverage)
+        : 0;
+      
       await dbClient.execute({
         sql: `INSERT INTO position_close_events 
               (symbol, side, entry_price, exit_price, quantity, leverage, 
-               pnl, fee, close_reason, trigger_type, order_id, 
+               pnl, pnl_percent, fee, close_reason, trigger_type, order_id, 
                created_at, processed)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         args: [
           symbol,
           side,
@@ -1125,6 +1131,7 @@ export const closePositionTool = createTool({
           actualCloseSize,
           leverage,
           pnl,
+          pnlPercent,
           totalFee,
           reason,          // 使用传入的平仓原因代码
           'ai_decision',   // 触发类型：AI决策
@@ -1134,7 +1141,7 @@ export const closePositionTool = createTool({
         ],
       });
       
-      logger.info(`📝 已记录平仓事件: ${symbol} ${side} 原因=${reason}`);
+      logger.info(`📝 已记录平仓事件: ${symbol} ${side} 原因=${reason}, 盈亏=${pnl.toFixed(2)} USDT (${pnlPercent.toFixed(2)}%)`);
 
       
       // 🔥 关键修复：平仓时必须取消交易所的所有条件单

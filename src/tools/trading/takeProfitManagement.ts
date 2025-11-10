@@ -647,12 +647,17 @@ export const partialTakeProfitTool = createTool({
         // 估算手续费（开仓 + 平仓）
         const estimatedFee = Math.abs(pnl * 0.001); // 约 0.1% 的手续费估算
         
+        // 计算盈亏百分比（含杠杆）
+        const pnlPercent = entryPrice > 0 
+          ? ((currentPrice - entryPrice) / entryPrice * 100 * (side === 'long' ? 1 : -1) * leverage)
+          : 0;
+        
         await dbClient.execute({
           sql: `INSERT INTO position_close_events 
                 (symbol, side, entry_price, exit_price, quantity, leverage, 
-                 pnl, fee, close_reason, trigger_type, order_id, 
+                 pnl, pnl_percent, fee, close_reason, trigger_type, order_id, 
                  created_at, processed)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           args: [
             symbol,
             side,
@@ -661,6 +666,7 @@ export const partialTakeProfitTool = createTool({
             closeQuantity,
             leverage,
             pnl,
+            pnlPercent,
             estimatedFee,
             'partial_close',   // ⭐ 平仓原因：分批平仓
             'ai_decision',     // 触发类型：AI决策
