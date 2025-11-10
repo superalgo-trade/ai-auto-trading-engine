@@ -328,13 +328,16 @@ export class GateExchangeClient implements IExchangeClient {
         order.price = formattedPrice;
         order.tif = params.tif || "gtc";
       } else {
-        // 市价单：不设置 price 字段，只设置 tif 为 ioc
+        // 市价单：不设置 price 字段
         // Gate.io API 要求市价单省略 price 字段
-        order.tif = "ioc";
+        // 注意：市价单 + reduceOnly 时不需要设置 tif
+        if (!params.reduceOnly) {
+          order.tif = "ioc";
+        }
       }
 
       if (params.reduceOnly === true) {
-        order.isReduceOnly = true;
+        order.close = true; // Gate.io API 使用 close: true 表示平仓
       }
 
       if (params.autoSize !== undefined) {
