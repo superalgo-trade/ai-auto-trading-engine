@@ -321,23 +321,25 @@ export class GateExchangeClient implements IExchangeClient {
         size: adjustedSize,
       };
       
-      // 根据是否有价格来决定订单类型
+      // Gate.io 期货订单参数规则：
+      // 市价单：price="0" + tif="ioc" + reduce_only=true（平仓）
+      // 限价单：price=实际价格 + tif="gtc"
       const formattedPrice = formatPrice(adjustedPrice);
-      if (formattedPrice !== "0") {
-        // 限价单：设置价格和 tif
-        order.price = formattedPrice;
-        order.tif = params.tif || "gtc";
+      const isMarketOrder = formattedPrice === "0";
+      
+      // price 字段总是必需的（即使是市价单）
+      order.price = formattedPrice;
+      
+      // 设置 tif（Time in Force）
+      if (isMarketOrder) {
+        order.tif = "ioc";  // 市价单：立即成交或取消
       } else {
-        // 市价单：不设置 price 字段
-        // Gate.io API 要求市价单省略 price 字段
-        // 注意：市价单 + reduceOnly 时不需要设置 tif
-        if (!params.reduceOnly) {
-          order.tif = "ioc";
-        }
+        order.tif = params.tif || "gtc";  // 限价单：Good Till Cancel
       }
 
+      // 平仓标记（使用 reduce_only 而不是 close）
       if (params.reduceOnly === true) {
-        order.close = true; // Gate.io API 使用 close: true 表示平仓
+        order.reduce_only = true;
       }
 
       if (params.autoSize !== undefined) {
