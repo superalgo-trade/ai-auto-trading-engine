@@ -519,6 +519,24 @@ export const updatePositionStopLossTool = createTool({
 
           const now = new Date().toISOString();
           
+          // 0. 尝试从旧的条件单中获取 position_order_id（如果存在）
+          let positionOrderId: string | null = null;
+          try {
+            const oldOrderResult = await dbClient.execute({
+              sql: `SELECT position_order_id FROM price_orders 
+                    WHERE symbol = ? AND status = 'active' AND position_order_id IS NOT NULL
+                    LIMIT 1`,
+              args: [symbol],
+            });
+            
+            if (oldOrderResult.rows.length > 0 && oldOrderResult.rows[0].position_order_id) {
+              positionOrderId = oldOrderResult.rows[0].position_order_id as string;
+              logger.info(`📎 从旧条件单获取到关联的开仓订单ID: ${positionOrderId}`);
+            }
+          } catch (error: any) {
+            logger.warn(`获取旧条件单的 position_order_id 失败: ${error.message}`);
+          }
+          
           // 1. 标记旧的条件单为已取消（如果存在）
           await dbClient.execute({
             sql: `UPDATE price_orders 
@@ -527,12 +545,12 @@ export const updatePositionStopLossTool = createTool({
             args: [now, symbol],
           });
           
-          // 2. 插入新的条件单记录
+          // 2. 插入新的条件单记录（如果有 positionOrderId，则保持关联）
           if (result.stopLossOrderId && stopLoss) {
             await dbClient.execute({
               sql: `INSERT INTO price_orders 
-                    (order_id, symbol, side, type, trigger_price, order_price, quantity, status, created_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                    (order_id, symbol, side, type, trigger_price, order_price, quantity, status, created_at, position_order_id)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
               args: [
                 result.stopLossOrderId,
                 symbol,
@@ -542,7 +560,8 @@ export const updatePositionStopLossTool = createTool({
                 0,
                 Math.abs(parseFloat(position.size)),
                 'active',
-                now
+                now,
+                positionOrderId  // 保持与原开仓订单的关联
               ]
             });
           }
@@ -550,8 +569,8 @@ export const updatePositionStopLossTool = createTool({
           if (result.takeProfitOrderId && takeProfit) {
             await dbClient.execute({
               sql: `INSERT INTO price_orders 
-                    (order_id, symbol, side, type, trigger_price, order_price, quantity, status, created_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                    (order_id, symbol, side, type, trigger_price, order_price, quantity, status, created_at, position_order_id)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
               args: [
                 result.takeProfitOrderId,
                 symbol,
@@ -561,7 +580,8 @@ export const updatePositionStopLossTool = createTool({
                 0,
                 Math.abs(parseFloat(position.size)),
                 'active',
-                now
+                now,
+                positionOrderId  // 保持与原开仓订单的关联
               ]
             });
           }

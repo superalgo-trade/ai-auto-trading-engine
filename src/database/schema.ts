@@ -106,6 +106,7 @@ export interface SystemConfig {
 export interface PriceOrder {
   id: number;
   order_id: string;
+  position_order_id?: string;  // 关联的开仓订单ID
   symbol: string;
   side: 'long' | 'short';
   type: 'stop_loss' | 'take_profit';
@@ -255,6 +256,7 @@ CREATE TABLE IF NOT EXISTS system_config (
 CREATE TABLE IF NOT EXISTS price_orders (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   order_id TEXT NOT NULL UNIQUE,
+  position_order_id TEXT,
   symbol TEXT NOT NULL,
   side TEXT NOT NULL,
   type TEXT NOT NULL,

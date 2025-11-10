@@ -300,14 +300,22 @@ class TradingMonitor {
                 return;
             }
             
-            // 按币种、方向和创建时间分组，合并止损和止盈
+            // 按币种、方向和开仓订单ID分组，合并止损和止盈
+            // 使用 position_order_id 作为分组键，确保同一个持仓的止损止盈被正确分组
+            // 对于没有 position_order_id 的历史数据，使用时间戳作为后备方案
             const groupedOrders = {};
             
             recentOrders.forEach(order => {
-                // 使用创建时间的时间戳来区分不同批次的订单
-                // 同一批次创建的订单时间戳应该非常接近，我们按秒级别分组
-                const createdTimestamp = new Date(order.created_at).getTime();
-                const key = `${order.symbol}_${order.side}_${Math.floor(createdTimestamp / 1000)}`;
+                let key;
+                
+                if (order.position_order_id) {
+                    // 优先使用 position_order_id (开仓订单ID) 作为分组键
+                    key = `${order.symbol}_${order.side}_${order.position_order_id}`;
+                } else {
+                    // 对于没有 position_order_id 的历史数据，使用时间戳分组（向后兼容）
+                    const createdTimestamp = new Date(order.created_at).getTime();
+                    key = `${order.symbol}_${order.side}_${Math.floor(createdTimestamp / 1000)}`;
+                }
                 
                 if (!groupedOrders[key]) {
                     groupedOrders[key] = {
@@ -316,6 +324,7 @@ class TradingMonitor {
                         status: order.status,  // 使用第一个订单的状态
                         quantity: order.quantity,
                         created_at: order.created_at,
+                        position_order_id: order.position_order_id,  // 记录开仓订单ID
                         stopLoss: null,
                         takeProfit: null,
                         stopLossStatus: null,

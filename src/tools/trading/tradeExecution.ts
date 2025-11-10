@@ -591,23 +591,25 @@ IMPORTANT:
             
             logger.info(`✅ 止损止盈订单已设置 (止损单ID: ${slOrderId}, 止盈单ID: ${tpOrderId})`);
             
-            // 保存条件单到数据库（使用实际价格）
+            // 保存条件单到数据库（使用实际价格，并关联开仓订单ID）
             try {
               const now = new Date().toISOString();
+              const positionOrderId = order.id?.toString() || "";
+              
               if (slOrderId) {
                 await dbClient.execute({
                   sql: `INSERT INTO price_orders 
-                        (order_id, symbol, side, type, trigger_price, order_price, quantity, status, created_at)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                  args: [slOrderId, symbol, side, 'stop_loss', actualStopLoss, 0, finalQuantity, 'active', now]
+                        (order_id, symbol, side, type, trigger_price, order_price, quantity, status, created_at, position_order_id)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                  args: [slOrderId, symbol, side, 'stop_loss', actualStopLoss, 0, finalQuantity, 'active', now, positionOrderId]
                 });
               }
               if (tpOrderId) {
                 await dbClient.execute({
                   sql: `INSERT INTO price_orders 
-                        (order_id, symbol, side, type, trigger_price, order_price, quantity, status, created_at)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                  args: [tpOrderId, symbol, side, 'take_profit', actualTakeProfit, 0, finalQuantity, 'active', now]
+                        (order_id, symbol, side, type, trigger_price, order_price, quantity, status, created_at, position_order_id)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                  args: [tpOrderId, symbol, side, 'take_profit', actualTakeProfit, 0, finalQuantity, 'active', now, positionOrderId]
                 });
               }
             } catch (dbError: any) {

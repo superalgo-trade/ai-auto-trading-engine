@@ -1,13 +1,16 @@
-# 条件单列表分组显示问题修复
+# 条件单列表分组显示问题修复 (使用开仓订单ID关联)
 
 ## 问题描述
 
 在前端"止盈止损"列表中,同一币种的多组条件单(止损+止盈)无法正确显示,导致只显示一组记录而不是全部记录。
 
+**更重要的问题**: 当移动止损或修改止盈时,新创建的条件单与旧条件单的创建时间相差很大,无法通过时间戳准确分组。
+
 ### 问题现象
 
 数据库中的数据:
-```
+
+```sql
 id | order_id            | symbol | side | type        | trigger_price | quantity | status    | created_at           | triggered_at
 1  | 1987905177549537280 | LTC    | long | stop_loss   | 107.3925      | 133.0    | cancelled | 2025-11-10 15:28:22  | 
 2  | 1987905178346455040 | LTC    | long | take_profit | 108.075       | 133.0    | triggered | 2025-11-10 15:28:22  | 2025-11-10 15:33:40
@@ -33,6 +36,7 @@ const key = `${order.symbol}_${order.side}_${order.status}`;
 ```
 
 这个分组键只包含:
+
 - `symbol`: 币种(如 LTC)
 - `side`: 方向(long/short)  
 - `status`: 状态(active/triggered/cancelled)
@@ -42,6 +46,7 @@ const key = `${order.symbol}_${order.side}_${order.status}`;
 ### 错误分组示例
 
 使用旧的分组逻辑:
+
 - `LTC_long_triggered` → 包含 id=2(止盈) 或 id=3(止损),只保留一个
 - `LTC_long_cancelled` → 包含 id=1(止损) 或 id=4(止盈),只保留一个
 
@@ -60,6 +65,7 @@ const key = `${order.symbol}_${order.side}_${Math.floor(createdTimestamp / 1000)
 ```
 
 **说明**:
+
 - 使用秒级时间戳(`Math.floor(createdTimestamp / 1000)`)进行分组
 - 同一批次创建的止损和止盈订单时间戳相近(通常在同一秒内),会被分到同一组
 - 不同批次的订单时间戳不同,会被分到不同组
@@ -136,7 +142,7 @@ stopLossText = `$${formatPriceBySymbol(group.symbol, group.stopLoss)}${statusBad
 
 修复后,前端将正确显示:
 
-```
+```bash
 币种  方向  止损价格              当前价格  止盈价格              数量   状态    创建时间
 BNB   LONG  $988.61 (-0.96%)      $998.47   $998.47 (+1.03%)      1250   活跃    11/10 23:59
 LTC   LONG  $107.39 (-0.36%) ✓    $107.39   $112.03 (+3.95%) ✕    132    已触发  11/10 23:43
@@ -144,6 +150,7 @@ LTC   LONG  $107.39 (-0.36%) ✕    $107.78   $108.08 (+0.27%) ✓    133    已
 ```
 
 **说明**:
+
 - ✓ = 已触发(triggered)
 - ✕ = 已取消(cancelled)
 - 无标识 = 活跃(active)
