@@ -529,12 +529,31 @@ export const partialTakeProfitTool = createTool({
       
       logger.info(`准备平仓: symbol=${symbol}, closePercent=${closePercent}%, closeQty=${closeQuantity}, remaining=${remainingQuantity}`);
       
-      // 执行平仓（使用placeOrder，size为负数表示平仓）
+      // 检查平仓数量是否满足最小交易数量要求
+      const contractInfo = await exchangeClient.getContractInfo(contract);
+      if (closeQuantity < contractInfo.orderSizeMin) {
+        return {
+          success: false,
+          message: `分批平仓数量 ${closeQuantity.toFixed(4)} 小于最小交易数量 ${contractInfo.orderSizeMin}，无法执行。建议增加持仓规模或调整平仓比例。`,
+          closeQuantity,
+          minQuantity: contractInfo.orderSizeMin,
+          currentSize,
+          closePercent,
+        };
+      }
+      
+      // 执行平仓（使用市价单平仓）
       try {
         const closeSide = side === "long" ? "sell" : "buy";
+        // 平仓时的数量需要根据方向确定正负
+        // 对于 long 仓位，平仓数量应该是负数（卖出）
+        // 对于 short 仓位，平仓数量应该是正数（买入）
+        const closeSize = side === "long" ? -closeQuantity : closeQuantity;
+        
         await exchangeClient.placeOrder({
           contract,
-          size: closeQuantity,
+          size: closeSize,
+          price: 0, // 市价单，price设为0
           reduceOnly: true,
         });
       } catch (error: any) {
@@ -735,22 +754,38 @@ export const checkPartialTakeProfitOpportunityTool = createTool({
         const canExecuteStages: number[] = [];
         let recommendation = "";
         
+        // 获取当前持仓数量和合约信息，用于检查最小交易数量
+        const currentSize = Math.abs(Number.parseFloat(position.size || "0"));
+        const contract = exchangeClient.normalizeContract(symbol);
+        const contractInfo = await exchangeClient.getContractInfo(contract);
+        const closePercent = 33.33;
+        const closeQuantity = (currentSize * closePercent) / 100;
+        const meetsMinQuantity = closeQuantity >= contractInfo.orderSizeMin;
+        
         if (currentR >= adjustedR3 && !executedStages.includes(3)) {
           canExecuteStages.push(3);
           recommendation = `建议执行阶段3（${adjustedR3.toFixed(2)}R，${volatility.description}）`;
         }
         
         if (currentR >= adjustedR2 && !executedStages.includes(2) && executedStages.includes(1)) {
-          canExecuteStages.push(2);
-          recommendation = `建议执行阶段2（${adjustedR2.toFixed(2)}R，${volatility.description}）`;
+          if (meetsMinQuantity) {
+            canExecuteStages.push(2);
+            recommendation = `建议执行阶段2（${adjustedR2.toFixed(2)}R，${volatility.description}）`;
+          } else {
+            recommendation = `达到阶段2条件但平仓数量 ${closeQuantity.toFixed(4)} 小于最小限制 ${contractInfo.orderSizeMin}，无法执行分批止盈`;
+          }
         }
         
         if (currentR >= adjustedR1 && !executedStages.includes(1)) {
-          canExecuteStages.push(1);
-          recommendation = `建议执行阶段1（${adjustedR1.toFixed(2)}R，${volatility.description}）`;
+          if (meetsMinQuantity) {
+            canExecuteStages.push(1);
+            recommendation = `建议执行阶段1（${adjustedR1.toFixed(2)}R，${volatility.description}）`;
+          } else {
+            recommendation = `达到阶段1条件但平仓数量 ${closeQuantity.toFixed(4)} 小于最小限制 ${contractInfo.orderSizeMin}，无法执行分批止盈`;
+          }
         }
         
-        if (canExecuteStages.length === 0) {
+        if (canExecuteStages.length === 0 && recommendation === "") {
           if (currentR < adjustedR1) {
             recommendation = `当前R=${currentR.toFixed(2)}，未达到阶段1要求（${adjustedR1.toFixed(2)}R，${volatility.level}波动），继续持有`;
           } else if (executedStages.includes(3)) {
@@ -766,6 +801,10 @@ export const checkPartialTakeProfitOpportunityTool = createTool({
           currentPrice,
           stopLossPrice,
           side,
+          currentSize,
+          closeQuantity: Number.parseFloat(closeQuantity.toFixed(4)),
+          minQuantity: contractInfo.orderSizeMin,
+          meetsMinQuantity,
           volatility: {
             level: volatility.level,
             atrPercent: volatility.atrPercent,

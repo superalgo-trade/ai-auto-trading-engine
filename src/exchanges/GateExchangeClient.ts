@@ -319,13 +319,17 @@ export class GateExchangeClient implements IExchangeClient {
       const order: any = {
         contract: params.contract,
         size: adjustedSize,
-        price: formatPrice(adjustedPrice),
       };
       
+      // 根据是否有价格来决定订单类型
       const formattedPrice = formatPrice(adjustedPrice);
       if (formattedPrice !== "0") {
+        // 限价单：设置价格和 tif
+        order.price = formattedPrice;
         order.tif = params.tif || "gtc";
       } else {
+        // 市价单：不设置 price 字段，只设置 tif 为 ioc
+        // Gate.io API 要求市价单省略 price 字段
         order.tif = "ioc";
       }
 
