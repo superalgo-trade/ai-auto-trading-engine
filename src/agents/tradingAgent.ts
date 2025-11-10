@@ -659,7 +659,7 @@ ${params.scientificStopLoss?.enabled ? `│ 移动止损优化（可选，非必
 │   • 对于盈利持仓，可调用 updateTrailingStop() 检查优化机会     │
 │   • 如果 shouldUpdate=true，调用 updatePositionStopLoss() 执行 │
 │   • 参考触发点: ≥+${formatPercent(params.trailingStop.level1.trigger)}%, ≥+${formatPercent(params.trailingStop.level2.trigger)}%, ≥+${formatPercent(params.trailingStop.level3.trigger)}%                    │
-│   • ⚠️ 分批止盈后无需手动移动止损（已自动处理）                │
+│   • ⚠️ 分批止盈后无需手动移动止损（已自动处理）                 │
 │                                                                │` : `│ 移动止盈：                  │
 │   • 盈利≥+${formatPercent(params.trailingStop.level1.trigger)}% → 止损移至+${formatPercent(params.trailingStop.level1.stopAt)}%        │
 │   • 盈利≥+${formatPercent(params.trailingStop.level2.trigger)}% → 止损移至+${formatPercent(params.trailingStop.level2.stopAt)}%       │
@@ -674,7 +674,7 @@ ${params.scientificStopLoss?.enabled ? `│ 移动止损优化（可选，非必
 │   • ⚡ 波动率自适应: 低波动 R×0.8，高波动 R×1.2                │
 │   • 使用工具: checkPartialTakeProfitOpportunity()              │
 │                executePartialTakeProfit()                      │
-│   • ⚠️ 分批止盈会自动移动止损，无需再调用 updateTrailingStop   │
+│   • ⚠️ 分批止盈会自动移动止损，无需再调用 updateTrailingStop    │
 │                                                                │
 │ 峰值回撤：≥${formatPercent(params.peakDrawdownProtection)}% → 危险信号，立即平仓                         │
 └────────────────────────────────────────────────────────────────┘
