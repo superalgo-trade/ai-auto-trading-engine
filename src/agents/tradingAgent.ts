@@ -649,7 +649,7 @@ export function generateTradingPrompt(data: {
 ${params.scientificStopLoss?.enabled ? `│ 科学止损（交易所服务器端自动执行）：                           │
 │   • 开仓时已自动设置止损条件单，24/7监控                       │
 │   • AI职责：✅ 监控状态，✅ 必要时优化（updateTrailingStop）   │
-│   • AI职责：❌ 非盈利状况下，不要手动平仓（除非条件单异常）     │
+│   • AI职责：❌ 非盈利状况下，不要手动平仓（除非条件单异常）    │
 │   • 止损距离: ${params.scientificStopLoss.minDistance}%-${params.scientificStopLoss.maxDistance}% (ATR${params.scientificStopLoss.atrMultiplier}x + 支撑/阻力位)                    │
 │                                                                │` : `│ 策略止损：                  │
 │   策略止损线: ${formatPercent(params.stopLoss.low)}% ~ ${formatPercent(params.stopLoss.high)}%          │
@@ -675,12 +675,12 @@ ${params.scientificStopLoss?.enabled ? `│ 移动止损优化（可选，非必
 │                executePartialTakeProfit()                      │
 │   • ⚠️ 分批止盈会自动移动止损，无需再调用 updateTrailingStop   │
 │                                                                │
-│ 极端止盈保护（${params.partialTakeProfit.extremeTakeProfit?.rMultiple || 5}R - 服务器端条件单）：                     │
+│ 极端止盈保护（${params.partialTakeProfit.extremeTakeProfit?.rMultiple || 5}R - 服务器端条件单）：                          │
 │   • 角色定位：最后防线，仅在AI系统完全失效时触发               │
-│   • 触发条件：${params.partialTakeProfit.extremeTakeProfit?.description || '极限兜底保护'}                        │
-│   • 执行方式：交易所服务器端自动执行，24/7监控无死角          │
+│   • 触发条件：${params.partialTakeProfit.extremeTakeProfit?.description || '极限兜底保护'}                                   │
+│   • 执行方式：交易所服务器端自动执行，24/7监控无死角           │
 │   • AI职责：✅ 通过分批止盈主动管理利润，❌ 不要等待极端止盈   │
-│   • 设计理念：防止意外暴涨时利润大幅回吐，但正常应由AI管理    │
+│   • 设计理念：防止意外暴涨时利润大幅回吐，但正常应由AI管理     │
 │   • ⚠️ 如果触发极端止盈，说明分批止盈策略执行不到位            │
 │                                                                │
 │ 峰值回撤：≥${formatPercent(params.peakDrawdownProtection)}% → 危险信号，立即平仓                         │

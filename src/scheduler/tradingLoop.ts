@@ -1705,7 +1705,7 @@ async function executeTradingDecision() {
         }
       }
       
-      logger.info("【输出 - AI 决策】");
+      logger.info("\n【输出 - AI 决策】");
       logger.info("=".repeat(80));
       
       // 分段输出长文本，避免被截断

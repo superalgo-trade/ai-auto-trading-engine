@@ -786,7 +786,9 @@ export class GateExchangeClient implements IExchangeClient {
       // 示例：
       // - 持有100张多单(posSize=+100) → 平仓需要-100（卖出）
       // - 持有100张空单(posSize=-100) → 平仓需要+100（买入）
-      const closeSize = -Math.round(posSize); // 取相反方向进行平仓
+      //
+      // 注意：size 必须是整数，Gate.io 不接受小数张数
+      const closeSize = -Math.round(posSize); // 取相反方向进行平仓，并确保是整数
 
       // 提取币种符号（如 BTC_USDT -> BTC）
       const symbol = this.extractSymbol(contract);
@@ -869,7 +871,7 @@ export class GateExchangeClient implements IExchangeClient {
           };
 
           logger.info(`📤 创建止损单: contract=${contract}, posSize=${posSize}, closeSize=${closeSize} (${closeSize < 0 ? '卖出' : '买入'}), 触发价=${formattedStopLoss}, 当前价=${currentPrice}, side=${side}`);
-          logger.debug(`止损单完整数据:`, stopLossOrder);
+          logger.debug(`止损单完整数据:`, JSON.stringify(stopLossOrder, null, 2));
 
           const result = await this.futuresApi.createPriceTriggeredOrder(
             this.settle,
@@ -880,7 +882,21 @@ export class GateExchangeClient implements IExchangeClient {
           logger.info(`✅ ${contract} 止损单已创建: ID=${stopLossOrderId}, 触发价=${formattedStopLoss}, 当前价=${currentPrice}`);
         } catch (error: any) {
           const errorMsg = error.response?.body?.message || error.message;
-          const errorDetail = error.response?.body || error.message;
+          const errorDetail = error.response?.body || {};
+          const errorLabel = errorDetail.label || '';
+          
+          // 记录详细的错误信息用于调试
+          logger.error(`❌ 创建止损单失败: ${errorMsg}`, { 
+            contract, 
+            posSize,
+            closeSize,
+            formattedStopLoss,
+            currentPrice,
+            side,
+            errorStatus: error.status,
+            errorLabel,
+            errorDetail
+          });
           
           // 如果是价格太接近的错误，尝试自动调整后重试
           // logger.info(`❌ 尝试创建的止损单已低于安全距离，无需调整`, { 
