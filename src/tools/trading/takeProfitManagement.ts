@@ -34,7 +34,8 @@ import { createLogger } from "../../utils/logger";
 import { getChinaTimeISO } from "../../utils/timeUtils";
 import { 
   formatStopLossPrice, 
-  calculatePartialCloseQuantity 
+  calculatePartialCloseQuantity,
+  getDecimalPlacesBySymbol
 } from "../../utils/priceFormatter";
 import { calculateATR } from "../../services/stopLossCalculator";
 
@@ -571,6 +572,7 @@ export const partialTakeProfitTool = createTool({
       }
       
       // 执行平仓（使用市价单平仓）
+      let closeOrderResponse;
       try {
         const closeSide = side === "long" ? "sell" : "buy";
         // 平仓时的数量需要根据方向确定正负
@@ -578,12 +580,15 @@ export const partialTakeProfitTool = createTool({
         // 对于 short 仓位，平仓数量应该是正数（买入）
         const closeSize = side === "long" ? -closeQuantity : closeQuantity;
         
-        await exchangeClient.placeOrder({
+        closeOrderResponse = await exchangeClient.placeOrder({
           contract,
           size: closeSize,
           price: 0, // 市价单，price设为0
           reduceOnly: true,
         });
+        
+        const decimalPlaces = getDecimalPlacesBySymbol(symbol, currentPrice);
+        logger.info(`✅ 分批平仓订单已提交: ${symbol} ${closeQuantity.toFixed(decimalPlaces)} @ 市价, 订单ID=${closeOrderResponse.id}`);
       } catch (error: any) {
         await recordPartialTakeProfit({
           symbol,
@@ -604,13 +609,53 @@ export const partialTakeProfitTool = createTool({
         };
       }
       
-      // 7. 计算盈亏
+      // 7. 计算盈亏和手续费
       const profitPercent = ((currentPrice - entryPrice) / entryPrice) * (side === "long" ? 1 : -1) * 100;
       const pnl = (profitPercent / 100) * leverage * (closeQuantity * entryPrice);
       
-      // 8. 更新止损价（如果需要）
+      // 估算手续费（市价单taker费率约0.05%）
+      const estimatedFee = Math.abs(closeQuantity * currentPrice * 0.0005);
+      
+      // 8. 记录平仓交易到 trades 表（⭐ 关键修复）
+      try {
+        await dbClient.execute({
+          sql: `INSERT INTO trades 
+                (order_id, symbol, side, type, price, quantity, leverage, pnl, fee, timestamp, status)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          args: [
+            closeOrderResponse.id,
+            symbol,
+            side,
+            'close',
+            currentPrice,
+            closeQuantity,
+            leverage,
+            pnl,
+            estimatedFee,
+            getChinaTimeISO(),
+            'filled'
+          ]
+        });
+        
+        logger.info(`✅ 分批平仓交易已记录到 trades 表: ${symbol} ${closeQuantity.toFixed(decimalPlaces)} @ ${currentPrice}, PnL=${pnl.toFixed(2)} USDT`);
+      } catch (error: any) {
+        logger.error(`记录分批平仓交易到 trades 表失败: ${error.message}`);
+        // 不影响主流程，继续执行
+      }
+      
+      // 9. 更新止损价（如果需要）
       if (newStopLossPrice) {
         logger.info(`更新止损价: ${stopLossPrice} -> ${newStopLossPrice}`);
+        
+        // 从数据库获取当前的止盈价格，更新止损时需要保留止盈
+        const posResult = await dbClient.execute({
+          sql: "SELECT profit_target FROM positions WHERE symbol = ?",
+          args: [symbol],
+        });
+        
+        const profitTarget = posResult.rows.length > 0 
+          ? Number.parseFloat(posResult.rows[0].profit_target as string || "0")
+          : 0;
         
         // 更新数据库
         await dbClient.execute({
@@ -618,26 +663,37 @@ export const partialTakeProfitTool = createTool({
           args: [newStopLossPrice, symbol],
         });
         
-        // 更新交易所的止损订单
+        // 更新交易所的止损止盈订单（⭐ 关键修复：保留止盈价格）
         try {
           // 先取消旧的止损止盈订单
           await exchangeClient.cancelPositionStopLoss(contract);
           
-          // 设置新的止损价格
+          // 设置新的止损价格，同时保留原有止盈价格
           const result = await exchangeClient.setPositionStopLoss(
             contract,
             newStopLossPrice,
-            undefined // 不设置止盈
+            profitTarget > 0 ? profitTarget : undefined  // 保留原有止盈价格
           );
           
           if (result.success) {
             logger.info(`止损价已更新: ${stopLossPrice} -> ${newStopLossPrice}, 实际=${result.actualStopLoss}`);
+            
+            if (profitTarget > 0 && result.actualTakeProfit) {
+              logger.info(`止盈价已保留: ${profitTarget} -> ${result.actualTakeProfit}`);
+            }
             
             // 更新数据库中的订单ID（如果有）
             if (result.stopLossOrderId) {
               await dbClient.execute({
                 sql: "UPDATE positions SET sl_order_id = ? WHERE symbol = ?",
                 args: [result.stopLossOrderId, symbol],
+              });
+            }
+            
+            if (result.takeProfitOrderId) {
+              await dbClient.execute({
+                sql: "UPDATE positions SET tp_order_id = ? WHERE symbol = ?",
+                args: [result.takeProfitOrderId, symbol],
               });
             }
           } else {
@@ -648,7 +704,7 @@ export const partialTakeProfitTool = createTool({
         }
       }
       
-      // 9. 更新数据库中的已平仓百分比
+      // 10. 更新数据库中的已平仓百分比
       const newClosedPercent = alreadyClosedPercent + closePercent;
       await dbClient.execute({
         sql: "UPDATE positions SET partial_close_percentage = ? WHERE symbol = ?",
