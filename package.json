@@ -40,6 +40,7 @@
     "db:status": "bash scripts/db-status.sh",
     "db:sync": "bash scripts/sync-from-exchanges.sh",
     "db:sync-positions": "bash scripts/sync-positions.sh",
+    "db:sync-positions-state": "tsx --env-file=.env ./src/database/sync-positions-state.ts",
     "db:check-consistency": "tsx --env-file=.env ./scripts/check-consistency.ts",
     "db:migrate:peak-pnl": "tsx --env-file=.env ./src/database/add-peak-pnl-column.ts",
     "db:migrate:partial-close": "tsx --env-file=.env ./src/database/migrate-add-partial-close.ts",
