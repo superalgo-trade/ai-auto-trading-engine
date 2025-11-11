@@ -327,14 +327,120 @@ IMPORTANT:
         logger.info(`🌊 正常波动市场 (ATR ${atrPercent.toFixed(2)}%)：保持原始参数`);
       }
       
-      // ====== 风控检查通过，继续开仓 ======
+      // ====== 🔴 关键步骤：开仓前强制验证科学止损 ======
+      
+      // 获取当前价格
+      const ticker = await exchangeClient.getFuturesTicker(contract);
+      const currentPrice = Number.parseFloat(ticker.last || "0");
+      
+      logger.info(`📊 步骤1: 开仓前计算科学止损位...`);
+      
+      let preCalculatedStopLoss: number;
+      let stopLossDistancePercent: number;
+      let stopLossQualityScore: number;
+      let stopLossMethod: string;
+      
+      if (RISK_PARAMS.ENABLE_SCIENTIFIC_STOP_LOSS) {
+        try {
+          // 动态导入止损计算服务
+          const { calculateScientificStopLoss } = await import("../../services/stopLossCalculator.js");
+          
+          // 构建止损配置
+          const stopLossConfig = {
+            atrPeriod: RISK_PARAMS.ATR_PERIOD,
+            atrMultiplier: RISK_PARAMS.ATR_MULTIPLIER,
+            lookbackPeriod: RISK_PARAMS.SUPPORT_RESISTANCE_LOOKBACK,
+            bufferPercent: RISK_PARAMS.SUPPORT_RESISTANCE_BUFFER,
+            useATR: RISK_PARAMS.USE_ATR_STOP_LOSS,
+            useSupportResistance: RISK_PARAMS.USE_SUPPORT_RESISTANCE_STOP_LOSS,
+            minStopLossPercent: RISK_PARAMS.MIN_STOP_LOSS_PERCENT,
+            maxStopLossPercent: RISK_PARAMS.MAX_STOP_LOSS_PERCENT,
+          };
+          
+          // 计算止损位（使用当前市场价格）
+          const stopLossResult = await calculateScientificStopLoss(
+            symbol,
+            side,
+            currentPrice,
+            stopLossConfig,
+            "1h"
+          );
+          
+          preCalculatedStopLoss = stopLossResult.stopLossPrice;
+          stopLossDistancePercent = stopLossResult.stopLossDistancePercent;
+          stopLossQualityScore = stopLossResult.qualityScore;
+          stopLossMethod = stopLossResult.method;
+          
+          // 获取策略配置的止损距离范围
+          const minDistance = strategyParams.scientificStopLoss?.minDistance || 0.5;
+          const maxDistance = strategyParams.scientificStopLoss?.maxDistance || 5.0;
+          
+          logger.info(`✅ 科学止损预计算完成:`);
+          logger.info(`   计划入场价: ${currentPrice.toFixed(2)}`);
+          logger.info(`   计算止损价: ${preCalculatedStopLoss.toFixed(2)}`);
+          logger.info(`   止损距离: ${stopLossDistancePercent.toFixed(2)}%`);
+          logger.info(`   计算方法: ${stopLossMethod}`);
+          logger.info(`   质量评分: ${stopLossQualityScore}/100`);
+          logger.info(`   配置范围: ${minDistance}% ~ ${maxDistance}%`);
+          
+          // 🔴 严格验证：止损距离必须在配置范围内
+          if (stopLossDistancePercent < minDistance) {
+            return {
+              success: false,
+              message: `❌ 拒绝开仓: 止损距离 ${stopLossDistancePercent.toFixed(2)}% < 最小要求 ${minDistance}%\n` +
+                       `   计算止损价: ${preCalculatedStopLoss.toFixed(2)}\n` +
+                       `   当前价格: ${currentPrice.toFixed(2)}\n` +
+                       `   原因: 止损过近，容易被正常波动误触发\n` +
+                       `   建议: 等待更好的入场时机，或调整策略参数`,
+            };
+          }
+          
+          if (stopLossDistancePercent > maxDistance) {
+            return {
+              success: false,
+              message: `❌ 拒绝开仓: 止损距离 ${stopLossDistancePercent.toFixed(2)}% > 最大允许 ${maxDistance}%\n` +
+                       `   计算止损价: ${preCalculatedStopLoss.toFixed(2)}\n` +
+                       `   当前价格: ${currentPrice.toFixed(2)}\n` +
+                       `   原因: 止损过远，单笔风险过大\n` +
+                       `   建议: 等待市场波动降低，或降低杠杆倍数`,
+            };
+          }
+          
+          logger.info(`✅ 止损距离验证通过: ${stopLossDistancePercent.toFixed(2)}% 在 [${minDistance}%, ${maxDistance}%] 范围内`);
+          logger.info(`📊 步骤2: 止损验证通过，继续开仓流程...`);
+          
+        } catch (error: any) {
+          logger.error(`❌ 计算科学止损失败: ${error.message}`);
+          return {
+            success: false,
+            message: `❌ 拒绝开仓: 无法计算有效的止损位\n` +
+                     `   错误: ${error.message}\n` +
+                     `   建议: 检查市场数据是否正常，或稍后重试`,
+          };
+        }
+      } else {
+        // 如果未启用科学止损，使用传统的固定百分比验证
+        logger.warn(`⚠️  科学止损系统未启用，将使用传统固定百分比验证`);
+        const minDistance = strategyParams.scientificStopLoss?.minDistance || 0.5;
+        const maxDistance = strategyParams.scientificStopLoss?.maxDistance || 5.0;
+        
+        // 使用策略配置的默认止损距离（通常为2-3%）
+        const defaultStopLossPercent = (minDistance + maxDistance) / 2;
+        stopLossDistancePercent = defaultStopLossPercent;
+        
+        preCalculatedStopLoss = side === "long"
+          ? currentPrice * (1 - defaultStopLossPercent / 100)
+          : currentPrice * (1 + defaultStopLossPercent / 100);
+        
+        logger.info(`使用默认止损距离: ${defaultStopLossPercent.toFixed(2)}%`);
+      }
+      
+      // ====== 止损验证通过，继续开仓 ======
       
       // 设置杠杆（使用调整后的杠杆）
       await exchangeClient.setLeverage(contract, adjustedLeverage);
       
-      // 获取当前价格和合约信息
-      const ticker = await exchangeClient.getFuturesTicker(contract);
-      const currentPrice = Number.parseFloat(ticker.last || "0");
+      // 重新获取合约信息
       const contractInfo = await exchangeClient.getContractInfo(contract);
       
       // 🔧 使用交易所特定的计算方法
@@ -514,42 +620,35 @@ IMPORTANT:
       });
       
       // ✨ 科学止损：开仓后自动设置止损单
+      // 🔴 使用预计算的止损价格，并根据实际成交价格微调
       let slOrderId: string | undefined;
       let tpOrderId: string | undefined;
       let calculatedStopLoss: number | null = null;
       let calculatedTakeProfit: number | null = null;
       
-      if (RISK_PARAMS.ENABLE_SCIENTIFIC_STOP_LOSS) {
+      if (RISK_PARAMS.ENABLE_SCIENTIFIC_STOP_LOSS && preCalculatedStopLoss) {
         try {
-          logger.info(`📊 计算科学止损位...`);
+          logger.info(`📊 步骤3: 根据实际成交价格调整止损止盈...`);
           
-          // 动态导入止损计算服务
-          const { calculateScientificStopLoss } = await import("../../services/stopLossCalculator.js");
+          // 🔴 关键逻辑：根据实际成交价格调整预计算的止损位
+          // 保持止损距离百分比不变，但使用实际成交价格重新计算
+          const priceDifference = actualFillPrice - currentPrice;
+          const priceDeviationPercent = Math.abs(priceDifference / currentPrice) * 100;
           
-          // 构建止损配置
-          const stopLossConfig = {
-            atrPeriod: RISK_PARAMS.ATR_PERIOD,
-            atrMultiplier: RISK_PARAMS.ATR_MULTIPLIER,
-            lookbackPeriod: RISK_PARAMS.SUPPORT_RESISTANCE_LOOKBACK,
-            bufferPercent: RISK_PARAMS.SUPPORT_RESISTANCE_BUFFER,
-            useATR: RISK_PARAMS.USE_ATR_STOP_LOSS,
-            useSupportResistance: RISK_PARAMS.USE_SUPPORT_RESISTANCE_STOP_LOSS,
-            minStopLossPercent: RISK_PARAMS.MIN_STOP_LOSS_PERCENT,
-            maxStopLossPercent: RISK_PARAMS.MAX_STOP_LOSS_PERCENT,
-          };
+          if (priceDeviationPercent > 0.1) {
+            // 如果实际成交价格偏离超过0.1%，重新计算止损价格
+            logger.info(`实际成交价 ${actualFillPrice.toFixed(2)} 偏离计划价 ${currentPrice.toFixed(2)}，调整止损位...`);
+            
+            // 按相同的距离百分比计算新的止损价格
+            calculatedStopLoss = side === "long"
+              ? actualFillPrice * (1 - stopLossDistancePercent / 100)
+              : actualFillPrice * (1 + stopLossDistancePercent / 100);
+          } else {
+            // 成交价格基本符合预期，使用预计算的止损位
+            calculatedStopLoss = preCalculatedStopLoss;
+          }
           
-          // 计算止损位
-          const stopLossResult = await calculateScientificStopLoss(
-            symbol,
-            side,
-            actualFillPrice,
-            stopLossConfig,
-            "1h"
-          );
-          
-          calculatedStopLoss = stopLossResult.stopLossPrice;
-          
-          // 计算极端止盈位（基于策略配置的风险倍数）
+          // 计算止盈位（基于止损距离）
           const stopLossDistance = Math.abs(actualFillPrice - calculatedStopLoss);
           
           // 获取策略配置的极端止盈倍数
@@ -573,13 +672,11 @@ IMPORTANT:
             ? actualFillPrice + stopLossDistance * (strategyParams.partialTakeProfit?.stage3?.rMultiple || 3)
             : actualFillPrice - stopLossDistance * (strategyParams.partialTakeProfit?.stage3?.rMultiple || 3);
           
-          logger.info(`✅ 科学止损计算完成:`);
-          logger.info(`   入场价: ${formatStopLossPrice(symbolName, actualFillPrice)}`);
-          logger.info(`   止损价: ${formatStopLossPrice(symbolName, calculatedStopLoss)} (${stopLossResult.stopLossDistancePercent.toFixed(2)}% 价格距离)`);
-          logger.info(`   实际亏损: ${stopLossResult.stopLossDistancePercent.toFixed(2)}% × ${adjustedLeverage}x杠杆 = ${(stopLossResult.stopLossDistancePercent * adjustedLeverage).toFixed(2)}%`);
-          logger.info(`   风险距离 R = ${stopLossDistance.toFixed(2)} (${stopLossResult.stopLossDistancePercent.toFixed(2)}%)`);
-          logger.info(`   计算方法: ${stopLossResult.method}`);
-          logger.info(`   质量评分: ${stopLossResult.qualityScore}/100`);
+          logger.info(`✅ 止损止盈价格计算完成:`);
+          logger.info(`   实际入场价: ${formatStopLossPrice(symbolName, actualFillPrice)}`);
+          logger.info(`   止损价: ${formatStopLossPrice(symbolName, calculatedStopLoss)} (${stopLossDistancePercent.toFixed(2)}% 价格距离)`);
+          logger.info(`   实际亏损: ${stopLossDistancePercent.toFixed(2)}% × ${adjustedLeverage}x杠杆 = ${(stopLossDistancePercent * adjustedLeverage).toFixed(2)}%`);
+          logger.info(`   风险距离 R = ${stopLossDistance.toFixed(2)} (${stopLossDistancePercent.toFixed(2)}%)`);
           logger.info(``);
           logger.info(`📊 分批止盈策略（基于风险倍数）:`);
           logger.info(`   Stage1 (${strategyParams.partialTakeProfit?.stage1?.rMultiple || 1}R): ${formatStopLossPrice(symbolName, stage1Price)} - ${strategyParams.partialTakeProfit?.stage1?.description || '首次止盈'}`);

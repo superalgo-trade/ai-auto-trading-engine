@@ -1092,16 +1092,25 @@ export class BinanceExchangeClient implements IExchangeClient {
                                     (side === 'short' && stopLoss <= currentPrice);
           
           if (isInvalidStopLoss) {
-            logger.error(`❌ ${contract} 止损价格方向错误: ${side}单止损价=${stopLoss}, 当前价=${currentPrice}`);
-            throw new Error(`止损价格方向错误: ${side}单止损价格必须${side === 'long' ? '低于' : '高于'}当前价`);
+            // 🔧 修复：价格已突破止损位，调整止损价到当前价附近（留0.1%缓冲）
+            const buffer = 0.001; // 0.1%缓冲
+            const adjustedStopLoss = side === 'long' 
+              ? currentPrice * (1 - buffer)  // 多单：略低于当前价
+              : currentPrice * (1 + buffer); // 空单：略高于当前价
+            
+            logger.warn(`⚠️ ${contract} 价格已突破止损位: 原止损=${stopLoss.toFixed(6)}, 当前价=${currentPrice.toFixed(6)}`);
+            logger.info(`🔧 自动调整止损价: ${stopLoss.toFixed(6)} → ${adjustedStopLoss.toFixed(6)} (${side}单，缓冲${(buffer*100).toFixed(1)}%)`);
+            
+            // 使用调整后的止损价
+            stopLoss = adjustedStopLoss;
           }
           
-          // 检查止损距离是否合理（至少0.3%的距离）
+          // 检查止损距离是否合理（至少0.05%的距离，放宽要求）
           const priceDeviation = Math.abs(stopLoss - currentPrice) / currentPrice;
-          const minSafeDistance = 0.003; // 最小0.3%的安全距离
+          const minSafeDistance = 0.0005; // 最小0.05%的安全距离（从0.3%放宽）
           
           if (priceDeviation < minSafeDistance) {
-            logger.warn(`⚠️ ${contract} 止损价格 ${stopLoss} 距离当前价 ${currentPrice} 太近(${(priceDeviation * 100).toFixed(2)}%)，建议调整`);
+            logger.warn(`⚠️ ${contract} 止损价格 ${stopLoss.toFixed(6)} 距离当前价 ${currentPrice.toFixed(6)} 太近(${(priceDeviation * 100).toFixed(2)}%)，可能立即触发`);
           }
           
           formattedStopLoss = await this.formatPriceByTickSize(contract, stopLoss);
@@ -1190,16 +1199,25 @@ export class BinanceExchangeClient implements IExchangeClient {
                                       (side === 'short' && takeProfit >= currentPrice);
           
           if (isInvalidTakeProfit) {
-            logger.error(`❌ ${contract} 止盈价格方向错误: ${side}单止盈价=${takeProfit}, 当前价=${currentPrice}`);
-            throw new Error(`止盈价格方向错误: ${side}单止盈价格必须${side === 'long' ? '高于' : '低于'}当前价`);
+            // 🔧 修复：价格已突破止盈位，调整止盈价到当前价附近（留0.1%缓冲）
+            const buffer = 0.001; // 0.1%缓冲
+            const adjustedTakeProfit = side === 'long' 
+              ? currentPrice * (1 + buffer)  // 多单：略高于当前价
+              : currentPrice * (1 - buffer); // 空单：略低于当前价
+            
+            logger.warn(`⚠️ ${contract} 价格已突破止盈位: 原止盈=${takeProfit.toFixed(6)}, 当前价=${currentPrice.toFixed(6)}`);
+            logger.info(`🔧 自动调整止盈价: ${takeProfit.toFixed(6)} → ${adjustedTakeProfit.toFixed(6)} (${side}单，缓冲${(buffer*100).toFixed(1)}%)`);
+            
+            // 使用调整后的止盈价
+            takeProfit = adjustedTakeProfit;
           }
           
-          // 检查止盈距离是否合理
+          // 检查止盈距离是否合理（至少0.05%的距离）
           const priceDeviation = Math.abs(takeProfit - currentPrice) / currentPrice;
-          const minSafeDistance = 0.003;
+          const minSafeDistance = 0.0005;
           
           if (priceDeviation < minSafeDistance) {
-            logger.warn(`⚠️ ${contract} 止盈价格 ${takeProfit} 距离当前价 ${currentPrice} 太近(${(priceDeviation * 100).toFixed(2)}%)，建议调整`);
+            logger.warn(`⚠️ ${contract} 止盈价格 ${takeProfit.toFixed(6)} 距离当前价 ${currentPrice.toFixed(6)} 太近(${(priceDeviation * 100).toFixed(2)}%)，可能立即触发`);
           }
           
           formattedTakeProfit = await this.formatPriceByTickSize(contract, takeProfit);
