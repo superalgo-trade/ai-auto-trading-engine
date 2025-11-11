@@ -682,7 +682,7 @@ export const partialTakeProfitTool = createTool({
         
         await dbClient.execute({
           sql: `INSERT INTO position_close_events 
-                (symbol, side, entry_price, exit_price, quantity, leverage, 
+                (symbol, side, entry_price, close_price, quantity, leverage, 
                  pnl, pnl_percent, fee, close_reason, trigger_type, order_id, 
                  created_at, processed)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,

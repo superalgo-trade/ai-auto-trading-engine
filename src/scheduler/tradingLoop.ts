@@ -1085,102 +1085,6 @@ async function loadConfigFromDatabase() {
  * 修复历史盈亏记录
  * 每个周期结束时自动调用，确保所有交易记录的盈亏计算正确
  */
-async function fixHistoricalPnlRecords() {
-  const exchangeClient = getExchangeClient();
-  
-  try {
-    // 查询所有平仓记录
-    const result = await dbClient.execute({
-      sql: `SELECT * FROM trades WHERE type = 'close' ORDER BY timestamp DESC LIMIT 50`,
-      args: [],
-    });
-
-    if (!result.rows || result.rows.length === 0) {
-      return;
-    }
-
-    let fixedCount = 0;
-
-    for (const closeTrade of result.rows) {
-      const id = closeTrade.id;
-      const symbol = closeTrade.symbol as string;
-      const side = closeTrade.side as string;
-      const closePrice = Number.parseFloat(closeTrade.price as string);
-      const quantity = Number.parseFloat(closeTrade.quantity as string);
-      const recordedPnl = Number.parseFloat(closeTrade.pnl as string || "0");
-      const recordedFee = Number.parseFloat(closeTrade.fee as string || "0");
-      const timestamp = closeTrade.timestamp as string;
-
-      // 查找对应的开仓记录
-      const openResult = await dbClient.execute({
-        sql: `SELECT * FROM trades WHERE symbol = ? AND type = 'open' AND timestamp < ? ORDER BY timestamp DESC LIMIT 1`,
-        args: [symbol, timestamp],
-      });
-
-      if (!openResult.rows || openResult.rows.length === 0) {
-        continue;
-      }
-
-      const openTrade = openResult.rows[0];
-      const openPrice = Number.parseFloat(openTrade.price as string);
-
-      // 获取合约名称（适配多交易所）
-      const contract = exchangeClient.normalizeContract(symbol);
-
-      // 使用 exchangeClient 统一计算盈亏（兼容Gate.io和Binance）
-      const grossPnl = await exchangeClient.calculatePnl(
-        openPrice,
-        closePrice,
-        quantity,
-        side as 'long' | 'short',
-        contract
-      );
-      
-      // 计算手续费（开仓 + 平仓，假设 0.05% taker 费率）
-      const contractType = exchangeClient.getContractType();
-      let openFee: number, closeFee: number;
-      
-      if (contractType === 'inverse') {
-        // Gate.io: 反向合约，费用以币计价
-        const quantoMultiplier = await getQuantoMultiplier(contract);
-        openFee = openPrice * quantity * quantoMultiplier * 0.0005;
-        closeFee = closePrice * quantity * quantoMultiplier * 0.0005;
-      } else {
-        // Binance: 正向合约，费用直接以USDT计价
-        openFee = openPrice * quantity * 0.0005;
-        closeFee = closePrice * quantity * 0.0005;
-      }
-      
-      const totalFee = openFee + closeFee;
-      const correctPnl = grossPnl - totalFee;
-
-      // 计算差异
-      const pnlDiff = Math.abs(recordedPnl - correctPnl);
-      const feeDiff = Math.abs(recordedFee - totalFee);
-
-      // 如果差异超过0.5 USDT，就需要修复
-      if (pnlDiff > 0.5 || feeDiff > 0.1) {
-        logger.warn(`修复交易记录 ID=${id} (${symbol} ${side})`);
-        logger.warn(`  盈亏: ${formatUSDT(recordedPnl)} → ${formatUSDT(correctPnl)} USDT (差异: ${formatUSDT(pnlDiff)})`);
-        
-        // 更新数据库
-        await dbClient.execute({
-          sql: `UPDATE trades SET pnl = ?, fee = ? WHERE id = ?`,
-          args: [correctPnl, totalFee, id],
-        });
-        
-        fixedCount++;
-      }
-    }
-
-    if (fixedCount > 0) {
-      logger.info(`修复了 ${fixedCount} 条历史盈亏记录`);
-    }
-  } catch (error) {
-    logger.error("修复历史盈亏记录失败:", error as any);
-  }
-}
-
 /**
  * 清仓所有持仓
  */
@@ -1563,7 +1467,7 @@ async function executeTradingDecision() {
                 
               await dbClient.execute({
                 sql: `INSERT INTO position_close_events 
-                      (symbol, side, entry_price, exit_price, quantity, leverage, 
+                      (symbol, side, entry_price, close_price, quantity, leverage, 
                        pnl, pnl_percent, fee, close_reason, trigger_type, order_id, 
                        created_at, processed)
                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -1643,15 +1547,7 @@ async function executeTradingDecision() {
       return;
     }
     
-    // 6. 修复历史盈亏记录
-    try {
-      await fixHistoricalPnlRecords();
-    } catch (error) {
-      logger.warn("修复历史盈亏记录失败:", error as any);
-      // 不影响主流程，继续执行
-    }
-    
-    // 7. 获取历史成交记录（最近10条）
+    // 6. 获取历史成交记录（最近10条）
     let tradeHistory: any[] = [];
     try {
       tradeHistory = await getTradeHistory(10);
@@ -1660,7 +1556,7 @@ async function executeTradingDecision() {
       // 不影响主流程，继续执行
     }
     
-    // 8. 获取上一次的AI决策
+    // 7. 获取上一次的AI决策
     let recentDecisions: any[] = [];
     try {
       recentDecisions = await getRecentDecisions(1);
@@ -1669,7 +1565,7 @@ async function executeTradingDecision() {
       // 不影响主流程，继续执行
     }
     
-    // 9. 获取近期平仓事件（24小时内，未处理的）
+    // 8. 获取近期平仓事件（24小时内，未处理的）
     let closeEvents: any[] = [];
     try {
       const result = await dbClient.execute({
@@ -1693,7 +1589,7 @@ async function executeTradingDecision() {
       // 不影响主流程，继续执行
     }
     
-    // 10. 生成提示词并调用 Agent
+    // 9. 生成提示词并调用 Agent
     const prompt = generateTradingPrompt({
       minutesElapsed,
       iteration: iterationCount,
@@ -1942,15 +1838,6 @@ async function executeTradingDecision() {
       } catch (syncError) {
         logger.error("同步失败:", syncError as any);
       }
-    }
-    
-    // 每个周期结束时自动修复历史盈亏记录
-    try {
-      logger.info("检查并修复历史盈亏记录...");
-      await fixHistoricalPnlRecords();
-    } catch (fixError) {
-      logger.error("修复历史盈亏失败:", fixError as any);
-      // 不影响主流程，继续执行
     }
     
   } catch (error) {

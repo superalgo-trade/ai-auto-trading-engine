@@ -549,22 +549,45 @@ IMPORTANT:
           
           calculatedStopLoss = stopLossResult.stopLossPrice;
           
-          // 计算止盈位（风险回报比 1:2）
+          // 计算极端止盈位（基于策略配置的风险倍数）
           const stopLossDistance = Math.abs(actualFillPrice - calculatedStopLoss);
+          
+          // 获取策略配置的极端止盈倍数
+          const extremeRMultiple = strategyParams.partialTakeProfit?.extremeTakeProfit?.rMultiple || 5;
+          
           calculatedTakeProfit = side === "long"
-            ? actualFillPrice + stopLossDistance * 2
-            : actualFillPrice - stopLossDistance * 2;
+            ? actualFillPrice + stopLossDistance * extremeRMultiple
+            : actualFillPrice - stopLossDistance * extremeRMultiple;
           
           // 提取币种符号用于价格格式化
           const symbolName = symbol.replace(/_USDT$/, '').replace(/USDT$/, '');
+          
+          // 计算各阶段R-multiple目标价格（用于日志展示）
+          const stage1Price = side === "long"
+            ? actualFillPrice + stopLossDistance * (strategyParams.partialTakeProfit?.stage1?.rMultiple || 1)
+            : actualFillPrice - stopLossDistance * (strategyParams.partialTakeProfit?.stage1?.rMultiple || 1);
+          const stage2Price = side === "long"
+            ? actualFillPrice + stopLossDistance * (strategyParams.partialTakeProfit?.stage2?.rMultiple || 2)
+            : actualFillPrice - stopLossDistance * (strategyParams.partialTakeProfit?.stage2?.rMultiple || 2);
+          const stage3Price = side === "long"
+            ? actualFillPrice + stopLossDistance * (strategyParams.partialTakeProfit?.stage3?.rMultiple || 3)
+            : actualFillPrice - stopLossDistance * (strategyParams.partialTakeProfit?.stage3?.rMultiple || 3);
           
           logger.info(`✅ 科学止损计算完成:`);
           logger.info(`   入场价: ${formatStopLossPrice(symbolName, actualFillPrice)}`);
           logger.info(`   止损价: ${formatStopLossPrice(symbolName, calculatedStopLoss)} (${stopLossResult.stopLossDistancePercent.toFixed(2)}% 价格距离)`);
           logger.info(`   实际亏损: ${stopLossResult.stopLossDistancePercent.toFixed(2)}% × ${adjustedLeverage}x杠杆 = ${(stopLossResult.stopLossDistancePercent * adjustedLeverage).toFixed(2)}%`);
-          logger.info(`   止盈价: ${formatStopLossPrice(symbolName, calculatedTakeProfit)} (${((Math.abs(calculatedTakeProfit - actualFillPrice) / actualFillPrice) * 100).toFixed(2)}%)`);
+          logger.info(`   风险距离 R = ${stopLossDistance.toFixed(2)} (${stopLossResult.stopLossDistancePercent.toFixed(2)}%)`);
           logger.info(`   计算方法: ${stopLossResult.method}`);
           logger.info(`   质量评分: ${stopLossResult.qualityScore}/100`);
+          logger.info(``);
+          logger.info(`📊 分批止盈策略（基于风险倍数）:`);
+          logger.info(`   Stage1 (${strategyParams.partialTakeProfit?.stage1?.rMultiple || 1}R): ${formatStopLossPrice(symbolName, stage1Price)} - ${strategyParams.partialTakeProfit?.stage1?.description || '首次止盈'}`);
+          logger.info(`   Stage2 (${strategyParams.partialTakeProfit?.stage2?.rMultiple || 2}R): ${formatStopLossPrice(symbolName, stage2Price)} - ${strategyParams.partialTakeProfit?.stage2?.description || '二次止盈'}`);
+          logger.info(`   Stage3 (${strategyParams.partialTakeProfit?.stage3?.rMultiple || 3}R): ${formatStopLossPrice(symbolName, stage3Price)} - ${strategyParams.partialTakeProfit?.stage3?.description || '移动止损'}`);
+          logger.info(`   极端止盈 (${extremeRMultiple}R): ${formatStopLossPrice(symbolName, calculatedTakeProfit!)} - ${strategyParams.partialTakeProfit?.extremeTakeProfit?.description || '极限兜底保护'}`);
+          logger.info(`   ⚠️  分批止盈由AI系统自动管理，极端止盈(${extremeRMultiple}R)仅作为最后防线`);
+
           
           // 设置止损止盈订单
           const setStopLossResult = await exchangeClient.setPositionStopLoss(
@@ -1153,7 +1176,7 @@ export const closePositionTool = createTool({
       
       await dbClient.execute({
         sql: `INSERT INTO position_close_events 
-              (symbol, side, entry_price, exit_price, quantity, leverage, 
+              (symbol, side, entry_price, close_price, quantity, leverage, 
                pnl, pnl_percent, fee, close_reason, trigger_type, order_id, 
                created_at, processed)
               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,

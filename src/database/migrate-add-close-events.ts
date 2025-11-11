@@ -46,14 +46,18 @@ async function migrate() {
           symbol TEXT NOT NULL,
           side TEXT NOT NULL,
           close_reason TEXT NOT NULL,
+          trigger_type TEXT NOT NULL,
           trigger_price REAL,
           close_price REAL NOT NULL,
           entry_price REAL NOT NULL,
           quantity REAL NOT NULL,
+          leverage INTEGER NOT NULL,
           pnl REAL NOT NULL,
           pnl_percent REAL NOT NULL,
+          fee REAL,
           trigger_order_id TEXT,
           close_trade_id TEXT,
+          order_id TEXT,
           created_at TEXT NOT NULL,
           processed INTEGER DEFAULT 0
         )
