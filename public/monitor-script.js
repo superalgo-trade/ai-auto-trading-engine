@@ -34,6 +34,7 @@ class TradingMonitor {
         this.initChat();
         this.duplicateTicker();
         this.loadGitHubStars(); // 加载 GitHub 星标数
+        this.initDecisionNavigation(); // 初始化决策导航
     }
 
     // 加载初始数据
@@ -506,9 +507,10 @@ class TradingMonitor {
     }
 
     // 加载 AI 决策日志 - 显示最新一条完整内容
-    async loadLogsData() {
+    async loadLogsData(offset = 0) {
         try {
-            const response = await fetch('/api/logs?limit=1');
+            // 加载更多决策以支持导航（最新的50条）
+            const response = await fetch('/api/logs?limit=50');
             const data = await response.json();
             
             if (data.error) {
@@ -518,9 +520,27 @@ class TradingMonitor {
 
             const decisionContent = document.getElementById('decision-content');
             const decisionMeta = document.getElementById('decision-meta');
+            const prevBtn = document.getElementById('prevDecisionBtn');
+            const nextBtn = document.getElementById('nextDecisionBtn');
             
-            if (data.logs && data.logs.length > 0) {
-                const log = data.logs[0]; // 只取最新一条
+            // 保存所有决策数据供导航使用
+            this.allDecisions = data.logs || [];
+            
+            // 初始化或更新当前索引
+            if (!this.hasOwnProperty('currentDecisionIndex')) {
+                this.currentDecisionIndex = offset;
+            }
+            
+            if (this.allDecisions.length > 0) {
+                // 确保索引在有效范围内
+                if (this.currentDecisionIndex >= this.allDecisions.length) {
+                    this.currentDecisionIndex = this.allDecisions.length - 1;
+                }
+                if (this.currentDecisionIndex < 0) {
+                    this.currentDecisionIndex = 0;
+                }
+                
+                const log = this.allDecisions[this.currentDecisionIndex];
                 
                 // 更新决策元信息
                 if (decisionMeta) {
@@ -535,7 +555,6 @@ class TradingMonitor {
                     
                     decisionMeta.innerHTML = `
                         <span class="decision-time">${timestamp}</span>
-                        <span class="decision-iteration">#${log.iteration}</span>
                     `;
                 }
                 
@@ -547,6 +566,14 @@ class TradingMonitor {
                     
                     decisionContent.innerHTML = `<div class="decision-text markdown-content">${htmlContent}</div>`;
                 }
+                
+                // 更新导航按钮状态
+                if (prevBtn) {
+                    prevBtn.disabled = this.currentDecisionIndex >= this.allDecisions.length - 1;
+                }
+                if (nextBtn) {
+                    nextBtn.disabled = this.currentDecisionIndex <= 0;
+                }
             } else {
                 if (decisionContent) {
                     decisionContent.innerHTML = '<p class="no-data">暂无 AI 决策记录</p>';
@@ -554,6 +581,8 @@ class TradingMonitor {
                 if (decisionMeta) {
                     decisionMeta.innerHTML = '<span class="decision-time">无数据</span>';
                 }
+                if (prevBtn) prevBtn.disabled = true;
+                if (nextBtn) nextBtn.disabled = true;
             }
             
         } catch (error) {
@@ -562,6 +591,69 @@ class TradingMonitor {
             if (decisionContent) {
                 decisionContent.innerHTML = `<p class="error">加载失败: ${error.message}</p>`;
             }
+        }
+    }
+    
+    // 查看上一条决策
+    showPreviousDecision() {
+        if (this.allDecisions && this.currentDecisionIndex < this.allDecisions.length - 1) {
+            this.currentDecisionIndex++;
+            this.updateDecisionDisplay();
+        }
+    }
+    
+    // 查看下一条决策
+    showNextDecision() {
+        if (this.allDecisions && this.currentDecisionIndex > 0) {
+            this.currentDecisionIndex--;
+            this.updateDecisionDisplay();
+        }
+    }
+    
+    // 更新决策显示（不重新加载数据）
+    updateDecisionDisplay() {
+        if (!this.allDecisions || this.allDecisions.length === 0) {
+            return;
+        }
+        
+        const decisionContent = document.getElementById('decision-content');
+        const decisionMeta = document.getElementById('decision-meta');
+        const prevBtn = document.getElementById('prevDecisionBtn');
+        const nextBtn = document.getElementById('nextDecisionBtn');
+        
+        const log = this.allDecisions[this.currentDecisionIndex];
+        
+        // 更新决策元信息
+        if (decisionMeta) {
+            const timestamp = new Date(log.timestamp).toLocaleString('zh-CN', {
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit'
+            });
+            
+            decisionMeta.innerHTML = `
+                <span class="decision-time">${timestamp}</span>
+            `;
+        }
+        
+        // 更新决策详细内容
+        if (decisionContent) {
+            const decision = log.decision || log.actionsTaken || '暂无决策内容';
+            // 使用 marked 库将 markdown 转换为 HTML
+            const htmlContent = marked.parse(decision);
+            
+            decisionContent.innerHTML = `<div class="decision-text markdown-content">${htmlContent}</div>`;
+        }
+        
+        // 更新导航按钮状态
+        if (prevBtn) {
+            prevBtn.disabled = this.currentDecisionIndex >= this.allDecisions.length - 1;
+        }
+        if (nextBtn) {
+            nextBtn.disabled = this.currentDecisionIndex <= 0;
         }
     }
 
@@ -674,7 +766,25 @@ class TradingMonitor {
     initChat() {
         // 聊天功能已移除
     }
-
+    
+    // 初始化决策导航
+    initDecisionNavigation() {
+        const prevBtn = document.getElementById('prevDecisionBtn');
+        const nextBtn = document.getElementById('nextDecisionBtn');
+        
+        if (prevBtn) {
+            prevBtn.addEventListener('click', () => {
+                this.showPreviousDecision();
+            });
+        }
+        
+        if (nextBtn) {
+            nextBtn.addEventListener('click', () => {
+                this.showNextDecision();
+            });
+        }
+    }
+    
     // 初始化资产曲线图表
     async initEquityChart() {
         const ctx = document.getElementById('equityChart');

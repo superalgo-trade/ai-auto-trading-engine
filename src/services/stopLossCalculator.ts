@@ -306,11 +306,23 @@ export async function calculateScientificStopLoss(
       // 止损设在支撑位下方一个缓冲区
       const buffer = supportLevel * (config.bufferPercent / 100);
       srStopPrice = supportLevel - buffer;
+      
+      // 验证：多单的支撑位止损必须小于入场价
+      if (srStopPrice >= entryPrice) {
+        logger.warn(`⚠️ 多单支撑位止损价(${srStopPrice.toFixed(6)})高于入场价(${entryPrice.toFixed(6)})，忽略支撑位止损`);
+        srStopPrice = undefined;
+      }
     } else {
       resistanceLevel = findResistanceLevel(candles, config.lookbackPeriod);
       // 止损设在阻力位上方一个缓冲区
       const buffer = resistanceLevel * (config.bufferPercent / 100);
       srStopPrice = resistanceLevel + buffer;
+      
+      // 验证：空单的阻力位止损必须大于入场价
+      if (srStopPrice <= entryPrice) {
+        logger.warn(`⚠️ 空单阻力位止损价(${srStopPrice.toFixed(6)})低于入场价(${entryPrice.toFixed(6)})，忽略阻力位止损`);
+        srStopPrice = undefined;
+      }
     }
   }
   
@@ -319,12 +331,12 @@ export async function calculateScientificStopLoss(
   let method: "ATR" | "SUPPORT_RESISTANCE" | "HYBRID";
   
   if (config.useATR && config.useSupportResistance && srStopPrice !== undefined) {
-    // 混合策略：选择更保守的止损位
+    // 混合策略：选择更保守的止损位（更接近入场价）
     if (side === "long") {
-      // 多单：选择较高的止损（更接近入场价，更保守）
+      // 多单止损在入场价下方：选择较高的止损价（更接近入场价，止损距离更小，更保守）
       finalStopPrice = Math.max(atrStopPrice, srStopPrice);
     } else {
-      // 空单：选择较低的止损（更接近入场价，更保守）
+      // 空单止损在入场价上方：选择较低的止损价（更接近入场价，止损距离更小，更保守）
       finalStopPrice = Math.min(atrStopPrice, srStopPrice);
     }
     method = "HYBRID";
@@ -334,6 +346,31 @@ export async function calculateScientificStopLoss(
   } else {
     finalStopPrice = atrStopPrice;
     method = "ATR";
+  }
+  
+  // ===== 3.5. 最终验证：确保止损价格在正确的方向 =====
+  if (side === "long" && finalStopPrice >= entryPrice) {
+    logger.error(`❌ 严重错误：多单止损价(${finalStopPrice.toFixed(6)})高于或等于入场价(${entryPrice.toFixed(6)})，强制使用ATR止损`);
+    finalStopPrice = atrStopPrice;
+    method = "ATR";
+    
+    // 如果 ATR 止损也有问题，则使用最小止损距离
+    if (finalStopPrice >= entryPrice) {
+      const minDistance = config.minStopLossPercent / 100;
+      finalStopPrice = entryPrice * (1 - minDistance);
+      logger.error(`❌ ATR止损也异常，使用最小止损距离 ${config.minStopLossPercent}%`);
+    }
+  } else if (side === "short" && finalStopPrice <= entryPrice) {
+    logger.error(`❌ 严重错误：空单止损价(${finalStopPrice.toFixed(6)})低于或等于入场价(${entryPrice.toFixed(6)})，强制使用ATR止损`);
+    finalStopPrice = atrStopPrice;
+    method = "ATR";
+    
+    // 如果 ATR 止损也有问题，则使用最小止损距离
+    if (finalStopPrice <= entryPrice) {
+      const minDistance = config.minStopLossPercent / 100;
+      finalStopPrice = entryPrice * (1 + minDistance);
+      logger.error(`❌ ATR止损也异常，使用最小止损距离 ${config.minStopLossPercent}%`);
+    }
   }
   
   // ===== 4. 应用最小/最大止损限制 =====

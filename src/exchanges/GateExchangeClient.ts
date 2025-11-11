@@ -777,6 +777,8 @@ export class GateExchangeClient implements IExchangeClient {
       const posSize = parseFloat(position.size);
       const side = posSize > 0 ? 'long' : 'short';
       
+      logger.info(`📊 ${contract} 当前持仓信息: size=${position.size}, posSize=${posSize}, side=${side}`);
+      
       // 🔧 Gate.io 条件单 size 字段说明：
       // 根据Gate.io API文档和实际测试：
       // - size 可以是正数或负数
@@ -815,6 +817,7 @@ export class GateExchangeClient implements IExchangeClient {
         // 在 try 块外部定义变量，确保在 catch 块中也能访问
         let currentPrice = 0;
         let formattedStopLoss = '';
+        let stopLossOrder: any = null;
         
         try {
           // 获取当前价格用于验证
@@ -825,157 +828,169 @@ export class GateExchangeClient implements IExchangeClient {
             throw new Error(`无法获取 ${contract} 的当前价格`);
           }
           
-          // 验证止损价格的合理性 - 确保与当前价格有足够的安全距离
-          // 检查止损价格是否在错误的方向(已经被触发)
-          // const isInvalidStopLoss = (side === 'long' && stopLoss >= currentPrice) || 
-          //                           (side === 'short' && stopLoss <= currentPrice);
+          // 验证止损价格的合理性 - 确保止损在正确的方向
+          // 多单止损必须低于当前价，空单止损必须高于当前价
+          const isInvalidStopLoss = (side === 'long' && stopLoss >= currentPrice) || 
+                                    (side === 'short' && stopLoss <= currentPrice);
           
-          // if (isInvalidStopLoss) {
-          //   // 止损价格已经在错误的方向,需要调整
-          //   const minDistance = 0.005; // 最小0.5%的安全距离
-          //   const adjustedStopLoss = side === 'long' 
-          //     ? currentPrice * (1 - minDistance)  // 做多：向下调整至当前价的99.5%
-          //     : currentPrice * (1 + minDistance); // 做空：向上调整至当前价的100.5%
-          //   logger.warn(`⚠️ 止损价格 ${stopLoss} 已触发或太接近当前价 ${currentPrice}，调整为 ${adjustedStopLoss.toFixed(6)} (${side === 'long' ? '向下' : '向上'}${minDistance * 100}%)`);
-          //   stopLoss = adjustedStopLoss;
-          // } else {
-          //   // 检查安全距离
-          //   const priceDeviation = Math.abs(stopLoss - currentPrice) / currentPrice;
-          //   const minSafeDistance = 0.003; // 最小0.3%的安全距离
-            
-          //   if (priceDeviation < minSafeDistance) {
-          //     const adjustedStopLoss = side === 'long' 
-          //       ? currentPrice * (1 - minSafeDistance)
-          //       : currentPrice * (1 + minSafeDistance);
-          //     logger.warn(`⚠️ 止损价格 ${stopLoss} 距离当前价 ${currentPrice} 太近(${(priceDeviation * 100).toFixed(2)}%)，调整为 ${adjustedStopLoss.toFixed(6)}`);
-          //     stopLoss = adjustedStopLoss;
-          //   }
-          // }
+          if (isInvalidStopLoss) {
+            logger.error(`❌ 止损价格方向错误: ${side}单止损价=${stopLoss}, 当前价=${currentPrice}`);
+            throw new Error(`止损价格方向错误: ${side}单止损价格必须${side === 'long' ? '低于' : '高于'}当前价`);
+          }
+          
+          // 检查止损距离是否合理（至少0.3%的距离）
+          const priceDeviation = Math.abs(stopLoss - currentPrice) / currentPrice;
+          const minSafeDistance = 0.003; // 最小0.3%的安全距离
+          
+          if (priceDeviation < minSafeDistance) {
+            logger.warn(`⚠️ 止损价格 ${stopLoss} 距离当前价 ${currentPrice} 太近(${(priceDeviation * 100).toFixed(2)}%)，建议调整`);
+          }
           
           // 格式化止损价格 - 使用合约的价格步长精度
           formattedStopLoss = await this.formatPriceByTickSize(contract, stopLoss);
           
-          const stopLossOrder = {
+          // 🔧 根据 Gate.io 官方文档要求:
+          // 1. trigger.price 和 trigger.rule 是必需字段
+          // 2. initial.price = "0" 表示市价单,必须配合 tif = "ioc"
+          // 3. 市价单不需要设置 size_type(文档中未明确要求此字段)
+          stopLossOrder = {
             initial: {
               contract: contract,
               size: closeSize, // 负数=卖出平多单，正数=买入平空单
-              price: '0', // 市价单
-              tif: 'ioc', // immediate or cancel，市价单必需
+              price: '0', // 0 表示市价单
+              tif: 'ioc', // 市价单必须用 ioc (Immediate or Cancel)
             },
             trigger: {
-              strategy_type: 0, // 0=by price
-              price_type: 0, // 0=last price
-              price: formattedStopLoss,
-              rule: side === 'long' ? 2 : 1, // long: <=止损价触发, short: >=止损价触发
-            }
+              strategy_type: 0, // 0=价格触发
+              price_type: 0, // 0=最新成交价, 1=标记价格, 2=指数价格
+              price: formattedStopLoss, // 触发价格 - 必需字段
+              rule: side === 'long' ? 2 : 1, // 必需字段: long用2(<=触发), short用1(>=触发)
+              expiration: 86400 * 7, // 7天过期时间(秒)
+            },
           };
 
           logger.info(`📤 创建止损单: contract=${contract}, posSize=${posSize}, closeSize=${closeSize} (${closeSize < 0 ? '卖出' : '买入'}), 触发价=${formattedStopLoss}, 当前价=${currentPrice}, side=${side}`);
-          logger.debug(`止损单完整数据:`, JSON.stringify(stopLossOrder, null, 2));
 
-          const result = await this.futuresApi.createPriceTriggeredOrder(
-            this.settle,
-            stopLossOrder as any
-          );
-          
-          stopLossOrderId = result.body.id?.toString();
-          logger.info(`✅ ${contract} 止损单已创建: ID=${stopLossOrderId}, 触发价=${formattedStopLoss}, 当前价=${currentPrice}`);
-        } catch (error: any) {
-          const errorMsg = error.response?.body?.message || error.message;
-          const errorDetail = error.response?.body || {};
-          const errorLabel = errorDetail.label || '';
-          
-          // 记录详细的错误信息用于调试
-          logger.error(`❌ 创建止损单失败: ${errorMsg}`, { 
-            contract, 
-            posSize,
-            closeSize,
-            formattedStopLoss,
-            currentPrice,
-            side,
-            errorStatus: error.status,
-            errorLabel,
-            errorDetail
-          });
-          
-          // 如果是价格太接近的错误，尝试自动调整后重试
-          // logger.info(`❌ 尝试创建的止损单已低于安全距离，无需调整`, { 
-          //   contract, 
-          //   posSize,
-          //   closeSize: closeSize,
-          //   stopLossPrice: formattedStopLoss || stopLoss,
-          //   currentPrice,
-          //   side,
-          //   errorDetail
-          // });
+          // 优化：增加重试机制（最多3次，渐进式延迟）
+          const maxRetries = 3;
+          let retryCount = 0;
+          let lastError: any = null;
 
-          if (errorMsg.includes('price') || errorMsg.includes('invalid') || error.status === 400) {
-            logger.warn(`⚠️ 创建止损单失败，尝试调整价格后重试...`);
-            
+          while (retryCount < maxRetries) {
             try {
-              // 更激进地调整价格：增加到1.5%的安全距离
-              const safeDistance = 0.015;
-              const adjustedStopLoss = side === 'long' 
-                ? currentPrice * (1 - safeDistance)
-                : currentPrice * (1 + safeDistance);
-              
-              formattedStopLoss = await this.formatPriceByTickSize(contract, adjustedStopLoss);
-              
-              const retryOrder = {
-                initial: {
-                  contract: contract,
-                  size: closeSize,
-                  price: '0',
-                  tif: 'ioc',
-                },
-                trigger: {
-                  strategy_type: 0,
-                  price_type: 0,
-                  price: formattedStopLoss,
-                  rule: side === 'long' ? 2 : 1,
-                }
-              };
-              
-              logger.info(`🔄 重试创建止损单: 触发价调整为 ${formattedStopLoss} (距当前价${(safeDistance * 100).toFixed(1)}%)`);
-              
-              const retryResult = await this.futuresApi.createPriceTriggeredOrder(
+              const result = await this.futuresApi.createPriceTriggeredOrder(
                 this.settle,
-                retryOrder as any
+                stopLossOrder as any
               );
               
-              stopLossOrderId = retryResult.body.id?.toString();
-              logger.info(`✅ ${contract} 止损单创建成功(重试): ID=${stopLossOrderId}, 触发价=${formattedStopLoss}`);
-            } catch (retryError: any) {
-              const retryErrorMsg = retryError.response?.body?.message || retryError.message;
-              logger.error(`❌ 创建止损单重试仍然失败: ${retryErrorMsg}`, { 
-                contract, 
-                adjustedPrice: formattedStopLoss,
-                currentPrice,
-                side
-              });
+              stopLossOrderId = result.body.id?.toString();
+              logger.info(`✅ ${contract} 止损单已创建: ID=${stopLossOrderId}, 触发价=${formattedStopLoss}${retryCount > 0 ? ` (第${retryCount + 1}次尝试)` : ''}`);
+              break; // 成功，跳出循环
+            } catch (error: any) {
+              lastError = error;
+              retryCount++;
               
+              const errorMsg = error.response?.body?.message || error.message;
+              const errorStatus = error.status || error.response?.status;
+              const isTimeoutError = errorStatus === 408 || errorStatus === 504 || errorStatus === 503 || 
+                                     errorMsg.includes('timeout') || errorMsg.includes('ETIMEDOUT');
+              
+              if (isTimeoutError && retryCount < maxRetries) {
+                // 渐进式延迟：3秒、5秒、8秒
+                const delay = Math.min(3000 * Math.pow(1.5, retryCount - 1), 8000);
+                logger.warn(`⚠️ 止损单创建超时 (${retryCount}/${maxRetries})，等待${(delay/1000).toFixed(1)}秒后重试...`);
+                await new Promise(resolve => setTimeout(resolve, delay));
+              } else {
+                // 非超时错误或已达最大重试次数，记录详细错误并跳出
+                logger.error(`❌ 创建止损单失败 (尝试${retryCount}/${maxRetries}): ${errorMsg}`, { 
+                  contract, 
+                  errorStatus,
+                  errorLabel: error.response?.body?.label,
+                  stopLossPrice: formattedStopLoss,
+                  currentPrice,
+                  side
+                });
+                break;
+              }
+            }
+          }
+
+          // 所有重试失败后的处理
+          if (!stopLossOrderId && lastError) {
+            const errorMsg = lastError.response?.body?.message || lastError.message;
+            const errorStatus = lastError.status || lastError.response?.status;
+            const isTimeoutError = errorStatus === 408 || errorStatus === 504 || errorStatus === 503;
+            
+            if (isTimeoutError) {
+              // 超时错误：持仓已存在，只是条件单未创建
+              logger.warn(`⚠️ ${contract} 止损单创建超时(${maxRetries}次尝试)，持仓已存在，稍后会自动重试`);
               return {
                 success: false,
-                message: `创建止损单失败(重试后): ${retryErrorMsg}`
+                message: `创建止损单超时(${maxRetries}次尝试)，系统稍后会自动重试`
               };
             }
-          } else {
-            // 记录详细的错误信息
-            logger.error(`❌ 创建止损单失败: ${errorMsg}`, { 
-              contract, 
-              posSize,
-              closeSize: closeSize,
-              stopLossPrice: formattedStopLoss || stopLoss,
-              currentPrice,
-              side,
-              errorDetail
-            });
             
-            return {
-              success: false,
-              message: `创建止损单失败: ${errorMsg}`
-            };
+            // 价格相关错误：尝试调整价格
+            const isPriceError = errorMsg.includes('price') || errorMsg.includes('invalid') || errorStatus === 400;
+            if (isPriceError) {
+              logger.warn(`⚠️ 价格相关错误，尝试最后一次调整价格...`);
+              
+              try {
+                // 更激进地调整价格：增加到1.5%的安全距离
+                const safeDistance = 0.015;
+                const adjustedStopLoss = side === 'long' 
+                  ? currentPrice * (1 - safeDistance)
+                  : currentPrice * (1 + safeDistance);
+                
+                formattedStopLoss = await this.formatPriceByTickSize(contract, adjustedStopLoss);
+                
+                const retryOrder = {
+                  initial: {
+                    contract: contract,
+                    size: closeSize,
+                    price: '0',
+                    tif: 'ioc',
+                  },
+                  trigger: {
+                    strategy_type: 0,
+                    price_type: 0,
+                    price: formattedStopLoss,
+                    rule: side === 'long' ? 2 : 1,
+                    expiration: 86400 * 7,
+                  },
+                };
+                
+                logger.info(`🔄 最后尝试创建止损单 (价格调整): 触发价=${formattedStopLoss}`);
+                
+                const retryResult = await this.futuresApi.createPriceTriggeredOrder(
+                  this.settle,
+                  retryOrder as any
+                );
+                
+                stopLossOrderId = retryResult.body.id?.toString();
+                logger.info(`✅ ${contract} 止损单创建成功(价格调整): ID=${stopLossOrderId}`);
+              } catch (retryError: any) {
+                logger.error(`❌ 价格调整后仍失败: ${retryError.message}`);
+                return {
+                  success: false,
+                  message: `创建止损单失败(价格调整后): ${retryError.message}`
+                };
+              }
+            } else {
+              // 其他错误类型
+              return {
+                success: false,
+                message: `创建止损单失败: ${errorMsg}`
+              };
+            }
           }
+        } catch (error: any) {
+          const errorMsg = error.response?.body?.message || error.message;
+          logger.error(`❌ 止损单创建异常: ${errorMsg}`);
+          return {
+            success: false,
+            message: `止损单创建异常: ${errorMsg}`
+          };
         }
       }
 
@@ -994,31 +1009,31 @@ export class GateExchangeClient implements IExchangeClient {
             throw new Error(`无法获取 ${contract} 的当前价格`);
           }
           
-          // 验证止盈价格的合理性 - 确保与当前价格有足够的安全距离
-          // 检查止盈价格是否在错误的方向(已经被触发)
+          // 验证止盈价格的合理性 - 确保止盈在正确的方向
+          // 多单止盈必须高于当前价，空单止盈必须低于当前价
           const isInvalidTakeProfit = (side === 'long' && takeProfit <= currentPrice) || 
                                       (side === 'short' && takeProfit >= currentPrice);
           
           if (isInvalidTakeProfit) {
-            // 止盈价格已经在错误的方向,需要调整
-            const minDistance = 0.005; // 最小0.5%的安全距离
-            const adjustedTakeProfit = side === 'long' 
-              ? currentPrice * (1 + minDistance)  // 做多：向上调整至当前价的100.5%
-              : currentPrice * (1 - minDistance); // 做空：向下调整至当前价的99.5%
-            logger.warn(`⚠️ 止盈价格 ${takeProfit} 已触发或太接近当前价 ${currentPrice}，调整为 ${adjustedTakeProfit.toFixed(6)} (${side === 'long' ? '向上' : '向下'}${minDistance * 100}%)`);
-            takeProfit = adjustedTakeProfit;
-          } else {
-            // 检查安全距离
-            const priceDeviation = Math.abs(takeProfit - currentPrice) / currentPrice;
-            const minSafeDistance = 0.003; // 最小0.3%的安全距离
+            logger.error(`❌ 止盈价格方向错误: ${side}单止盈价=${takeProfit}, 当前价=${currentPrice}`);
             
-            if (priceDeviation < minSafeDistance) {
-              const adjustedTakeProfit = side === 'long' 
-                ? currentPrice * (1 + minSafeDistance)
-                : currentPrice * (1 - minSafeDistance);
-              logger.warn(`⚠️ 止盈价格 ${takeProfit} 距离当前价 ${currentPrice} 太近(${(priceDeviation * 100).toFixed(2)}%)，调整为 ${adjustedTakeProfit.toFixed(6)}`);
-              takeProfit = adjustedTakeProfit;
+            // 如果止损单已创建，仍返回成功（止损更重要）
+            if (stopLossOrderId) {
+              return {
+                success: true,
+                stopLossOrderId,
+                message: `止损单已创建，止盈单创建失败: 止盈价格方向错误`
+              };
             }
+            throw new Error(`止盈价格方向错误: ${side}单止盈价格必须${side === 'long' ? '高于' : '低于'}当前价`);
+          }
+          
+          // 检查止盈距离是否合理
+          const priceDeviation = Math.abs(takeProfit - currentPrice) / currentPrice;
+          const minSafeDistance = 0.003; // 最小0.3%的安全距离
+          
+          if (priceDeviation < minSafeDistance) {
+            logger.warn(`⚠️ 止盈价格 ${takeProfit} 距离当前价 ${currentPrice} 太近(${(priceDeviation * 100).toFixed(2)}%)，建议调整`);
           }
           
           // 格式化止盈价格 - 使用合约的价格步长精度
@@ -1036,7 +1051,8 @@ export class GateExchangeClient implements IExchangeClient {
               price_type: 0, // 0=last price
               price: formattedTakeProfit,
               rule: side === 'long' ? 1 : 2, // long: >=止盈价触发, short: <=止盈价触发
-            }
+            },
+            size_type: 0, // 🔧 重要：0=合约数量(张), 放在外层
           };
 
           logger.info(`📤 创建止盈单: contract=${contract}, posSize=${posSize}, closeSize=${closeSize} (${closeSize < 0 ? '卖出' : '买入'}), 触发价=${formattedTakeProfit}, 当前价=${currentPrice}, side=${side}`);

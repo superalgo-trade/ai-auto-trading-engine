@@ -236,15 +236,47 @@ body {
     align-items: center;
 }
 
-.decision-time {
-    color: var(--text-dim);
-    font-size: 0.8rem;
+.decision-nav {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
 }
 
-.decision-iteration {
+.decision-nav-btn {
+    background-color: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    color: var(--text-secondary);
+    cursor: pointer;
+    /* padding: 0.5rem; */
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.3s;
+    width: 20px;
+    height: 20px;
+}
+
+.decision-nav-btn:hover:not(:disabled) {
+    background-color: var(--bg-secondary);
+    border-color: var(--accent-green);
     color: var(--accent-green);
-    font-size: 0.9rem;
-    font-weight: bold;
+    box-shadow: 0 0 8px var(--accent-green);
+}
+
+.decision-nav-btn:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+}
+
+.decision-nav-btn svg {
+    width: 16px;
+    height: 16px;
+}
+
+.decision-time {
+    color: var(--text-primary);
+    font-size: 0.8rem;
 }
 
 /* Chart Container */
@@ -1761,8 +1793,33 @@ body {
     .btn-waitlist {
         display: none;
     }
+    
+    /* 决策导航按钮移动端样式 */
+    .decision-nav {
+        flex-wrap: nowrap;
+        gap: 0.3rem;
+    }
+    
+    .decision-nav-btn {
+        width: 23px;
+        height: 23px;
+        padding: 0.3rem;
+    }
+    
+    .decision-nav-btn svg {
+        width: 14px;
+        height: 14px;
+    }
+    
+    .decision-meta {
+        gap: 0.5rem;
+    }
+    
+    .decision-time {
+        font-size: 0.7rem;
+    }
 
-    /* Ticker */
+/* Ticker */
     .ticker-wrapper {
         padding: 0.4rem 0;
         width: 100%;
@@ -2285,4 +2342,3 @@ body {
 ::-webkit-scrollbar-thumb:hover {
     background: var(--accent-green);
 }
-

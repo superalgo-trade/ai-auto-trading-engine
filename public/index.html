@@ -6,11 +6,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes">
   
   <!-- Primary Meta Tags - Bilingual -->
-  <title>ai-auto-trading - AI 驱动的加密货币交易监控系统 | Cryptocurrency Trading Monitor</title>
-  <meta name="title" content="ai-auto-trading - AI 驱动的加密货币交易监控系统 | Cryptocurrency Trading Monitor">
+  <title>AI 驱动的加密货币交易监控系统 | Cryptocurrency Trading Monitor</title>
+  <meta name="title" content="AI 驱动的加密货币交易监控系统 | Cryptocurrency Trading Monitor">
   <meta name="description" content="实时监控加密货币交易账户，查看 AI 交易决策、资产曲线、持仓情况和交易历史。支持 BTC、ETH、SOL 等多种主流加密货币的实时价格追踪。Real-time cryptocurrency trading account monitoring with AI decision tracking, equity curves, positions, and trade history.">
   <meta name="keywords" content="加密货币交易,AI交易系统,比特币交易,以太坊交易,SOL交易,数字货币监控,交易策略,量化交易,cryptocurrency trading,AI trading system,Bitcoin trading,Ethereum trading,SOL trading,crypto monitor,trading strategy,quantitative trading">
-  <meta name="author" content="ai-auto-trading">
+  <meta name="author" content="ai-auto-trading,losesky">
   <meta name="robots" content="index, follow">
   <meta name="language" content="Chinese, English">
   <meta name="revisit-after" content="7 days">
@@ -276,9 +276,20 @@
     <section class="chart-section">
       <div class="chart-header">
         <h3 class="decision-title">最新 AI 决策</h3>
-        <div class="decision-meta" id="decision-meta">
-          <span class="decision-time">加载中...</span>
-          <span class="decision-iteration">#-</span>
+        <div class="decision-nav">
+          <button class="decision-nav-btn" id="prevDecisionBtn" title="上一条决策" disabled>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="15 18 9 12 15 6"></polyline>
+            </svg>
+          </button>
+          <div class="decision-meta" id="decision-meta">
+            <span class="decision-time">加载中...</span>
+          </div>
+          <button class="decision-nav-btn" id="nextDecisionBtn" title="下一条决策" disabled>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="9 18 15 12 9 6"></polyline>
+            </svg>
+          </button>
         </div>
       </div>
       <div class="decision-container">

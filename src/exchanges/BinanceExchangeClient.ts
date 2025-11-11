@@ -1071,42 +1071,41 @@ export class BinanceExchangeClient implements IExchangeClient {
 
       // 创建止损订单（STOP_MARKET）
       if (stopLoss !== undefined && stopLoss > 0) {
+        // 在 try 块外部定义变量，确保在 catch 块中也能访问
+        let currentPrice = 0;
+        let formattedStopLoss = '';
+        let stopLossData: any = null;
+        
         try {
           // 获取当前价格用于验证
           const ticker = await this.getFuturesTicker(contract);
-          const currentPrice = parseFloat(ticker.markPrice || ticker.last || "0");
+          currentPrice = parseFloat(ticker.markPrice || ticker.last || "0");
           
           if (currentPrice <= 0) {
             throw new Error(`无法获取 ${contract} 的当前价格`);
           }
           
-          // 验证止损价格的合理性 - 确保与当前价格有足够的安全距离
+          // 验证止损价格的合理性 - 确保止损在正确的方向
+          // 多单止损必须低于当前价，空单止损必须高于当前价
           const side = posSize > 0 ? 'long' : 'short';
           const isInvalidStopLoss = (side === 'long' && stopLoss >= currentPrice) || 
                                     (side === 'short' && stopLoss <= currentPrice);
           
           if (isInvalidStopLoss) {
-            const minDistance = 0.005; // 最小0.5%的安全距离
-            const adjustedStopLoss = side === 'long' 
-              ? currentPrice * (1 - minDistance)
-              : currentPrice * (1 + minDistance);
-            logger.warn(`⚠️ ${contract} 止损价格 ${stopLoss} 已触发或太接近当前价 ${currentPrice}，调整为 ${adjustedStopLoss.toFixed(6)}`);
-            stopLoss = adjustedStopLoss;
-          } else {
-            const priceDeviation = Math.abs(stopLoss - currentPrice) / currentPrice;
-            const minSafeDistance = 0.003; // 最小0.3%的安全距离
-            
-            if (priceDeviation < minSafeDistance) {
-              const adjustedStopLoss = side === 'long' 
-                ? currentPrice * (1 - minSafeDistance)
-                : currentPrice * (1 + minSafeDistance);
-              logger.warn(`⚠️ ${contract} 止损价格 ${stopLoss} 距离当前价 ${currentPrice} 太近，调整为 ${adjustedStopLoss.toFixed(6)}`);
-              stopLoss = adjustedStopLoss;
-            }
+            logger.error(`❌ ${contract} 止损价格方向错误: ${side}单止损价=${stopLoss}, 当前价=${currentPrice}`);
+            throw new Error(`止损价格方向错误: ${side}单止损价格必须${side === 'long' ? '低于' : '高于'}当前价`);
           }
           
-          const formattedStopLoss = await this.formatPriceByTickSize(contract, stopLoss);
-          const stopLossData: any = {
+          // 检查止损距离是否合理（至少0.3%的距离）
+          const priceDeviation = Math.abs(stopLoss - currentPrice) / currentPrice;
+          const minSafeDistance = 0.003; // 最小0.3%的安全距离
+          
+          if (priceDeviation < minSafeDistance) {
+            logger.warn(`⚠️ ${contract} 止损价格 ${stopLoss} 距离当前价 ${currentPrice} 太近(${(priceDeviation * 100).toFixed(2)}%)，建议调整`);
+          }
+          
+          formattedStopLoss = await this.formatPriceByTickSize(contract, stopLoss);
+          stopLossData = {
             symbol,
             side: posSize > 0 ? 'SELL' : 'BUY', // 平仓方向相反
             type: 'STOP_MARKET',
@@ -1121,52 +1120,90 @@ export class BinanceExchangeClient implements IExchangeClient {
           
           logger.info(`✅ ${contract} 止损单已创建: ID=${stopLossOrderId}, 触发价=${formattedStopLoss}, 当前价=${currentPrice.toFixed(6)}`);
         } catch (error: any) {
-          logger.error(`创建止损单失败: ${error.message}`);
-          return {
-            success: false,
-            message: `创建止损单失败: ${error.message}`
-          };
+          const errorMsg = error.message || String(error);
+          const errorCode = error.code;
+          
+          logger.error(`❌ 创建止损单失败: ${errorMsg}`, { 
+            contract, 
+            stopLoss: formattedStopLoss,
+            currentPrice: currentPrice.toFixed(6),
+            errorCode 
+          });
+          
+          // 检查是否是超时错误
+          const isTimeoutError = errorMsg.includes('timeout') || errorMsg.includes('ETIMEDOUT') || 
+                                 errorMsg.includes('ECONNRESET') || errorCode === 'ETIMEDOUT' ||
+                                 errorCode === 'ECONNRESET';
+          
+          if (isTimeoutError) {
+            logger.warn(`⚠️ 网络超时，等待3秒后重试...`);
+            
+            try {
+              // 等待3秒，给网络更多恢复时间
+              await new Promise(resolve => setTimeout(resolve, 3000));
+              
+              logger.info(`🔄 重试创建止损单 (网络超时): 触发价=${formattedStopLoss}`);
+              
+              const retryResponse = await this.privateRequest('/fapi/v1/order', stopLossData, 'POST', 2);
+              stopLossOrderId = retryResponse.orderId?.toString();
+              
+              logger.info(`✅ ${contract} 止损单创建成功(超时重试): ID=${stopLossOrderId}, 触发价=${formattedStopLoss}`);
+            } catch (retryError: any) {
+              logger.error(`❌ 创建止损单重试仍然失败: ${retryError.message}`);
+              
+              // 超时错误不影响持仓，只是条件单未创建
+              logger.warn(`⚠️ ${contract} 止损单创建失败但持仓已存在，请手动设置止损或稍后系统会自动重试`);
+              return {
+                success: false,
+                message: `创建止损单超时，请手动设置或等待自动重试: ${retryError.message}`
+              };
+            }
+          } else {
+            return {
+              success: false,
+              message: `创建止损单失败: ${errorMsg}`
+            };
+          }
         }
       }
 
       // 创建止盈订单（TAKE_PROFIT_MARKET）
       if (takeProfit !== undefined && takeProfit > 0) {
+        // 在 try 块外部定义变量，确保在 catch 块中也能访问
+        let currentPrice = 0;
+        let formattedTakeProfit = '';
+        let takeProfitData: any = null;
+        
         try {
           // 获取当前价格用于验证
           const ticker = await this.getFuturesTicker(contract);
-          const currentPrice = parseFloat(ticker.markPrice || ticker.last || "0");
+          currentPrice = parseFloat(ticker.markPrice || ticker.last || "0");
           
           if (currentPrice <= 0) {
             throw new Error(`无法获取 ${contract} 的当前价格`);
           }
           
-          // 验证止盈价格的合理性
+          // 验证止盈价格的合理性 - 确保止盈在正确的方向
+          // 多单止盈必须高于当前价，空单止盈必须低于当前价
           const side = posSize > 0 ? 'long' : 'short';
           const isInvalidTakeProfit = (side === 'long' && takeProfit <= currentPrice) || 
                                       (side === 'short' && takeProfit >= currentPrice);
           
           if (isInvalidTakeProfit) {
-            const minDistance = 0.005;
-            const adjustedTakeProfit = side === 'long' 
-              ? currentPrice * (1 + minDistance)
-              : currentPrice * (1 - minDistance);
-            logger.warn(`⚠️ ${contract} 止盈价格 ${takeProfit} 已触发或太接近当前价 ${currentPrice}，调整为 ${adjustedTakeProfit.toFixed(6)}`);
-            takeProfit = adjustedTakeProfit;
-          } else {
-            const priceDeviation = Math.abs(takeProfit - currentPrice) / currentPrice;
-            const minSafeDistance = 0.003;
-            
-            if (priceDeviation < minSafeDistance) {
-              const adjustedTakeProfit = side === 'long' 
-                ? currentPrice * (1 + minSafeDistance)
-                : currentPrice * (1 - minSafeDistance);
-              logger.warn(`⚠️ ${contract} 止盈价格 ${takeProfit} 距离当前价 ${currentPrice} 太近，调整为 ${adjustedTakeProfit.toFixed(6)}`);
-              takeProfit = adjustedTakeProfit;
-            }
+            logger.error(`❌ ${contract} 止盈价格方向错误: ${side}单止盈价=${takeProfit}, 当前价=${currentPrice}`);
+            throw new Error(`止盈价格方向错误: ${side}单止盈价格必须${side === 'long' ? '高于' : '低于'}当前价`);
           }
           
-          const formattedTakeProfit = await this.formatPriceByTickSize(contract, takeProfit);
-          const takeProfitData: any = {
+          // 检查止盈距离是否合理
+          const priceDeviation = Math.abs(takeProfit - currentPrice) / currentPrice;
+          const minSafeDistance = 0.003;
+          
+          if (priceDeviation < minSafeDistance) {
+            logger.warn(`⚠️ ${contract} 止盈价格 ${takeProfit} 距离当前价 ${currentPrice} 太近(${(priceDeviation * 100).toFixed(2)}%)，建议调整`);
+          }
+          
+          formattedTakeProfit = await this.formatPriceByTickSize(contract, takeProfit);
+          takeProfitData = {
             symbol,
             side: posSize > 0 ? 'SELL' : 'BUY', // 平仓方向相反
             type: 'TAKE_PROFIT_MARKET',
@@ -1181,19 +1218,63 @@ export class BinanceExchangeClient implements IExchangeClient {
           
           logger.info(`✅ ${contract} 止盈单已创建: ID=${takeProfitOrderId}, 触发价=${formattedTakeProfit}, 当前价=${currentPrice.toFixed(6)}`);
         } catch (error: any) {
-          logger.error(`创建止盈单失败: ${error.message}`);
-          // 如果止盈单失败但止损单成功，仍返回成功（止损更重要）
-          if (stopLossOrderId) {
+          const errorMsg = error.message || String(error);
+          const errorCode = error.code;
+          
+          logger.error(`❌ 创建止盈单失败: ${errorMsg}`, { 
+            contract, 
+            takeProfit: formattedTakeProfit,
+            currentPrice: currentPrice > 0 ? currentPrice.toFixed(6) : 'N/A',
+            errorCode 
+          });
+          
+          // 检查是否是超时错误
+          const isTimeoutError = errorMsg.includes('timeout') || errorMsg.includes('ETIMEDOUT') || 
+                                 errorMsg.includes('ECONNRESET') || errorCode === 'ETIMEDOUT' ||
+                                 errorCode === 'ECONNRESET';
+          
+          if (isTimeoutError && takeProfitData) {
+            logger.warn(`⚠️ 网络超时，等待3秒后重试...`);
+            
+            try {
+              // 等待3秒，给网络更多恢复时间
+              await new Promise(resolve => setTimeout(resolve, 3000));
+              
+              logger.info(`🔄 重试创建止盈单 (网络超时): 触发价=${formattedTakeProfit}`);
+              
+              const retryResponse = await this.privateRequest('/fapi/v1/order', takeProfitData, 'POST', 2);
+              takeProfitOrderId = retryResponse.orderId?.toString();
+              
+              logger.info(`✅ ${contract} 止盈单创建成功(超时重试): ID=${takeProfitOrderId}, 触发价=${formattedTakeProfit}`);
+            } catch (retryError: any) {
+              logger.error(`❌ 创建止盈单重试仍然失败: ${retryError.message}`);
+              // 如果止盈单失败但止损单成功，仍返回成功（止损更重要）
+              if (stopLossOrderId) {
+                return {
+                  success: true,
+                  stopLossOrderId,
+                  message: `止损单已创建，止盈单创建超时: ${retryError.message}`
+                };
+              }
+              return {
+                success: false,
+                message: `创建止盈单超时: ${retryError.message}`
+              };
+            }
+          } else {
+            // 如果止盈单失败但止损单成功，仍返回成功（止损更重要）
+            if (stopLossOrderId) {
+              return {
+                success: true,
+                stopLossOrderId,
+                message: `止损单已创建，止盈单创建失败: ${errorMsg}`
+              };
+            }
             return {
-              success: true,
-              stopLossOrderId,
-              message: `止损单已创建，止盈单创建失败: ${error.message}`
+              success: false,
+              message: `创建止盈单失败: ${errorMsg}`
             };
           }
-          return {
-            success: false,
-            message: `创建止盈单失败: ${error.message}`
-          };
         }
       }
 
