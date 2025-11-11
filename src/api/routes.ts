@@ -489,6 +489,21 @@ export function createApiRoutes() {
   });
 
   /**
+   * 获取交易品种列表
+   */
+  app.get("/api/trading-symbols", async (c) => {
+    try {
+      const DEFAULT_TRADING_SYMBOLS = 'BTC,ETH,SOL,XRP,BNB,BCH';
+      const tradingSymbolsStr = process.env.TRADING_SYMBOLS || DEFAULT_TRADING_SYMBOLS;
+      const symbols = tradingSymbolsStr.split(",").map(s => s.trim());
+      
+      return c.json({ symbols });
+    } catch (error: any) {
+      return c.json({ error: error.message }, 500);
+    }
+  });
+
+  /**
    * 获取条件单列表（止盈止损）
    */
   app.get("/api/price-orders", async (c) => {

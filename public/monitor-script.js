@@ -660,19 +660,45 @@ class TradingMonitor {
     // 加载顶部 Ticker 价格（从 API 获取）
     async loadTickerPrices() {
         try {
-            // 从 HTML 中获取所有需要显示价格的币种
-            const tickerItems = document.querySelectorAll('.ticker-item .crypto-name');
-            const symbols = Array.from(tickerItems).map(el => el.textContent.trim()).join(',');
-            const response = await fetch(`/api/prices?symbols=${symbols}`);
-            const data = await response.json();
+            // 先获取交易品种列表
+            const symbolsResponse = await fetch('/api/trading-symbols');
+            const symbolsData = await symbolsResponse.json();
             
-            if (data.error) {
-                console.error('获取价格失败:', data.error);
+            if (symbolsData.error) {
+                console.error('获取交易品种列表失败:', symbolsData.error);
+                return;
+            }
+            
+            const symbols = symbolsData.symbols;
+            
+            // 如果 ticker 为空，先创建 ticker 项
+            const tickerContainer = document.getElementById('ticker');
+            if (tickerContainer && tickerContainer.children.length === 0) {
+                symbols.forEach(symbol => {
+                    const tickerItem = document.createElement('div');
+                    tickerItem.className = 'ticker-item';
+                    tickerItem.innerHTML = `
+                        <span class="crypto-name">${symbol}</span>
+                        <span class="crypto-price" data-symbol="${symbol}">$0.00</span>
+                    `;
+                    tickerContainer.appendChild(tickerItem);
+                });
+                
+                // 重新触发滚动效果
+                this.duplicateTicker();
+            }
+            
+            // 获取价格数据
+            const pricesResponse = await fetch('/api/prices');
+            const pricesData = await pricesResponse.json();
+            
+            if (pricesData.error) {
+                console.error('获取价格失败:', pricesData.error);
                 return;
             }
             
             // 更新价格缓存
-            Object.entries(data.prices).forEach(([symbol, price]) => {
+            Object.entries(pricesData.prices).forEach(([symbol, price]) => {
                 this.cryptoPrices.set(symbol, price);
             });
             
