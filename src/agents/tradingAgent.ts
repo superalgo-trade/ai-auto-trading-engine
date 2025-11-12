@@ -608,6 +608,13 @@ export function getTradingStrategy(): TradingStrategy {
 }
 
 /**
+ * 从环境变量读取最大显示机会数量
+ */
+export function getMaxOpportunitiesToShow(): number {
+  return Number.parseInt(process.env.MAX_OPPORTUNITIES_TO_SHOW || "3", 10);
+}
+
+/**
  * 生成交易提示词（参照 1.md 格式）
  */
 export function generateTradingPrompt(data: {
@@ -627,6 +634,9 @@ export function generateTradingPrompt(data: {
   // 获取当前策略参数（用于每周期强调风控规则）
   const strategy = getTradingStrategy();
   const params = getStrategyParams(strategy);
+  
+  // 获取最大显示机会数量
+  const maxOpportunities = getMaxOpportunitiesToShow();
   
   let prompt = `【交易周期 #${iteration}】${currentTime}
 已运行 ${minutesElapsed} 分钟，执行周期 ${intervalMinutes} 分钟
@@ -720,7 +730,7 @@ ${params.scientificStopLoss?.enabled ? `
       • 根据市场状态选择最优策略（趋势跟踪/均值回归/突破）
       • 对所有机会进行量化评分（0-100分）
       • 自动过滤已有持仓的币种
-      • 返回评分最高的前5个机会
+      • 返回评分最高的前${maxOpportunities}个机会
    
    b) 基于评分结果做决策：
       • 评分 ≥ 80分：高质量机会，优先考虑
@@ -1915,7 +1925,7 @@ export function createTradingAgent(intervalMinutes: number = 5) {
       tradingTools.updatePositionStopLossTool,
       tradingTools.partialTakeProfitTool,
       tradingTools.checkPartialTakeProfitOpportunityTool,
-      tradingTools.analyzeOpeningOpportunitiesTool, // 新增：开仓机会分析工具
+      tradingTools.analyzeOpeningOpportunitiesTool,
     ],
     memory,
   });

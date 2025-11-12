@@ -330,7 +330,7 @@
 
   # 机会评分配置
   MIN_OPPORTUNITY_SCORE=60         # 最低机会评分（0-100）
-  MAX_OPPORTUNITIES_TO_SHOW=5      # 最多显示机会数
+  MAX_OPPORTUNITIES_TO_SHOW=3      # 最多显示机会数
   ```
 
 <!-- #### 任务 5.3：监控面板增强
@@ -631,7 +631,7 @@ ENABLE_BREAKOUT=true
 
 # 机会评分配置
 MIN_OPPORTUNITY_SCORE=60
-MAX_OPPORTUNITIES_TO_SHOW=5
+MAX_OPPORTUNITIES_TO_SHOW=3
 
 # 策略参数
 TREND_FOLLOWING_MIN_RSI=25
