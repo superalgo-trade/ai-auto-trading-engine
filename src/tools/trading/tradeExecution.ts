@@ -65,8 +65,13 @@ IMPORTANT:
     side: z.enum(["long", "short"]).describe("方向：long=做多，short=做空"),
     leverage: z.number().min(1).max(RISK_PARAMS.MAX_LEVERAGE).describe(`杠杆倍数（1-${RISK_PARAMS.MAX_LEVERAGE}倍，根据环境变量MAX_LEVERAGE配置）`),
     amountUsdt: z.number().describe("开仓金额（USDT）"),
+    // 策略信息（可选）- 用于记录开仓决策依据
+    marketState: z.string().optional().describe("市场状态（如 'uptrend_oversold', 'ranging_neutral' 等）"),
+    strategyType: z.string().optional().describe("策略类型（如 'trend_following', 'mean_reversion', 'breakout'）"),
+    signalStrength: z.number().min(0).max(1).optional().describe("信号强度（0-1）"),
+    opportunityScore: z.number().min(0).max(100).optional().describe("机会评分（0-100）"),
   }),
-  execute: async ({ symbol, side, leverage, amountUsdt }) => {
+  execute: async ({ symbol, side, leverage, amountUsdt, marketState, strategyType, signalStrength, opportunityScore }) => {
     const exchangeClient = getExchangeClient();
     const contract = exchangeClient.normalizeContract(symbol);
     
@@ -828,8 +833,9 @@ IMPORTANT:
         await dbClient.execute({
           sql: `INSERT INTO positions 
                 (symbol, quantity, entry_price, current_price, liquidation_price, unrealized_pnl, 
-                 leverage, side, profit_target, stop_loss, tp_order_id, sl_order_id, entry_order_id, opened_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                 leverage, side, profit_target, stop_loss, tp_order_id, sl_order_id, entry_order_id, opened_at,
+                 market_state, strategy_type, signal_strength, opportunity_score)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           args: [
             symbol,
             finalQuantity,
@@ -845,6 +851,10 @@ IMPORTANT:
             slOrderId || null,
             order.id?.toString() || "",
             new Date().toISOString(), // 统一使用UTC ISO格式
+            marketState || null,
+            strategyType || null,
+            signalStrength || null,
+            opportunityScore || null,
           ],
         });
       }
@@ -864,6 +874,17 @@ IMPORTANT:
         totalValue = contractAmount * actualFillPrice;
       }
       
+      const returnMessage = `✅ 成功开仓 ${symbol} ${side === "long" ? "做多" : "做空"} ${Math.abs(size)} 张 (${contractAmount.toFixed(4)} ${symbol})，成交价 ${actualFillPrice.toFixed(2)}，保证金 ${actualMargin.toFixed(2)} USDT，杠杆 ${leverage}x。${
+        marketState || strategyType 
+          ? `\n📊 策略信息: ${strategyType ? `策略=${strategyType}` : ''}${marketState ? `, 市场状态=${marketState}` : ''}${signalStrength !== undefined ? `, 信号强度=${(signalStrength * 100).toFixed(0)}%` : ''}${opportunityScore !== undefined ? `, 机会评分=${opportunityScore.toFixed(0)}/100` : ''}` 
+          : ''
+      }\n⚠️ 未设置止盈止损，请在每个周期主动决策是否平仓。`;
+      
+      // 记录策略信息到日志
+      if (marketState || strategyType) {
+        logger.info(`📊 开仓策略信息: symbol=${symbol}, strategy=${strategyType || 'N/A'}, market_state=${marketState || 'N/A'}, signal_strength=${signalStrength?.toFixed(2) || 'N/A'}, opportunity_score=${opportunityScore?.toFixed(0) || 'N/A'}`);
+      }
+      
       return {
         success: true,
         orderId: order.id?.toString(),
@@ -874,7 +895,7 @@ IMPORTANT:
         price: actualFillPrice,
         leverage: adjustedLeverage,
         actualMargin,
-        message: `✅ 成功开仓 ${symbol} ${side === "long" ? "做多" : "做空"} ${Math.abs(size)} 张 (${contractAmount.toFixed(4)} ${symbol})，成交价 ${actualFillPrice.toFixed(2)}，保证金 ${actualMargin.toFixed(2)} USDT，杠杆 ${leverage}x。⚠️ 未设置止盈止损，请在每个周期主动决策是否平仓。`,
+        message: returnMessage,
       };
     } catch (error: any) {
       return {

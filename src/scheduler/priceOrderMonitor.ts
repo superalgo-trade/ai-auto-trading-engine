@@ -238,22 +238,42 @@ export class PriceOrderMonitor {
       }
     }
 
-    // 2. 查找平仓交易（尝试获取精确的平仓价格和手续费）
+    // 2. 查找平仓交易（从交易所查询实际的成交记录）
     const closeTrade = await this.findCloseTrade(order);
     
-    // 3. 如果没找到平仓交易记录，使用触发价作为平仓价
-    let finalCloseTrade = closeTrade;
+    // 3. ⚠️ 关键修复：如果交易所没有平仓记录，说明条件单并未真正触发
+    //    可能的原因：
+    //    a) 条件单被手动取消
+    //    b) 持仓已通过其他方式平仓（手动平仓、其他条件单触发）
+    //    c) 系统异常导致状态不一致
+    //    
+    //    正确的处理方式：标记为cancelled，不创建虚假的平仓记录
     if (!closeTrade) {
-      logger.warn(`⚠️ 未找到 ${order.symbol} 的平仓交易记录，使用触发价作为平仓价`);
-      // 构造一个模拟的平仓交易对象
-      finalCloseTrade = {
-        id: `simulated_${order.order_id}`,
-        price: order.trigger_price,
-        size: order.quantity,
-        fee: '0',
-        timestamp: Date.now(),
-      };
+      logger.warn(`⚠️ 未找到 ${order.symbol} 的平仓交易记录，条件单可能被取消或持仓已通过其他方式平仓`);
+      
+      // 只更新条件单状态为cancelled，不记录虚假的平仓交易
+      await this.updateOrderStatus(order.order_id, 'cancelled');
+      await this.cancelOppositeOrder(order);
+      
+      // 检查持仓是否还存在
+      const contract = this.exchangeClient.normalizeContract(order.symbol);
+      const positions = await this.exchangeClient.getPositions();
+      const positionExists = positions.some(p => 
+        p.contract === contract && Math.abs(parseFloat(p.size || '0')) > 0
+      );
+      
+      if (!positionExists) {
+        // 持仓确实不存在了，从数据库中删除
+        await this.removePosition(order.symbol, order.side);
+        logger.info(`✅ ${order.symbol} 持仓已不存在，已清理数据库记录`);
+      } else {
+        logger.info(`✅ ${order.symbol} 持仓仍存在，保留数据库记录`);
+      }
+      
+      return;
     }
+    
+    const finalCloseTrade = closeTrade;
 
     // 4. 确认有持仓信息才继续（如果既没有持仓也没有开仓记录，无法处理）
     if (!position) {

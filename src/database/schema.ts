@@ -55,6 +55,11 @@ export interface Position {
   risk_usd?: number;
   peak_pnl_percent?: number; // 历史最高盈亏百分比（考虑杠杆）
   partial_close_percentage?: number; // 已通过分批止盈平掉的百分比 (0-100)
+  // 策略信息字段（用于记录开仓决策依据）
+  market_state?: string; // 市场状态（如 'uptrend_oversold', 'ranging_neutral' 等）
+  strategy_type?: string; // 策略类型（如 'trend_following', 'mean_reversion', 'breakout'）
+  signal_strength?: number; // 信号强度（0-1）
+  opportunity_score?: number; // 机会评分（0-100）
 }
 
 export interface AccountHistory {
@@ -199,7 +204,11 @@ CREATE TABLE IF NOT EXISTS positions (
   confidence REAL,
   risk_usd REAL,
   peak_pnl_percent REAL DEFAULT 0,
-  partial_close_percentage REAL DEFAULT 0
+  partial_close_percentage REAL DEFAULT 0,
+  market_state TEXT,
+  strategy_type TEXT,
+  signal_strength REAL,
+  opportunity_score REAL
 );
 
 -- 账户历史表

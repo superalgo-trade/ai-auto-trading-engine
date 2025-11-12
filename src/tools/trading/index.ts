@@ -62,3 +62,8 @@ export {
   checkPartialTakeProfitOpportunityTool,
 } from "./takeProfitManagement";
 
+// 开仓机会分析工具
+export {
+  analyzeOpeningOpportunitiesTool,
+} from "./opportunityAnalysis";
+

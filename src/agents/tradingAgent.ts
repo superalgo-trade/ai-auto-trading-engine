@@ -712,16 +712,36 @@ ${params.scientificStopLoss?.enabled ? `
    ├─ 持仓时间 ≥ 36小时 → 强制平仓
    └─ ⚠️ "接近止损线"不是主动平仓理由（交易所条件单会自动触发）
 
-(2) 新开仓评估（科学过滤 + 自动止损单）：
-   a) 分析市场数据：识别双向机会（做多/做空）
-   b) 开仓前检查：checkOpenPosition() 一次性完成止损验证和计算
-   c) 执行开仓：openPosition（自动设置止损+极端止盈条件单）
+(2) 新开仓评估（智能机会识别 + 科学过滤）：
+   
+   ⭐ 推荐流程（使用智能分析工具）：
+   a) 调用 analyze_opening_opportunities() 获取最佳开仓机会
+      • 工具自动识别市场状态（上涨趋势/下跌趋势/震荡等）
+      • 根据市场状态选择最优策略（趋势跟踪/均值回归/突破）
+      • 对所有机会进行量化评分（0-100分）
+      • 自动过滤已有持仓的币种
+      • 返回评分最高的前5个机会
+   
+   b) 基于评分结果做决策：
+      • 评分 ≥ 80分：高质量机会，优先考虑
+      • 评分 60-79分：中等机会，需结合当前情况判断
+      • 评分 < 60分：低质量机会，建议观望
+   
+   c) 开仓前检查：checkOpenPosition() 验证止损合理性
+   
+   d) 执行开仓：openPosition（自动设置止损+极端止盈条件单）
+   
+   💡 工具优势：
+   • 系统化决策：基于多维度量化评分，而非单一指标
+   • 市场状态自适应：不同市场环境使用不同策略
+   • 双向机会识别：自动识别做多和做空机会
+   • 避免主观偏见：量化评分减少情绪化决策
    
    ⚠️ 重要说明：
+   • 工具只提供建议，最终决策权在AI手中
+   • 可结合自己的市场洞察和专业判断灵活调整
    • 止损单：24/7保护资金，触及立即平仓（风控必需）
    • 极端止盈单：${params.partialTakeProfit.extremeTakeProfit?.rMultiple || 5}R 兜底保护，防止AI失效时利润回吐
-   • AI应通过分批止盈主动管理（1R→2R→3R），不要被动等待极端止盈
-   • 极端止盈触发 = 分批止盈执行不足（本应在1-3R时已平仓）
    
 (3) 加仓评估（谨慎使用）：
    盈利>5%且趋势强化 → checkOpenPosition() 检查后 openPosition` : `
@@ -1895,6 +1915,7 @@ export function createTradingAgent(intervalMinutes: number = 5) {
       tradingTools.updatePositionStopLossTool,
       tradingTools.partialTakeProfitTool,
       tradingTools.checkPartialTakeProfitOpportunityTool,
+      tradingTools.analyzeOpeningOpportunitiesTool, // 新增：开仓机会分析工具
     ],
     memory,
   });

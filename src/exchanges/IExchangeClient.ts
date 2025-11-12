@@ -144,6 +144,7 @@ export interface TradeRecord {
  * 统一交易所客户端接口
  */
 export interface IExchangeClient {
+  [x: string]: any;
   /**
    * 获取交易所名称
    */

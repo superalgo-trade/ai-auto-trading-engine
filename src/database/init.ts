@@ -188,3 +188,12 @@ async function initDatabase() {
 
 export { initDatabase };
 
+// 自动执行初始化（当直接运行此文件时）
+// 在 ES 模块中，使用 import.meta.url 检查是否为主模块
+const isMainModule = import.meta.url === `file://${process.argv[1]}`;
+if (isMainModule) {
+  initDatabase().catch((error) => {
+    console.error("初始化失败:", error);
+    process.exit(1);
+  });
+}

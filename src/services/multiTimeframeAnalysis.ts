@@ -190,16 +190,42 @@ export interface TimeframeIndicators {
   
   // MACD
   macd: number;
+  macdSignal: number;
+  macdHistogram: number;
+  macdTurn: number; // 1(拐头向上), -1(拐头向下), 0(无拐点)
   
   // RSI
+  rsi7: number;
   rsi14: number;
+  
+  // 布林带
+  bollingerUpper: number;
+  bollingerMiddle: number;
+  bollingerLower: number;
+  bollingerBandwidth: number;
+  
+  // ATR和波动率
+  atr: number;
+  atrRatio: number; // 当前ATR / 历史平均ATR
   
   // 成交量
   volume: number;
   avgVolume: number;
+  volumeRatio: number; // 当前成交量 / 平均成交量
   
-  // 价格变化
+  // 价格变化和偏离度
   priceChange20: number; // 最近20根K线变化%
+  deviationFromEMA20: number; // 价格距离EMA20的百分比
+  deviationFromEMA50: number; // 价格距离EMA50的百分比
+  
+  // 支撑阻力
+  recentHigh: number;
+  recentLow: number;
+  resistanceLevels: number[];
+  supportLevels: number[];
+  
+  // K线历史数据（用于突破策略等需要识别支撑/阻力位的策略）
+  candles: any[];
 }
 
 /**
@@ -242,23 +268,40 @@ export async function analyzeTimeframe(
   
   const currentPrice = closes[closes.length - 1] || 0;
   
-  // 计算技术指标（原始值）
+  // 计算技术指标
   const ema20 = calculateEMA(closes, 20);
   const ema50 = calculateEMA(closes, 50);
   
-  const { macd } = calculateMACD(closes);
+  const { macd, signal: macdSignal, histogram } = calculateMACD(closes);
+  const macdTurn = detectMACDHistogramTurn(closes);
   
+  const rsi7 = calculateRSI(closes, 7);
   const rsi14 = calculateRSI(closes, 14);
   
+  // 布林带
+  const bb = calculateBollingerBands(closes, 20, 2);
+  
+  // ATR和波动率
+  const atr = calculateATR(candles, 14);
+  const historicalATR = candles.length >= 40 ? calculateATR(candles.slice(0, -20), 14) : atr;
+  const atrRatio = historicalATR !== 0 ? atr / historicalATR : 1;
+  
+  // 成交量
   const avgVolume = volumes.length > 0 
     ? volumes.reduce((a: number, b: number) => a + b, 0) / volumes.length 
     : 0;
   const currentVolume = volumes[volumes.length - 1] || 0;
+  const volumeRatio = avgVolume !== 0 ? currentVolume / avgVolume : 1;
   
-  // 价格变化
+  // 价格变化和偏离度
   const priceChange20 = closes.length >= 21 && closes[closes.length - 21] !== 0
     ? ((closes[closes.length - 1] - closes[closes.length - 21]) / closes[closes.length - 21]) * 100
     : 0;
+  
+  const { deviationFromEMA20, deviationFromEMA50 } = calculatePriceDeviation(currentPrice, ema20, ema50);
+  
+  // 支撑阻力
+  const { recentHigh, recentLow, resistanceLevels, supportLevels } = identifyRecentHighLow(candles, 20);
   
   return {
     interval: config.interval,
@@ -266,10 +309,28 @@ export async function analyzeTimeframe(
     ema20: ensureFinite(ema20),
     ema50: ensureFinite(ema50),
     macd: ensureFinite(macd),
+    macdSignal: ensureFinite(macdSignal),
+    macdHistogram: ensureFinite(histogram),
+    macdTurn,
+    rsi7: ensureRange(rsi7, 0, 100, 50),
     rsi14: ensureRange(rsi14, 0, 100, 50),
+    bollingerUpper: bb.upper,
+    bollingerMiddle: bb.middle,
+    bollingerLower: bb.lower,
+    bollingerBandwidth: bb.bandwidth,
+    atr: ensureFinite(atr),
+    atrRatio: ensureFinite(atrRatio),
     volume: ensureFinite(currentVolume),
     avgVolume: ensureFinite(avgVolume),
+    volumeRatio: ensureFinite(volumeRatio),
     priceChange20: ensureFinite(priceChange20),
+    deviationFromEMA20: ensureFinite(deviationFromEMA20),
+    deviationFromEMA50: ensureFinite(deviationFromEMA50),
+    recentHigh: ensureFinite(recentHigh),
+    recentLow: ensureFinite(recentLow),
+    resistanceLevels,
+    supportLevels,
+    candles, // 保留原始K线数据，供突破策略等使用
   };
 }
 
@@ -380,5 +441,221 @@ function calculateKeyLevels(
   return {
     resistance,
     support,
+  };
+}
+
+/**
+ * 计算ATR (Average True Range)
+ */
+function calculateATR(candles: any[], period: number = 14): number {
+  if (!candles || candles.length < period + 1) return 0;
+  
+  const trueRanges: number[] = [];
+  
+  for (let i = 1; i < candles.length; i++) {
+    const high = parseFloat(candles[i].high || candles[i].h || "0");
+    const low = parseFloat(candles[i].low || candles[i].l || "0");
+    const prevClose = parseFloat(candles[i - 1].close || candles[i - 1].c || "0");
+    
+    const tr = Math.max(
+      high - low,
+      Math.abs(high - prevClose),
+      Math.abs(low - prevClose)
+    );
+    trueRanges.push(tr);
+  }
+  
+  // 计算ATR（简单移动平均）
+  if (trueRanges.length < period) return 0;
+  
+  const atr = trueRanges.slice(-period).reduce((a, b) => a + b, 0) / period;
+  return ensureFinite(atr);
+}
+
+/**
+ * 计算布林带 (Bollinger Bands)
+ */
+export function calculateBollingerBands(
+  prices: number[],
+  period: number = 20,
+  stdDev: number = 2
+): { upper: number; middle: number; lower: number; bandwidth: number } {
+  if (prices.length < period) {
+    return { upper: 0, middle: 0, lower: 0, bandwidth: 0 };
+  }
+  
+  // 计算SMA作为中轨
+  const recentPrices = prices.slice(-period);
+  const middle = recentPrices.reduce((a, b) => a + b, 0) / period;
+  
+  // 计算标准差
+  const variance = recentPrices.reduce((sum, price) => {
+    return sum + Math.pow(price - middle, 2);
+  }, 0) / period;
+  const std = Math.sqrt(variance);
+  
+  const upper = middle + stdDev * std;
+  const lower = middle - stdDev * std;
+  const bandwidth = upper - lower;
+  
+  return {
+    upper: ensureFinite(upper),
+    middle: ensureFinite(middle),
+    lower: ensureFinite(lower),
+    bandwidth: ensureFinite(bandwidth),
+  };
+}
+
+/**
+ * 检测MACD柱状线拐点
+ * 返回: 1 (拐头向上), -1 (拐头向下), 0 (无明显拐点)
+ */
+export function detectMACDHistogramTurn(prices: number[]): number {
+  if (prices.length < 30) return 0;
+  
+  const macdHistory: number[] = [];
+  
+  // 计算最近的MACD柱状线
+  for (let i = 26; i <= prices.length; i++) {
+    const slice = prices.slice(0, i);
+    const { histogram } = calculateMACD(slice);
+    macdHistory.push(histogram);
+  }
+  
+  if (macdHistory.length < 3) return 0;
+  
+  const latest = macdHistory[macdHistory.length - 1];
+  const prev = macdHistory[macdHistory.length - 2];
+  const prevPrev = macdHistory[macdHistory.length - 3];
+  
+  // 拐头向上：前面递减，现在开始递增
+  if (prevPrev > prev && prev < latest && latest > 0) {
+    return 1;
+  }
+  
+  // 拐头向下：前面递增，现在开始递减
+  if (prevPrev < prev && prev > latest && latest < 0) {
+    return -1;
+  }
+  
+  return 0;
+}
+
+/**
+ * 识别近期高低点（支撑/阻力位）
+ */
+export function identifyRecentHighLow(
+  candles: any[],
+  lookback: number = 20
+): { recentHigh: number; recentLow: number; resistanceLevels: number[]; supportLevels: number[] } {
+  if (!candles || candles.length < lookback) {
+    return { recentHigh: 0, recentLow: 0, resistanceLevels: [], supportLevels: [] };
+  }
+  
+  const recentCandles = candles.slice(-lookback);
+  
+  let recentHigh = 0;
+  let recentLow = Number.POSITIVE_INFINITY;
+  
+  const highs: number[] = [];
+  const lows: number[] = [];
+  
+  for (const candle of recentCandles) {
+    const high = parseFloat(candle.high || candle.h || "0");
+    const low = parseFloat(candle.low || candle.l || "0");
+    
+    if (high > recentHigh) recentHigh = high;
+    if (low < recentLow) recentLow = low;
+    
+    highs.push(high);
+    lows.push(low);
+  }
+  
+  // 识别局部高点作为阻力位
+  const resistanceLevels: number[] = [];
+  for (let i = 1; i < highs.length - 1; i++) {
+    if (highs[i] > highs[i - 1] && highs[i] > highs[i + 1]) {
+      resistanceLevels.push(highs[i]);
+    }
+  }
+  
+  // 识别局部低点作为支撑位
+  const supportLevels: number[] = [];
+  for (let i = 1; i < lows.length - 1; i++) {
+    if (lows[i] < lows[i - 1] && lows[i] < lows[i + 1]) {
+      supportLevels.push(lows[i]);
+    }
+  }
+  
+  return {
+    recentHigh: ensureFinite(recentHigh),
+    recentLow: ensureFinite(recentLow === Number.POSITIVE_INFINITY ? 0 : recentLow),
+    resistanceLevels: resistanceLevels.sort((a, b) => b - a).slice(0, 3),
+    supportLevels: supportLevels.sort((a, b) => b - a).slice(0, 3),
+  };
+}
+
+/**
+ * 计算趋势一致性评分（多时间框架对齐度）
+ * 返回0-1的评分
+ */
+export function calculateTrendConsistency(
+  ema20_short: number,
+  ema50_short: number,
+  ema20_medium: number,
+  ema50_medium: number,
+  macd_short: number,
+  macd_medium: number
+): number {
+  let score = 0;
+  
+  // 短时间框架趋势方向
+  const shortTrend = ema20_short > ema50_short ? 1 : -1;
+  const shortMomentum = macd_short > 0 ? 1 : -1;
+  
+  // 中期时间框架趋势方向
+  const mediumTrend = ema20_medium > ema50_medium ? 1 : -1;
+  const mediumMomentum = macd_medium > 0 ? 1 : -1;
+  
+  // EMA趋势一致性 (40%)
+  if (shortTrend === mediumTrend) {
+    score += 0.4;
+  }
+  
+  // MACD动量一致性 (30%)
+  if (shortMomentum === mediumMomentum) {
+    score += 0.3;
+  }
+  
+  // EMA和MACD内部一致性 (30%)
+  if (shortTrend === shortMomentum) {
+    score += 0.15;
+  }
+  if (mediumTrend === mediumMomentum) {
+    score += 0.15;
+  }
+  
+  return ensureRange(score, 0, 1, 0.5);
+}
+
+/**
+ * 计算价格偏离度（距离关键均线的百分比）
+ */
+export function calculatePriceDeviation(
+  currentPrice: number,
+  ema20: number,
+  ema50: number
+): { deviationFromEMA20: number; deviationFromEMA50: number } {
+  const deviationFromEMA20 = ema20 !== 0 
+    ? ((currentPrice - ema20) / ema20) * 100 
+    : 0;
+  
+  const deviationFromEMA50 = ema50 !== 0 
+    ? ((currentPrice - ema50) / ema50) * 100 
+    : 0;
+  
+  return {
+    deviationFromEMA20: ensureFinite(deviationFromEMA20),
+    deviationFromEMA50: ensureFinite(deviationFromEMA50),
   };
 }
