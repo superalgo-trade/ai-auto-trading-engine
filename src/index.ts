@@ -22,6 +22,9 @@ import { createApiRoutes } from "./api/routes";
 import { startTradingLoop, initTradingSystem } from "./scheduler/tradingLoop";
 import { startAccountRecorder } from "./scheduler/accountRecorder";
 import { PriceOrderMonitor } from "./scheduler/priceOrderMonitor";
+import { startHealthCheck } from "./scheduler/healthCheck";
+import { inconsistentStateResolver } from "./scheduler/inconsistentStateResolver";
+import { emailAlertService } from "./utils/emailAlert";
 import { initDatabase } from "./database/init";
 import { RISK_PARAMS } from "./config/riskParams";
 import { createClient } from "@libsql/client";
@@ -51,10 +54,14 @@ async function main() {
   logger.info("初始化数据库...");
   await initDatabase();
 
-  // 2. 初始化交易系统配置（读取环境变量并同步到数据库）
+  // 2. 初始化邮件告警服务
+  logger.info("初始化邮件告警服务...");
+  emailAlertService.initialize();
+
+  // 3. 初始化交易系统配置（读取环境变量并同步到数据库）
   await initTradingSystem();
   
-  // 3. 启动 API 服务器
+  // 4. 启动 API 服务器
   logger.info("🌐 启动 Web 服务器...");
   const apiRoutes = createApiRoutes();
   
@@ -73,15 +80,15 @@ async function main() {
     logger.info(`局域网访问: http://<你的局域网IP>:${port}/`);
   }
   
-  // 4. 启动交易循环
+  // 5. 启动交易循环
   logger.info("启动交易循环...");
   startTradingLoop();
   
-  // 5. 启动账户资产记录器
+  // 6. 启动账户资产记录器
   logger.info("启动账户资产记录器...");
   startAccountRecorder();
   
-  // 6. 启动条件单监控服务
+  // 7. 启动条件单监控服务
   const monitorEnabled = process.env.PRICE_ORDER_MONITOR_ENABLED !== 'false';
   if (monitorEnabled) {
     logger.info("启动条件单监控服务...");
@@ -95,6 +102,24 @@ async function main() {
     await priceOrderMonitor.start();
   } else {
     logger.info("条件单监控服务已禁用（PRICE_ORDER_MONITOR_ENABLED=false）");
+  }
+  
+  // 8. 启动健康检查服务
+  const healthCheckEnabled = process.env.HEALTH_CHECK_ENABLED !== 'false';
+  if (healthCheckEnabled) {
+    logger.info("启动健康检查服务...");
+    startHealthCheck();
+  } else {
+    logger.info("健康检查服务已禁用（HEALTH_CHECK_ENABLED=false）");
+  }
+  
+  // 9. 启动自动修复服务（可选）
+  const autoResolveEnabled = process.env.AUTO_RESOLVE_ENABLED === 'true';
+  if (autoResolveEnabled) {
+    logger.info("启动自动修复服务...");
+    await inconsistentStateResolver.start();
+  } else {
+    logger.info("自动修复服务已禁用（AUTO_RESOLVE_ENABLED=false，如需启用请设置为true）");
   }
   
   logger.info("=".repeat(80));

@@ -25,7 +25,9 @@
  */
 export type MarketState = 
   | "uptrend_oversold"      // 上涨趋势中的超卖回调（最佳做多）⭐⭐⭐⭐⭐
+  | "uptrend_overbought"    // 上涨趋势中的超买（潜在回调风险，逆势做空）⭐⭐⭐
   | "downtrend_overbought"  // 下跌趋势中的超买反弹（最佳做空）⭐⭐⭐⭐⭐
+  | "downtrend_oversold"    // 下跌趋势中的超卖（潜在反弹机会，逆势做多）⭐⭐⭐
   | "uptrend_continuation"  // 上涨趋势延续（稳健做多）⭐⭐⭐⭐
   | "downtrend_continuation"// 下跌趋势延续（稳健做空）⭐⭐⭐⭐
   | "ranging_oversold"      // 震荡市超卖（均值回归做多）⭐⭐⭐

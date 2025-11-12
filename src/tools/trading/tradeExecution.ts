@@ -1257,144 +1257,155 @@ export const closePositionTool = createTool({
       logger.info(`  总手续费: ${totalFee.toFixed(4)} USDT`);
       logger.info(`  净盈亏: ${pnl.toFixed(2)} USDT`);
       
-      // 记录平仓交易
-      // side: 原持仓方向（long/short）
-      // 实际执行方向: long平仓=卖出, short平仓=买入
-      // pnl: 净盈亏（已扣除手续费）
-      // fee: 总手续费（开仓+平仓）
-      // 映射状态：Gate.io finished -> filled, open -> pending
-      const dbStatus = finalOrderStatus === 'finished' ? 'filled' : 'pending';
-      
-      await dbClient.execute({
-        sql: `INSERT INTO trades (order_id, symbol, side, type, price, quantity, leverage, pnl, fee, timestamp, status)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        args: [
-          order.id?.toString() || "",
-          symbol,
-          side,             // 原持仓方向（便于统计某个币种的多空盈亏）
-          "close",
-          actualExitPrice,   // 使用实际成交价格
-          actualCloseSize,   // 使用实际成交数量
-          leverage,
-          pnl,              // 净盈亏（已扣除手续费）
-          totalFee,         // 总手续费（开仓+平仓）
-          new Date().toISOString(), // 统一使用UTC ISO格式
-          dbStatus,
-        ],
-      });
-      
-      // 📝 记录平仓事件到 position_close_events 表
-      // 这样可以追踪每次平仓的原因和详情
-      const closeEventTime = new Date().toISOString(); // 统一使用UTC ISO格式
-      
       // 计算盈亏百分比（含杠杆）
       const pnlPercent = entryPrice > 0 
         ? ((actualExitPrice - entryPrice) / entryPrice * 100 * (side === 'long' ? 1 : -1) * leverage)
         : 0;
       
-      await dbClient.execute({
-        sql: `INSERT INTO position_close_events 
-              (symbol, side, entry_price, close_price, quantity, leverage, 
-               pnl, pnl_percent, fee, close_reason, trigger_type, order_id, 
-               created_at, processed)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        args: [
-          symbol,
-          side,
-          entryPrice,
-          actualExitPrice,
-          actualCloseSize,
-          leverage,
-          pnl,
-          pnlPercent,
-          totalFee,
-          reason,          // 使用传入的平仓原因代码
-          'ai_decision',   // 触发类型：AI决策
-          order.id?.toString() || "",
-          closeEventTime,
-          1,  // 已处理
-        ],
-      });
+      // 映射状态：Gate.io finished -> filled, open -> pending
+      const dbStatus = finalOrderStatus === 'finished' ? 'filled' : 'pending';
       
-      logger.info(`📝 已记录平仓事件: ${symbol} ${side} 原因=${reason}, 盈亏=${pnl.toFixed(2)} USDT (${pnlPercent.toFixed(2)}%)`);
-
+      // ========== 阶段1: 交易所操作（不可回滚部分）已完成 ==========
+      // 已执行: 市价单平仓、获取成交信息、计算盈亏
       
-      // 🔥 关键修复：平仓时必须取消交易所的所有条件单
-      // 使用交易所的 cancelPositionStopLoss 方法一次性取消所有条件单
+      // 🔥 取消交易所的所有条件单
+      let cancelSuccess = false;
       try {
         const cancelResult = await exchangeClient.cancelPositionStopLoss(contract);
-        if (cancelResult.success) {
-          logger.info(`✅ 已取消 ${symbol} 在交易所的所有止损止盈订单`);
-          
-          // 更新数据库中该币种所有活跃条件单的状态为 cancelled
-          const now = new Date().toISOString();
+        cancelSuccess = cancelResult.success;
+        logger.info(cancelSuccess ? `✅ 已取消 ${symbol} 在交易所的所有条件单` : `⚠️ 取消条件单失败: ${cancelResult.message}`);
+      } catch (cancelError: any) {
+        logger.warn(`⚠️ 取消条件单异常: ${cancelError.message}`);
+      }
+      
+      // ========== 阶段2: 数据库事务操作 ==========
+      logger.info('🔄 阶段2: 执行数据库事务...');
+      
+      const timestamp = new Date().toISOString();
+      
+      // 开启事务
+      await dbClient.execute('BEGIN TRANSACTION');
+      
+      try {
+        // ⭐️ 2.1 最关键: 先删除/更新持仓记录
+        // 即使后续步骤失败，也不会误认为持仓存在
+        if (percentage === 100) {
+          await dbClient.execute({
+            sql: 'DELETE FROM positions WHERE symbol = ?',
+            args: [symbol]
+          });
+          logger.debug('✅ [事务] 步骤1: 持仓记录已删除');
+        } else {
+          // 部分平仓：更新持仓数量
+          const newQuantity = quantity - actualCloseSize;
+          await dbClient.execute({
+            sql: 'UPDATE positions SET quantity = ? WHERE symbol = ?',
+            args: [newQuantity, symbol]
+          });
+          logger.debug(`✅ [事务] 步骤1: 持仓数量已更新 ${quantity} → ${newQuantity}`);
+        }
+        
+        // ⭐️ 2.2 第二关键: 更新条件单状态（100%平仓时）
+        // 防止条件单监控服务误判为触发
+        if (percentage === 100) {
           await dbClient.execute({
             sql: `UPDATE price_orders 
                   SET status = 'cancelled', updated_at = ?
                   WHERE symbol = ? AND status = 'active'`,
-            args: [now, symbol]
+            args: [timestamp, symbol]
           });
-          logger.info(`✅ 已更新数据库中 ${symbol} 的条件单状态`);
-        } else {
-          logger.warn(`⚠️ 取消条件单失败: ${cancelResult.message}`);
+          logger.debug('✅ [事务] 步骤2: 条件单状态已更新');
         }
-      } catch (cancelError: any) {
-        logger.error(`❌ 取消条件单异常: ${cancelError.message}`);
-      }
-      
-      // 从数据库获取止损止盈订单ID（用于日志记录）
-      const posResult = await dbClient.execute({
-        sql: "SELECT sl_order_id, tp_order_id FROM positions WHERE symbol = ?",
-        args: [symbol],
-      });
-      
-      // 额外检查：如果数据库中有订单ID记录，再尝试单独取消（双重保险）
-      if (posResult.rows.length > 0) {
-        const dbPosition = posResult.rows[0] as any;
         
-        if (dbPosition.sl_order_id || dbPosition.tp_order_id) {
-          logger.debug(`数据库记录的订单ID: SL=${dbPosition.sl_order_id}, TP=${dbPosition.tp_order_id}`);
-          
-          // 批量处理单个订单取消（作为双重保险）
-          const cancelPromises: Promise<void>[] = [];
-          
-          if (dbPosition.sl_order_id) {
-            cancelPromises.push(
-              (async () => {
-                try {
-                  await exchangeClient.cancelOrder(dbPosition.sl_order_id);
-                  logger.debug(`✅ 止损订单 ${dbPosition.sl_order_id} 已取消`);
-                } catch (e: any) {
-                  logger.debug(`止损订单 ${dbPosition.sl_order_id} 可能已被取消: ${e.message}`);
-                }
-              })()
-            );
-          }
-          
-          if (dbPosition.tp_order_id) {
-            cancelPromises.push(
-              (async () => {
-                try {
-                  await exchangeClient.cancelOrder(dbPosition.tp_order_id);
-                  logger.debug(`✅ 止盈订单 ${dbPosition.tp_order_id} 已取消`);
-                } catch (e: any) {
-                  logger.debug(`止盈订单 ${dbPosition.tp_order_id} 可能已被取消: ${e.message}`);
-                }
-              })()
-            );
-          }
-          
-          // 等待所有取消操作完成（不阻塞主流程）
-          await Promise.allSettled(cancelPromises);
-        }
-      }
-      
-      // 如果全部平仓，从持仓表删除；否则不操作（交由同步任务更新）
-      if (percentage === 100) {
+        // 2.3 插入平仓交易记录
         await dbClient.execute({
-          sql: "DELETE FROM positions WHERE symbol = ?",
-          args: [symbol],
+          sql: `INSERT INTO trades (order_id, symbol, side, type, price, quantity, leverage, pnl, fee, timestamp, status)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          args: [
+            order.id?.toString() || "",
+            symbol,
+            side,
+            "close",
+            actualExitPrice,
+            actualCloseSize,
+            leverage,
+            pnl,
+            totalFee,
+            timestamp,
+            dbStatus,
+          ],
         });
+        logger.debug('✅ [事务] 步骤3: 交易记录已插入');
+        
+        // 2.4 插入平仓事件记录
+        await dbClient.execute({
+          sql: `INSERT INTO position_close_events 
+                (symbol, side, entry_price, close_price, quantity, leverage, 
+                 pnl, pnl_percent, fee, close_reason, trigger_type, order_id, 
+                 created_at, processed)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          args: [
+            symbol,
+            side,
+            entryPrice,
+            actualExitPrice,
+            actualCloseSize,
+            leverage,
+            pnl,
+            pnlPercent,
+            totalFee,
+            reason,
+            'ai_decision',
+            order.id?.toString() || "",
+            timestamp,
+            1,
+          ],
+        });
+        logger.debug('✅ [事务] 步骤4: 平仓事件已记录');
+        
+        // 提交事务
+        await dbClient.execute('COMMIT');
+        logger.info('✅ [事务] 所有数据库操作已提交');
+        logger.info(`📝 平仓事件: ${symbol} ${side} 原因=${reason}, 盈亏=${pnl.toFixed(2)} USDT (${pnlPercent.toFixed(2)}%)`);
+        
+      } catch (dbError: any) {
+        // 回滚事务
+        await dbClient.execute('ROLLBACK');
+        logger.error('❌ [事务] 数据库操作失败，已回滚:', dbError);
+        
+        // ⚠️ 关键: 记录不一致状态
+        // 交易所操作已完成，但数据库记录失败
+        try {
+          await dbClient.execute({
+            sql: `INSERT INTO inconsistent_states 
+                  (operation, symbol, side, exchange_success, db_success, 
+                   exchange_order_id, error_message, created_at, resolved)
+                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            args: [
+              'close_position',
+              symbol,
+              side,
+              1,  // 交易所操作成功
+              0,  // 数据库操作失败
+              order.id?.toString() || null,
+              dbError.message,
+              timestamp,
+              0  // 未解决
+            ]
+          });
+          logger.warn('⚠️ 已记录不一致状态到数据库');
+        } catch (recordError: any) {
+          logger.error('❌ 记录不一致状态失败:', recordError);
+        }
+        
+        return {
+          success: false,
+          partialSuccess: true,  // 交易所操作成功
+          needsManualCheck: true,
+          message: '平仓成功但数据记录失败，需要人工检查数据一致性',
+          orderId: order.id?.toString(),
+          error: dbError.message,
+        };
       }
       
       return {

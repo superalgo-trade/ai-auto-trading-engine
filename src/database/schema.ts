@@ -317,6 +317,23 @@ CREATE TABLE IF NOT EXISTS partial_take_profit_history (
   timestamp TEXT NOT NULL
 );
 
+-- 不一致状态追踪表（事务保护）
+CREATE TABLE IF NOT EXISTS inconsistent_states (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  operation TEXT NOT NULL,
+  symbol TEXT NOT NULL,
+  side TEXT,
+  exchange_success INTEGER NOT NULL,
+  db_success INTEGER NOT NULL,
+  exchange_order_id TEXT,
+  error_message TEXT,
+  resolved INTEGER DEFAULT 0,
+  resolved_at TEXT,
+  resolved_by TEXT,
+  resolution_notes TEXT,
+  created_at TEXT NOT NULL
+);
+
 -- 创建索引
 CREATE INDEX IF NOT EXISTS idx_trades_timestamp ON trades(timestamp);
 CREATE INDEX IF NOT EXISTS idx_trades_symbol ON trades(symbol);
@@ -331,5 +348,8 @@ CREATE INDEX IF NOT EXISTS idx_close_events_processed ON position_close_events(p
 CREATE INDEX IF NOT EXISTS idx_close_events_symbol ON position_close_events(symbol);
 CREATE INDEX IF NOT EXISTS idx_partial_taking_profit_symbol ON partial_take_profit_history(symbol);
 CREATE INDEX IF NOT EXISTS idx_partial_taking_profit_status ON partial_take_profit_history(status);
+CREATE INDEX IF NOT EXISTS idx_inconsistent_states_resolved ON inconsistent_states(resolved, created_at);
+CREATE INDEX IF NOT EXISTS idx_inconsistent_states_symbol ON inconsistent_states(symbol);
+CREATE INDEX IF NOT EXISTS idx_inconsistent_states_operation ON inconsistent_states(operation);
 `;
 

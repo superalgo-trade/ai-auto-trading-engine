@@ -93,6 +93,18 @@ export async function routeStrategy(symbol: string): Promise<StrategyResult> {
       baseResult = await trendFollowingStrategy(symbol, "short", marketState, tf15m, tf1h);
       break;
       
+    case "downtrend_oversold":
+      // 🔧 新增：下跌趋势中的超卖 -> 均值回归做多（逆势反弹）
+      logger.info(`${symbol}: 下跌趋势中的超卖，使用均值回归做多策略（逆势反弹）`);
+      baseResult = await meanReversionStrategy(symbol, "long", marketState, tf15m, tf1h);
+      break;
+      
+    case "uptrend_overbought":
+      // 🔧 新增：上涨趋势中的超买 -> 均值回归做空（逆势回调）
+      logger.info(`${symbol}: 上涨趋势中的超买，使用均值回归做空策略（逆势回调）`);
+      baseResult = await meanReversionStrategy(symbol, "short", marketState, tf15m, tf1h);
+      break;
+      
     case "uptrend_continuation":
       // 上涨趋势延续 -> 趋势跟踪做多（较低置信度）
       logger.info(`${symbol}: 上涨趋势延续，使用趋势跟踪做多策略`);

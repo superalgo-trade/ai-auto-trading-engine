@@ -26,6 +26,7 @@ import { createClient } from "@libsql/client";
 import { getExchangeClient } from "../exchanges";
 import { createLogger } from "../utils/logger";
 import { formatPrice, formatUSDT, formatPercent, getDecimalPlacesBySymbol } from "../utils/priceFormatter";
+import { performHealthCheck } from "../scheduler/healthCheck";
 
 const logger = createLogger({
   name: "api-routes",
@@ -545,6 +546,29 @@ export function createApiRoutes() {
     } catch (error: any) {
       logger.error('获取条件单失败:', error);
       return c.json({ error: error.message }, 500);
+    }
+  });
+
+  /**
+   * 获取系统健康状态
+   */
+  app.get("/api/health", async (c) => {
+    try {
+      const healthResult = await performHealthCheck();
+      return c.json(healthResult);
+    } catch (error: any) {
+      logger.error('健康检查失败:', error);
+      return c.json({ 
+        healthy: false, 
+        issues: [`健康检查执行失败: ${error.message}`],
+        warnings: [],
+        timestamp: new Date().toISOString(),
+        details: {
+          orphanOrders: 0,
+          inconsistentStates: 0,
+          positionMismatches: { onlyInExchange: [], onlyInDB: [] }
+        }
+      }, 500);
     }
   });
 

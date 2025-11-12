@@ -19,7 +19,7 @@
 /**
  * Binance 交易所客户端实现 - 使用原生 fetch API
  */
-import crypto from 'crypto';
+import * as crypto from 'crypto';
 import { createLogger } from "../utils/logger";
 import { RISK_PARAMS } from "../config/riskParams";
 import type {
@@ -112,12 +112,12 @@ export class BinanceExchangeClient implements IExchangeClient {
     const now = Date.now();
     const keysToDelete: string[] = [];
     
-    // 找出过期的缓存
-    for (const [orderId, cache] of this.orderCache.entries()) {
+    // 找出过期的缓存 - 使用 Array.from 避免 Map 迭代器问题
+    Array.from(this.orderCache.entries()).forEach(([orderId, cache]) => {
       if (now - cache.timestamp > this.CACHE_TTL) {
         keysToDelete.push(orderId);
       }
-    }
+    });
     
     // 删除过期缓存
     for (const key of keysToDelete) {
@@ -544,14 +544,21 @@ export class BinanceExchangeClient implements IExchangeClient {
         const decimalPlaces = minQty >= 1 ? 0 : Math.abs(Math.floor(Math.log10(minQty)));
         const multiplier = Math.pow(10, decimalPlaces);
         
-        // 修正精度（防止浮点数累积误差，如 956.8100000000001）
-        quantity = Math.floor(quantity * multiplier) / multiplier;
+        // 🔧 修复：使用 round 代替 floor，避免小数量被截断为0
+        // 对于 0.00019112，精度3位时：round(0.19112) / 1000 = 0.000191
+        quantity = Math.round(quantity * multiplier) / multiplier;
         
-        logger.debug(`下单数量精度修正: 原始=${Math.abs(params.size).toFixed(8)} -> 修正=${quantity.toFixed(8)} (精度=${decimalPlaces}位)`);
+        // 确保不小于最小下单量
+        if (quantity < minQty) {
+          logger.warn(`计算数量 ${quantity} 小于最小下单量 ${minQty}，调整为最小值`);
+          quantity = minQty;
+        }
+        
+        logger.debug(`下单数量精度修正: 原始=${Math.abs(params.size).toFixed(8)} -> 修正=${quantity.toFixed(8)} (精度=${decimalPlaces}位, 最小量=${minQty})`);
       } catch (error) {
         logger.warn('获取合约精度失败，使用默认精度处理:', error as Error);
         // 使用默认精度（3位小数）
-        quantity = Math.floor(quantity * 1000) / 1000;
+        quantity = Math.round(quantity * 1000) / 1000;
       }
       
       const data: any = {
@@ -573,16 +580,68 @@ export class BinanceExchangeClient implements IExchangeClient {
 
       const response = await this.privateRequest('/fapi/v1/order', data, 'POST', retries);
       
+      logger.debug(`币安下单响应原始数据: ${JSON.stringify(response)}`);
+      
+      // 🔧 币安的市价单返回不包含实际成交价，需要查询成交记录获取
+      let actualPrice = response.avgPrice || response.price || '0';
+      
+      logger.debug(`初始成交价: avgPrice=${response.avgPrice}, price=${response.price}, actualPrice=${actualPrice}`);
+      
+      if (orderType === 'MARKET' && (actualPrice === '0' || !actualPrice || parseFloat(actualPrice) === 0)) {
+        // 等待订单成交
+        await new Promise(resolve => setTimeout(resolve, 800));
+        
+        try {
+          // 方法1: 查询订单详情获取实际成交价
+          const orderDetail = await this.privateRequest('/fapi/v1/order', {
+            symbol,
+            orderId: response.orderId
+          }, 'GET', 2);
+          
+          logger.debug(`订单详情: ${JSON.stringify(orderDetail)}`);
+          actualPrice = orderDetail.avgPrice || actualPrice;
+          
+          // 方法2: 如果订单详情也没有价格，查询成交记录
+          if (!actualPrice || parseFloat(actualPrice) === 0) {
+            const trades = await this.privateRequest('/fapi/v1/userTrades', {
+              symbol,
+              orderId: response.orderId
+            }, 'GET', 2);
+            
+            logger.debug(`成交记录数量: ${trades?.length || 0}`);
+            
+            if (trades && trades.length > 0) {
+              // 使用最新成交记录的价格
+              actualPrice = trades[trades.length - 1].price;
+              logger.debug(`从成交记录获取价格: ${actualPrice}`);
+            }
+          }
+          
+          logger.info(`✅ 获取到订单成交价: ${actualPrice}`);
+        } catch (error) {
+          logger.warn(`获取订单成交价失败:`, error as Error);
+          
+          // 最后的兜底方案：使用当前市场价格
+          try {
+            const ticker = await this.getFuturesTicker(params.contract);
+            actualPrice = ticker.last;
+            logger.warn(`⚠️ 使用当前市场价格作为成交价: ${actualPrice}`);
+          } catch (tickerError) {
+            logger.error(`获取市场价格也失败，成交价将为0`, tickerError as Error);
+          }
+        }
+      }
+      
       const orderResponse = {
         id: response.orderId.toString(),
         contract: params.contract,
         size: params.size,
-        price: response.avgPrice || response.price || '0',
+        price: actualPrice,
         status: response.status === 'FILLED' ? 'finished' : 
                 response.status === 'NEW' ? 'open' : 
                 response.status.toLowerCase(),
         create_time: response.updateTime,
-        fill_price: response.avgPrice || '0',
+        fill_price: actualPrice,
         left: (parseFloat(response.origQty || '0') - parseFloat(response.executedQty || '0')).toString()
       };
       
@@ -962,18 +1021,19 @@ export class BinanceExchangeClient implements IExchangeClient {
       const decimalPlaces = minQty >= 1 ? 0 : Math.abs(Math.floor(Math.log10(minQty)));
       const multiplier = Math.pow(10, decimalPlaces);
       
-      // 向下取整到指定精度，避免浮点数精度问题
-      const roundedQuantity = Math.floor(quantity * multiplier) / multiplier;
+      // 🔧 向下取整到指定精度，避免浮点数精度问题
+      // 注意：这里使用floor是合理的，确保不超出用户资金
+      let roundedQuantity = Math.floor(quantity * multiplier) / multiplier;
       
-      // 确保不小于最小值
-      const finalQuantity = Math.max(roundedQuantity, minQty);
+      // 🔧 修复：如果取整后为0，则使用最小值
+      if (roundedQuantity < minQty) {
+        logger.warn(`计算数量 ${roundedQuantity} 小于最小下单量 ${minQty}，调整为最小值`);
+        roundedQuantity = minQty;
+      }
       
-      // 🔧 再次修正精度（防止浮点数累积误差）
-      const finalRounded = Math.floor(finalQuantity * multiplier) / multiplier;
+      logger.debug(`精度修正: 原始=${quantity.toFixed(8)} -> 取整=${roundedQuantity.toFixed(8)} (minQty=${minQty}, 精度=${decimalPlaces}位)`);
       
-      logger.debug(`精度修正: 原始=${quantity.toFixed(8)} -> 四舍五入=${roundedQuantity.toFixed(8)} -> 最终=${finalRounded.toFixed(8)} (minQty=${minQty}, 精度=${decimalPlaces}位)`);
-      
-      return finalRounded;
+      return roundedQuantity;
     } catch (error) {
       logger.warn('获取合约信息失败，使用默认精度:', error as Error);
       // 使用默认精度（3位小数）

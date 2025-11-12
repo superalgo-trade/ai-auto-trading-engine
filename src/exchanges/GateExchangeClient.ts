@@ -88,6 +88,11 @@ export class GateExchangeClient implements IExchangeClient {
 
   normalizeContract(symbol: string): string {
     // Gate.io 使用下划线格式：BTC_USDT
+    // 如果已经是正确格式（包含_USDT），直接返回
+    if (symbol.includes('_USDT')) {
+      return symbol;
+    }
+    // 否则添加 _USDT 后缀
     return `${symbol}_USDT`;
   }
 
@@ -265,22 +270,34 @@ export class GateExchangeClient implements IExchangeClient {
       
       const absSize = Math.abs(params.size);
       const API_MAX_SIZE = 10000000;
-      
-      // 🔧 精度处理：根据 orderSizeMin 确定数量精度
       const minQty = contractInfo.orderSizeMin || 1;
-      const decimalPlaces = minQty >= 1 ? 0 : Math.abs(Math.floor(Math.log10(minQty)));
-      const multiplier = Math.pow(10, decimalPlaces);
       
-      // 先对原始数量进行精度修正
-      const precisionCorrectedSize = Math.floor(absSize * multiplier) / multiplier;
+      // 🔧 反向合约特殊处理：按张数交易，数量必须为整数
+      // 如果是反向合约(multiplier > 0)且最小数量≥1，说明按张数交易
+      const isContractBasedTrading = minQty >= 1;
       
-      // 检查最小数量限制
-      if (precisionCorrectedSize < minQty) {
-        logger.warn(`订单数量 ${precisionCorrectedSize.toFixed(decimalPlaces)} 小于最小限制 ${minQty}，调整为最小值`);
-        adjustedSize = params.size > 0 ? minQty : -minQty;
+      if (isContractBasedTrading) {
+        // 反向合约：直接向上取整到最小张数
+        if (absSize < minQty) {
+          logger.debug(`反向合约数量 ${absSize.toFixed(8)} 小于最小张数 ${minQty}，调整为最小值`);
+          adjustedSize = params.size > 0 ? minQty : -minQty;
+        } else {
+          // 向上取整到最接近的整数张数
+          const roundedSize = Math.ceil(absSize);
+          adjustedSize = params.size > 0 ? roundedSize : -roundedSize;
+        }
       } else {
-        // 使用精度修正后的数量
-        adjustedSize = params.size > 0 ? precisionCorrectedSize : -precisionCorrectedSize;
+        // 正向合约/小数精度合约：使用原有的精度修正逻辑
+        const decimalPlaces = Math.abs(Math.floor(Math.log10(minQty)));
+        const multiplier = Math.pow(10, decimalPlaces);
+        const precisionCorrectedSize = Math.round(absSize * multiplier) / multiplier;
+        
+        if (precisionCorrectedSize < minQty) {
+          logger.warn(`订单数量 ${precisionCorrectedSize.toFixed(decimalPlaces)} 小于最小限制 ${minQty}，调整为最小值`);
+          adjustedSize = params.size > 0 ? minQty : -minQty;
+        } else {
+          adjustedSize = params.size > 0 ? precisionCorrectedSize : -precisionCorrectedSize;
+        }
       }
       
       // 检查最大数量限制
@@ -289,11 +306,11 @@ export class GateExchangeClient implements IExchangeClient {
         : API_MAX_SIZE;
         
       if (Math.abs(adjustedSize) > maxSize) {
-        logger.warn(`订单数量 ${Math.abs(adjustedSize).toFixed(decimalPlaces)} 超过最大限制 ${maxSize}，调整为最大值`);
+        logger.warn(`订单数量 ${Math.abs(adjustedSize).toFixed(2)} 超过最大限制 ${maxSize}，调整为最大值`);
         adjustedSize = params.size > 0 ? maxSize : -maxSize;
       }
       
-      logger.debug(`Gate.io 下单数量精度修正: 原始=${Math.abs(params.size).toFixed(8)} -> 修正=${Math.abs(adjustedSize).toFixed(decimalPlaces)} (精度=${decimalPlaces}位, minQty=${minQty})`);
+      logger.debug(`Gate.io 下单数量修正: 原始=${Math.abs(params.size).toFixed(8)} -> 修正=${Math.abs(adjustedSize)} (minQty=${minQty}, 合约类型=${isContractBasedTrading ? '按张数' : '按数量'})`);
 
       // 验证价格偏离
       let adjustedPrice = params.price;
@@ -376,13 +393,54 @@ export class GateExchangeClient implements IExchangeClient {
       );
       
       const orderResult = result.body;
+      
+      // 🔧 Gate.io的订单返回不包含实际成交价，需要查询成交记录
+      // 对于市价单，等待一下确保成交完成
+      if (isMarketOrder) {
+        await new Promise(resolve => setTimeout(resolve, 1000)); // 等待1秒确保成交
+        
+        // 查询最近的成交记录获取实际成交价
+        try {
+          const trades = await this.getMyTrades(params.contract, 20);
+          logger.debug(`查询到 ${trades.length} 条成交记录，订单ID: ${orderResult.id}`);
+          
+          // 尝试通过order_id或时间匹配
+          const orderId = orderResult.id.toString();
+          let matchingTrade = trades.find(t => t.order_id === orderId);
+          
+          // 如果没找到，取最新的一条（刚刚成交的）
+          if (!matchingTrade && trades.length > 0) {
+            matchingTrade = trades[0];
+            logger.debug(`使用最新成交记录: trade_id=${matchingTrade.id}, price=${matchingTrade.price}`);
+          }
+          
+          if (matchingTrade) {
+            logger.info(`✅ 获取到订单成交价: ${matchingTrade.price}`);
+            // 🔧 修复：...orderResult 必须在前面，避免覆盖我们设置的 price
+            return {
+              ...orderResult,
+              id: orderResult.id,
+              contract: orderResult.contract,
+              size: orderResult.size,
+              price: matchingTrade.price, // 使用实际成交价 - 放在最后确保不被覆盖
+              status: orderResult.status,
+            };
+          } else {
+            logger.warn(`⚠️ 未找到订单 ${orderId} 的成交记录`);
+          }
+        } catch (error) {
+          logger.warn(`获取订单成交价失败:`, error as Error);
+        }
+      }
+      
+      // 🔧 修复：...orderResult 必须在前面，避免覆盖我们设置的 price
       return {
+        ...orderResult,
         id: orderResult.id,
         contract: orderResult.contract,
         size: orderResult.size,
-        price: orderResult.price || "0",
+        price: orderResult.price || "0", // 放在最后确保不被覆盖
         status: orderResult.status,
-        ...orderResult,
       };
     } catch (error: any) {
       const errorDetails = {

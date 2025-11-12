@@ -22,6 +22,7 @@
  */
 import { createLogger } from "../utils/logger";
 import { getChinaTimeISO } from "../utils/timeUtils";
+import { getQuantoMultiplier } from "../utils/contractUtils";
 import type { Client } from "@libsql/client";
 import type { IExchangeClient } from "../exchanges/IExchangeClient";
 
@@ -218,7 +219,7 @@ export class PriceOrderMonitor {
   private async handleTriggeredOrder(order: DBPriceOrder) {
     logger.debug(`🔍 检查条件单: ${order.symbol} ${order.type} ${order.order_id}`);
 
-    // 1. 查询持仓信息（用于计算PnL）- 提前查询，避免后面找不到
+    // 阶段1: 查询持仓信息（用于计算PnL）- 提前查询，避免后面找不到
     let position = await this.getPositionInfo(order.symbol, order.side);
     
     // 如果数据库中没有持仓记录，尝试从开仓交易记录中查找
@@ -238,10 +239,10 @@ export class PriceOrderMonitor {
       }
     }
 
-    // 2. 查找平仓交易（从交易所查询实际的成交记录）
+    // 阶段2: 查找平仓交易（从交易所查询实际的成交记录）
     const closeTrade = await this.findCloseTrade(order);
     
-    // 3. ⚠️ 关键修复：如果交易所没有平仓记录，说明条件单并未真正触发
+    // ⚠️ 关键修复：如果交易所没有平仓记录，说明条件单并未真正触发
     //    可能的原因：
     //    a) 条件单被手动取消
     //    b) 持仓已通过其他方式平仓（手动平仓、其他条件单触发）
@@ -251,23 +252,44 @@ export class PriceOrderMonitor {
     if (!closeTrade) {
       logger.warn(`⚠️ 未找到 ${order.symbol} 的平仓交易记录，条件单可能被取消或持仓已通过其他方式平仓`);
       
-      // 只更新条件单状态为cancelled，不记录虚假的平仓交易
-      await this.updateOrderStatus(order.order_id, 'cancelled');
-      await this.cancelOppositeOrder(order);
+      // 开启事务处理状态更新
+      await this.dbClient.execute('BEGIN TRANSACTION');
       
-      // 检查持仓是否还存在
-      const contract = this.exchangeClient.normalizeContract(order.symbol);
-      const positions = await this.exchangeClient.getPositions();
-      const positionExists = positions.some(p => 
-        p.contract === contract && Math.abs(parseFloat(p.size || '0')) > 0
-      );
-      
-      if (!positionExists) {
-        // 持仓确实不存在了，从数据库中删除
-        await this.removePosition(order.symbol, order.side);
-        logger.info(`✅ ${order.symbol} 持仓已不存在，已清理数据库记录`);
-      } else {
-        logger.info(`✅ ${order.symbol} 持仓仍存在，保留数据库记录`);
+      try {
+        // 只更新条件单状态为cancelled
+        await this.updateOrderStatus(order.order_id, 'cancelled');
+        logger.debug('✅ [事务] 步骤1: 条件单状态已更新为cancelled');
+        
+        // 取消反向条件单（数据库内操作）
+        await this.cancelOppositeOrderInDB(order);
+        logger.debug('✅ [事务] 步骤2: 反向条件单已取消');
+        
+        // 检查持仓是否还存在
+        const contract = this.exchangeClient.normalizeContract(order.symbol);
+        const positions = await this.exchangeClient.getPositions();
+        const positionExists = positions.some(p => 
+          p.contract === contract && Math.abs(parseFloat(p.size || '0')) > 0
+        );
+        
+        if (!positionExists) {
+          // 持仓确实不存在了，从数据库中删除
+          await this.dbClient.execute({
+            sql: 'DELETE FROM positions WHERE symbol = ? AND side = ?',
+            args: [order.symbol, order.side]
+          });
+          logger.debug('✅ [事务] 步骤3: 持仓记录已删除');
+        } else {
+          logger.info(`${order.symbol} 持仓仍存在，保留数据库记录`);
+        }
+        
+        // 提交事务
+        await this.dbClient.execute('COMMIT');
+        logger.info(`✅ [事务] ${order.symbol} 条件单状态更新完成`);
+        
+      } catch (error: any) {
+        // 回滚事务
+        await this.dbClient.execute('ROLLBACK');
+        logger.error('❌ [事务] 更新条件单状态失败，已回滚:', error);
       }
       
       return;
@@ -275,31 +297,176 @@ export class PriceOrderMonitor {
     
     const finalCloseTrade = closeTrade;
 
-    // 4. 确认有持仓信息才继续（如果既没有持仓也没有开仓记录，无法处理）
+    // 阶段3: 确认有持仓信息才继续（如果既没有持仓也没有开仓记录，无法处理）
     if (!position) {
       logger.error(`❌ 无法获取 ${order.symbol} ${order.side} 的持仓信息，无法记录平仓事件`);
       // 即使无法记录详情，也要更新条件单状态
       await this.updateOrderStatus(order.order_id, 'triggered');
-      await this.cancelOppositeOrder(order);
+      await this.cancelOppositeOrderInDB(order);
       return;
     }
 
-    // 5. 确认是真实平仓，更新状态
+    // 阶段4: 确认是真实平仓，计算盈亏
     logger.info(`🔔 确认条件单触发: ${order.symbol} ${order.type}, 平仓价格: ${finalCloseTrade.price}`);
-
-    // 6. 更新触发的条件单状态
-    await this.updateOrderStatus(order.order_id, 'triggered');
-
-    // 7. 取消反向条件单
-    await this.cancelOppositeOrder(order);
     
-    // 8. 记录平仓交易
-    await this.recordCloseTrade(order, finalCloseTrade, position);
+    // 格式化成交数据，兼容所有交易所
+    const trade = formatTradeRecord(finalCloseTrade);
+    
+    // 计算盈亏
+    const entryPrice = parseFloat(position.entry_price as string);
+    const exitPrice = parseFloat(trade.price);
+    const quantity = Math.abs(parseFloat(trade.size));
+    const leverage = parseInt(position.leverage as string) || 1;
+    const contract = this.exchangeClient.normalizeContract(order.symbol);
 
-    // 9. 删除持仓记录
-    await this.removePosition(order.symbol, order.side);
+    const grossPnl = await this.exchangeClient.calculatePnl(
+      entryPrice,
+      exitPrice,
+      quantity,
+      order.side,
+      contract
+    );
+    
+    // 计算手续费
+    const contractType = this.exchangeClient.getContractType();
+    let positionValue: number;
+    
+    if (contractType === 'inverse') {
+      const quantoMultiplier = await getQuantoMultiplier(contract);
+      positionValue = quantity * quantoMultiplier * exitPrice;
+    } else {
+      positionValue = quantity * exitPrice;
+    }
+    
+    const openFee = positionValue * 0.0005;
+    const closeFee = positionValue * 0.0005;
+    const totalFee = openFee + closeFee;
+    const netPnl = grossPnl - totalFee;
+    
+    // 计算盈亏百分比
+    const priceChangePercent = order.side === "long"
+      ? ((exitPrice - entryPrice) / entryPrice) * 100
+      : ((entryPrice - exitPrice) / entryPrice) * 100;
+    const pnlPercent = priceChangePercent * leverage;
+    
+    logger.info(`💰 盈亏: 毛利=${grossPnl.toFixed(2)} USDT, 手续费=${totalFee.toFixed(2)} USDT, 净利=${netPnl.toFixed(2)} USDT (${pnlPercent.toFixed(2)}%)`);
 
-    logger.info(`✅ ${order.symbol} ${order.type} 触发处理完成`);
+    // 阶段5: 数据库事务操作
+    const timestamp = new Date().toISOString();
+    
+    await this.dbClient.execute('BEGIN TRANSACTION');
+    
+    try {
+      // ⭐️ 5.1 先删除持仓记录
+      // 即使后续步骤失败，也不会误认为持仓存在
+      await this.dbClient.execute({
+        sql: 'DELETE FROM positions WHERE symbol = ? AND side = ?',
+        args: [order.symbol, order.side]
+      });
+      logger.debug('✅ [事务] 步骤1: 持仓记录已删除');
+      
+      // ⭐️ 5.2 更新触发的条件单状态
+      await this.updateOrderStatus(order.order_id, 'triggered');
+      logger.debug('✅ [事务] 步骤2: 条件单状态已更新为triggered');
+      
+      // 5.3 取消反向条件单（数据库内操作）
+      await this.cancelOppositeOrderInDB(order);
+      logger.debug('✅ [事务] 步骤3: 反向条件单已取消');
+      
+      // 5.4 记录平仓交易
+      await this.dbClient.execute({
+        sql: `INSERT INTO trades 
+              (order_id, symbol, side, type, price, quantity, leverage, pnl, fee, timestamp, status)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        args: [
+          trade.id || order.order_id,
+          order.symbol,
+          order.side,
+          'close',
+          exitPrice,
+          quantity,
+          leverage,
+          netPnl,
+          totalFee,
+          timestamp,
+          'filled'
+        ]
+      });
+      logger.debug('✅ [事务] 步骤4: 交易记录已插入');
+      
+      // 5.5 记录平仓事件
+      const closeReason = order.type === 'stop_loss' 
+        ? 'stop_loss_triggered' 
+        : 'take_profit_triggered';
+      
+      await this.dbClient.execute({
+        sql: `INSERT INTO position_close_events 
+              (symbol, side, close_reason, trigger_type, trigger_price, close_price, 
+               entry_price, quantity, leverage, pnl, pnl_percent, fee, 
+               trigger_order_id, close_trade_id, order_id, created_at, processed)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        args: [
+          order.symbol, order.side, closeReason, 'exchange_order',
+          parseFloat(order.trigger_price), exitPrice, entryPrice,
+          quantity, leverage, netPnl, pnlPercent, totalFee,
+          order.order_id, trade.id, order.order_id, timestamp, 0
+        ]
+      });
+      logger.debug('✅ [事务] 步骤5: 平仓事件已记录');
+      
+      // 提交事务
+      await this.dbClient.execute('COMMIT');
+      logger.info(`✅ [事务] ${order.symbol} ${order.type} 触发处理完成`);
+      
+    } catch (error: any) {
+      // 回滚事务
+      await this.dbClient.execute('ROLLBACK');
+      logger.error('❌ [事务] 条件单触发处理失败，已回滚:', error);
+      
+      // ⚠️ 记录不一致状态
+      try {
+        await this.dbClient.execute({
+          sql: `INSERT INTO inconsistent_states 
+                (operation, symbol, side, exchange_success, db_success, 
+                 exchange_order_id, error_message, created_at, resolved)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          args: [
+            'price_order_triggered',
+            order.symbol,
+            order.side,
+            1,  // 交易所已平仓
+            0,  // 数据库记录失败
+            order.order_id,
+            error.message,
+            timestamp,
+            0
+          ]
+        });
+        logger.warn('⚠️ 已记录不一致状态到数据库');
+      } catch (recordError: any) {
+        logger.error('❌ 记录不一致状态失败:', recordError);
+      }
+    }
+  }
+
+  /**
+   * 数据库内取消反向条件单 (不调用交易所API)
+   */
+  private async cancelOppositeOrderInDB(triggeredOrder: DBPriceOrder) {
+    const oppositeType = triggeredOrder.type === 'stop_loss' ? 'take_profit' : 'stop_loss';
+    
+    const result = await this.dbClient.execute({
+      sql: `SELECT order_id FROM price_orders 
+            WHERE symbol = ? AND side = ? AND type = ? AND status = 'active'
+            LIMIT 1`,
+      args: [triggeredOrder.symbol, triggeredOrder.side, oppositeType]
+    });
+    
+    if (result.rows.length > 0) {
+      const oppositeOrderId = result.rows[0].order_id as string;
+      await this.updateOrderStatus(oppositeOrderId, 'cancelled');
+      logger.debug(`✅ 已取消反向条件单: ${oppositeOrderId}`);
+    }
   }
 
   /**

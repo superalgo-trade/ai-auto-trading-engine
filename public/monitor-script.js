@@ -748,6 +748,70 @@ class TradingMonitor {
         setInterval(async () => {
             await this.updateEquityChart();
         }, 5000);
+
+        // 每30秒更新系统健康状态
+        this.updateHealthStatus();
+        setInterval(async () => {
+            await this.updateHealthStatus();
+        }, 30000);
+    }
+
+    // 更新系统健康状态
+    async updateHealthStatus() {
+        try {
+            const response = await fetch('/api/health');
+            const data = await response.json();
+            
+            const healthIndicator = document.getElementById('health-indicator');
+            const healthLight = document.getElementById('health-light');
+            // const healthText = document.getElementById('health-text');
+            
+            // if (!healthIndicator || !healthLight || !healthText) {
+            if (!healthIndicator || !healthLight) {
+                return;
+            }
+            
+            // 移除所有状态类
+            healthIndicator.classList.remove('healthy', 'warning', 'error');
+            healthLight.classList.remove('healthy', 'warning', 'error');
+            
+            // 根据健康检查结果设置状态
+            if (data.healthy) {
+                healthIndicator.classList.add('healthy');
+                healthLight.classList.add('healthy');
+                // healthText.textContent = '系统正常';
+                healthIndicator.title = '系统运行正常';
+            } else if (data.issues && data.issues.length > 0) {
+                healthIndicator.classList.add('error');
+                healthLight.classList.add('error');
+                // healthText.textContent = '系统异常';
+                healthIndicator.title = `严重问题: ${data.issues.length}个\n${data.issues.join('\n')}`;
+            } else if (data.warnings && data.warnings.length > 0) {
+                healthIndicator.classList.add('warning');
+                healthLight.classList.add('warning');
+                // healthText.textContent = '系统警告';
+                healthIndicator.title = `警告: ${data.warnings.length}个\n${data.warnings.join('\n')}`;
+            } else {
+                // healthText.textContent = '状态未知';
+                healthIndicator.title = '无法获取系统状态';
+            }
+        } catch (error) {
+            console.error('更新健康状态失败:', error);
+            
+            const healthIndicator = document.getElementById('health-indicator');
+            const healthLight = document.getElementById('health-light');
+            // const healthText = document.getElementById('health-text');
+            
+            // if (healthIndicator && healthLight && healthText) {
+            if (healthIndicator && healthLight) {
+                healthIndicator.classList.remove('healthy', 'warning');
+                healthIndicator.classList.add('error');
+                healthLight.classList.remove('healthy', 'warning');
+                healthLight.classList.add('error');
+                // healthText.textContent = '连接失败';
+                healthIndicator.title = '无法连接到健康检查服务';
+            }
+        }
     }
 
     // 初始化选项卡（简化版，只有一个选项卡）

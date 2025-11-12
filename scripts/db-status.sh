@@ -123,10 +123,10 @@ async function showStatus() {
     console.log('📝 交易记录数:', (tradesCount.rows[0] as any).count);
     
     // 最近交易
-    const recentTrades = await client.execute('SELECT * FROM trades ORDER BY timestamp DESC LIMIT 5');
+    const recentTrades = await client.execute('SELECT * FROM trades ORDER BY timestamp DESC LIMIT 50');
     if (recentTrades.rows.length > 0) {
       console.log('');
-      console.log('最近 5 笔交易:');
+      console.log('最近 50 笔交易:');
       for (const trade of recentTrades.rows) {
         const t = trade as any;
         const time = new Date(t.timestamp).toLocaleString('zh-CN');
@@ -157,7 +157,7 @@ async function showStatus() {
     console.log('📋 条件单记录数:', (priceOrdersCount.rows[0] as any).count);
     
     // 活跃的条件单
-    const activePriceOrders = await client.execute(\"SELECT * FROM price_orders WHERE status='active' ORDER BY created_at DESC LIMIT 5\");
+    const activePriceOrders = await client.execute(\"SELECT * FROM price_orders WHERE status='active' ORDER BY created_at DESC\");
     if (activePriceOrders.rows.length > 0) {
       console.log('');
       console.log('活跃条件单:');

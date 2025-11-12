@@ -208,15 +208,25 @@ function determineMarketState(
   let state: MarketState = "no_clear_signal";
   let confidence = 0.3;
   
-  // 上涨趋势 + 极端超卖 = 最佳做多机会 ⭐⭐⭐⭐⭐
+  // 上涨趋势 + 极端超卖 = 最佳做多机会（回调买入）⭐⭐⭐⭐⭐
   if (trendStrength === "trending_up" && momentumState === "oversold_extreme") {
     state = "uptrend_oversold";
     confidence = 0.9;
   }
-  // 下跌趋势 + 极端超买 = 最佳做空机会 ⭐⭐⭐⭐⭐
+  // 下跌趋势 + 极端超买 = 最佳做空机会（反弹卖出）⭐⭐⭐⭐⭐
   else if (trendStrength === "trending_down" && momentumState === "overbought_extreme") {
     state = "downtrend_overbought";
     confidence = 0.9;
+  }
+  // 🔧 新增：下跌趋势 + 极端超卖 = 潜在反弹机会（逆势做多）⭐⭐⭐
+  else if (trendStrength === "trending_down" && momentumState === "oversold_extreme") {
+    state = "downtrend_oversold";
+    confidence = 0.6; // 逆势交易风险较高，置信度中等
+  }
+  // 🔧 新增：上涨趋势 + 极端超买 = 潜在回调风险（逆势做空）⭐⭐⭐
+  else if (trendStrength === "trending_up" && momentumState === "overbought_extreme") {
+    state = "uptrend_overbought";
+    confidence = 0.6; // 逆势交易风险较高，置信度中等
   }
   // 上涨趋势 + 轻度超卖或中性 = 趋势延续做多 ⭐⭐⭐⭐
   else if (
@@ -233,6 +243,16 @@ function determineMarketState(
   ) {
     state = "downtrend_continuation";
     confidence = 0.7;
+  }
+  // 下跌趋势 + 轻度超卖 = 下跌趋势中的超卖状态 ⭐⭐⭐
+  else if (trendStrength === "trending_down" && momentumState === "oversold_mild") {
+    state = "downtrend_oversold";
+    confidence = 0.5; // 风险中等
+  }
+  // 上涨趋势 + 轻度超买 = 上涨趋势中的超买状态 ⭐⭐⭐
+  else if (trendStrength === "trending_up" && momentumState === "overbought_mild") {
+    state = "uptrend_overbought";
+    confidence = 0.5; // 风险中等
   }
   // 震荡市 + 极端超卖 = 均值回归做多 ⭐⭐⭐
   else if (trendStrength === "ranging" && momentumState === "oversold_extreme") {

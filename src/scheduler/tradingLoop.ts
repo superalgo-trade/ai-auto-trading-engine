@@ -1159,9 +1159,9 @@ async function executeTradingDecision() {
   const minutesElapsed = Math.floor((Date.now() - tradingStartTime.getTime()) / 60000);
   const intervalMinutes = Number.parseInt(process.env.TRADING_INTERVAL_MINUTES || "5");
   
-  logger.info(`\n${"=".repeat(80)}`);
+  logger.info(`${"=".repeat(80)}`);
   logger.info(`交易周期 #${iterationCount} (运行${minutesElapsed}分钟)`);
-  logger.info(`${"=".repeat(80)}\n`);
+  logger.info(`${"=".repeat(80)}`);
 
   let marketData: any = {};
   let accountInfo: any = null;
