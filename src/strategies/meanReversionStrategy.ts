@@ -259,7 +259,7 @@ export function meanReversionShortSignal(
   }
 
   // 7. 计算推荐杠杆
-  const baseLeverage = 3;
+  const baseLeverage = 10;
   const recommendedLeverage = calculateRecommendedLeverage(
     baseLeverage,
     signalStrength,

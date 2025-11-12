@@ -16,6 +16,7 @@ import { createClient } from "@libsql/client";
 import { getExchangeClient } from "../exchanges";
 import { createLogger } from "../utils/logger";
 import { emailAlertService, AlertLevel } from "../utils/emailAlert";
+import { positionStateManager } from "../utils/positionStateManager";
 
 const logger = createLogger({
   name: "health-check",
@@ -273,8 +274,28 @@ export async function performHealthCheck(): Promise<HealthCheckResult> {
       );
       
       // 找出差异
-      const onlyInExchange = [...exchangeKeys].filter(k => !dbKeys.has(k));
-      const onlyInDB = [...dbKeys].filter(k => !exchangeKeys.has(k));
+      let onlyInExchange = [...exchangeKeys].filter(k => !dbKeys.has(k));
+      let onlyInDB = [...dbKeys].filter(k => !exchangeKeys.has(k));
+      
+      // 🔧 关键修复：过滤掉正在进行开仓/平仓操作的品种，避免误判
+      const activeOperations = positionStateManager.getActiveOperations();
+      if (activeOperations.length > 0) {
+        logger.debug(`📝 检测到 ${activeOperations.length} 个正在进行的操作，将跳过这些品种的检查`);
+        
+        for (const op of activeOperations) {
+          const key = `${op.symbol}_${op.side}`;
+          
+          if (op.operation === 'opening') {
+            // 正在开仓：忽略"交易所有但数据库没有"的警告
+            onlyInExchange = onlyInExchange.filter(k => k !== key);
+            logger.debug(`  跳过正在开仓的品种: ${key}`);
+          } else if (op.operation === 'closing') {
+            // 正在平仓：忽略"数据库有但交易所没有"的警告
+            onlyInDB = onlyInDB.filter(k => k !== key);
+            logger.debug(`  跳过正在平仓的品种: ${key}`);
+          }
+        }
+      }
       
       if (onlyInExchange.length > 0) {
         details.positionMismatches.onlyInExchange = onlyInExchange;

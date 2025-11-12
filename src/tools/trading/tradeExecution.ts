@@ -33,6 +33,7 @@ import {
   getQuantityDecimalPlaces 
 } from "../../utils/priceFormatter";
 import { formatStopLossPrice } from "../../utils/priceFormatter";
+import { positionStateManager } from "../../utils/positionStateManager";
 
 const logger = createLogger({
   name: "trade-execution",
@@ -74,6 +75,9 @@ IMPORTANT:
   execute: async ({ symbol, side, leverage, amountUsdt, marketState, strategyType, signalStrength, opportunityScore }) => {
     const exchangeClient = getExchangeClient();
     const contract = exchangeClient.normalizeContract(symbol);
+    
+    // 🔧 标记开始开仓操作，避免健康检查误判
+    positionStateManager.startOpening(symbol, side);
     
     try {
       //  参数验证
@@ -904,6 +908,9 @@ IMPORTANT:
         logger.info(`📊 开仓策略信息: symbol=${symbol}, strategy=${strategyType || 'N/A'}, market_state=${marketState || 'N/A'}, signal_strength=${signalStrength?.toFixed(2) || 'N/A'}, opportunity_score=${opportunityScore?.toFixed(0) || 'N/A'}`);
       }
       
+      // 🔧 标记开仓操作完成
+      positionStateManager.finishOpening(symbol, side);
+      
       return {
         success: true,
         orderId: order.id?.toString(),
@@ -917,6 +924,9 @@ IMPORTANT:
         message: returnMessage,
       };
     } catch (error: any) {
+      // 🔧 发生错误时也要清除状态标记
+      positionStateManager.finishOpening(symbol, side);
+      
       return {
         success: false,
         error: error.message,
@@ -946,6 +956,21 @@ export const closePositionTool = createTool({
   execute: async ({ symbol, percentage, reason = 'manual_close' }) => {
     const exchangeClient = getExchangeClient();
     const contract = exchangeClient.normalizeContract(symbol);
+    
+    // 🔧 首先从交易所获取持仓信息以确定方向，然后标记平仓操作开始
+    let side: 'long' | 'short' | undefined;
+    try {
+      const allPositions = await exchangeClient.getPositions();
+      const gatePosition = allPositions.find((p: any) => p.contract === contract);
+      if (gatePosition) {
+        const gateSize = parsePositionSize(gatePosition.size);
+        side = gateSize > 0 ? "long" : "short";
+        positionStateManager.startClosing(symbol, side);
+      }
+    } catch (e) {
+      // 如果获取持仓失败，继续执行但不设置状态
+      logger.warn(`无法标记平仓状态: ${e}`);
+    }
     
     try {
       //  参数验证
@@ -1417,6 +1442,11 @@ export const closePositionTool = createTool({
           logger.error('❌ 记录不一致状态失败:', recordError);
         }
         
+        // 🔧 数据库操作失败时也要清除状态标记
+        if (side) {
+          positionStateManager.finishClosing(symbol, side);
+        }
+        
         return {
           success: false,
           partialSuccess: true,  // 交易所操作成功
@@ -1425,6 +1455,11 @@ export const closePositionTool = createTool({
           orderId: order.id?.toString(),
           error: dbError.message,
         };
+      }
+      
+      // 🔧 标记平仓操作完成
+      if (side) {
+        positionStateManager.finishClosing(symbol, side);
       }
       
       return {
@@ -1443,6 +1478,12 @@ export const closePositionTool = createTool({
       };
     } catch (error: any) {
       logger.error(`平仓失败: ${error.message}`, error);
+      
+      // 🔧 发生错误时也要清除状态标记
+      if (side) {
+        positionStateManager.finishClosing(symbol, side);
+      }
+      
       return {
         success: false,
         error: error.message,
