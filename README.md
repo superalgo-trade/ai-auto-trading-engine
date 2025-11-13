@@ -1,4 +1,8 @@
-# ai-auto-trading
+# 灵枢量化 | NexusQuant
+
+> **AI 驱动的多策略、多时间框架加密货币交易监控系统**
+> 
+> **Cryptocurrency Trading Monitor - AI-Driven Multi-Strategy, Multi-Timeframe System**
 
 <div align="center">
 
@@ -17,7 +21,7 @@
 
 ## 系统概述
 
-ai-auto-trading 是新一代 AI 驱动的加密货币自动交易系统，通过深度融合大语言模型与机构级交易实践，从根本上重新定义了量化交易。
+**灵枢量化（NexusQuant）** 是新一代 AI 驱动的加密货币自动交易系统，通过深度融合大语言模型与机构级交易实践，从根本上重新定义了量化交易。
 
 ### 🎯 核心理念
 

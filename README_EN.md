@@ -1,6 +1,10 @@
-# ai-auto-trading
+# NexusQuant | 灵枢量化
 
 > 📖 **Complete Documentation** | This is the full English documentation. For a quick overview, see the [main README](./README.md).
+>
+> **Cryptocurrency Trading Monitor - AI-Driven Multi-Strategy, Multi-Timeframe System**
+>
+> **AI 驱动的多策略、多时间框架加密货币交易监控系统**
 
 <div align="center">
 
@@ -19,7 +23,7 @@
 
 ## Overview
 
-ai-auto-trading is a next-generation AI-driven cryptocurrency automated trading system that fundamentally reimagines quantitative trading through deep integration of large language models with institutional-grade trading practices. Unlike traditional algorithmic systems with hard-coded strategies, this system achieves **true intelligent autonomy** by leveraging AI's reasoning capabilities for real-time market analysis and adaptive decision-making.
+**NexusQuant (灵枢量化)** is a next-generation AI-driven cryptocurrency automated trading system that fundamentally reimagines quantitative trading through deep integration of large language models with institutional-grade trading practices. Unlike traditional algorithmic systems with hard-coded strategies, this system achieves **true intelligent autonomy** by leveraging AI's reasoning capabilities for real-time market analysis and adaptive decision-making.
 
 ### 🎯 Core Philosophy
 
