@@ -1590,7 +1590,7 @@ async function executeTradingDecision() {
     }
     
     // 9. 生成提示词并调用 Agent
-    const prompt = generateTradingPrompt({
+    const prompt = await generateTradingPrompt({
       minutesElapsed,
       iteration: iterationCount,
       intervalMinutes,

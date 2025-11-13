@@ -27,6 +27,8 @@ import * as tradingTools from "../tools/trading";
 import { formatChinaTime } from "../utils/timeUtils";
 import { RISK_PARAMS } from "../config/riskParams";
 import { formatPrice, formatUSDT, formatPercent, formatATR, getDecimalPlacesBySymbol } from "../utils/priceFormatter";
+import { analyzeMultipleMarketStates } from "../services/marketStateAnalyzer";
+import type { MarketStateAnalysis } from "../types/marketState";
 
 /**
  * 账户风险配置
@@ -624,7 +626,7 @@ export function getMinOpportunityScore(): number {
 /**
  * 生成交易提示词（参照 1.md 格式）
  */
-export function generateTradingPrompt(data: {
+export async function generateTradingPrompt(data: {
   minutesElapsed: number;
   iteration: number;
   intervalMinutes: number;
@@ -634,7 +636,7 @@ export function generateTradingPrompt(data: {
   tradeHistory?: any[];
   recentDecisions?: any[];
   closeEvents?: any[];
-}): string {
+}): Promise<string> {
   const { minutesElapsed, iteration, intervalMinutes, marketData, accountInfo, positions, tradeHistory, recentDecisions, closeEvents } = data;
   const currentTime = formatChinaTime();
   
@@ -726,11 +728,47 @@ ${params.scientificStopLoss?.enabled ? `
    ├─ 返回 shouldUpdate=true → 调用 updatePositionStopLoss() 更新交易所订单
    └─ 说明：这是可选优化，不是必须操作
 
-   步骤3：检查平仓触发（最后检查）
-   ├─ 峰值回撤 ≥ ${formatPercent(params.peakDrawdownProtection)}% → 危险信号，考虑平仓
-   ├─ 趋势明确反转（3+时间框架） → 考虑平仓
-   ├─ 持仓时间 ≥ 36小时 → 强制平仓
-   └─ ⚠️ "接近止损线"不是主动平仓理由（交易所条件单会自动触发）
+   步骤3：综合评估平仓时机（辅助决策，非强制）
+   
+   ⚠️ 注意：步骤3是辅助性决策，不会与步骤1-2冲突
+   - 步骤1（分批止盈）和步骤2（移动止损）是程序化执行，优先级最高
+   - 步骤3提供AI主动平仓的判断依据，是"锦上添花"而非"必须执行"
+   
+   ├─ 【硬性规则】持仓时间 ≥ 36小时 → 强制全部平仓（无例外）
+   │   
+   ├─ 【危险信号】以下情况考虑主动平仓（AI判断）：
+   │   
+   │   (a) 峰值回撤保护
+   │   ├─ 触发条件：峰值回撤 ≥ ${formatPercent(params.peakDrawdownProtection)}%
+   │   ├─ 含义：利润严重回吐，说明趋势已经走弱
+   │   └─ 建议：立即全部平仓，保护剩余利润
+   │   
+   │   (b) 趋势反转识别（基于市场状态分析）
+   │   ├─ 信息来源：持仓信息中的"📊 市场趋势分析"部分
+   │   ├─ 触发条件：
+   │   │   • 持仓方向 = long，但市场状态 = downtrend_* (trending_down)
+   │   │   • 或：持仓方向 = short，但市场状态 = uptrend_* (trending_up)
+   │   │   • 且：反转信号 = 是，多时间框架一致性 ≥ 70%
+   │   ├─ 决策原则：
+   │   │   • 如果持仓盈利 < 0%：趋势反转 + 亏损 = 高风险，建议平仓
+   │   │   • 如果持仓盈利 0-15%：根据反转强度和置信度判断
+   │   │   • 如果持仓盈利 > 15%：可能是正常回调，可暂时观望
+   │   └─ 注意事项：
+   │       • 不要因为"小幅亏损+趋势反转"就恐慌平仓（止损单会保护）
+   │       • 但如果"趋势明确反转+亏损加深"，应主动离场
+   │       • 盈利持仓遇到反转：优先考虑分批止盈，而非全部平仓
+   │   
+   │   (c) 其他危险信号
+   │   ├─ 波动率突然放大（ATR比率 > 2.0）
+   │   ├─ 流动性枯竭（成交量异常下降）
+   │   └─ 技术形态破坏（关键支撑/阻力位失守）
+   │
+   └─ 【决策冲突处理】
+       • 如果步骤1已执行分批止盈 → 本周期不再考虑步骤3的全部平仓
+       • 如果步骤1提示可执行但未执行 → 优先执行分批止盈，推迟全部平仓判断
+       • 只有在"明确的危险信号 + 无分批止盈机会"时，才考虑全部平仓
+   
+   ⚠️ "接近止损线"不是主动平仓理由（交易所条件单会自动触发）
 
 (2) 新开仓评估（⚠️ 强制流程，必须严格遵守）：
    
@@ -1096,6 +1134,17 @@ ${params.scientificStopLoss?.enabled ? `
     prompt += `- 例如：10倍杠杆，价格上涨0.5%，则盈亏百分比 = +5%（保证金增值5%）\n`;
     prompt += `- 这样设计是为了让您直观理解实际收益：+10% 就是本金增值10%，-10% 就是本金亏损10%\n`;
     prompt += `- 请直接使用系统提供的盈亏百分比，不要自己重新计算\n\n`;
+    
+    // 批量分析持仓币种的市场状态
+    const positionSymbols = positions.map(p => p.symbol);
+    let marketStates: Map<string, MarketStateAnalysis> = new Map();
+    try {
+      marketStates = await analyzeMultipleMarketStates(positionSymbols);
+      logger.info(`✅ 成功分析 ${marketStates.size} 个持仓币种的市场状态`);
+    } catch (error) {
+      logger.warn(`⚠️ 市场状态分析失败: ${error}`);
+    }
+    
     for (const pos of positions) {
       // 计算盈亏百分比：考虑杠杆倍数
       // 对于杠杆交易：盈亏百分比 = (价格变动百分比) × 杠杆倍数
@@ -1129,6 +1178,53 @@ ${params.scientificStopLoss?.enabled ? `
         prompt += `  警告: 即将达到36小时持仓限制,必须立即平仓!\n`;
       } else if (remainingHours < 4) {
         prompt += `  提醒: 距离36小时限制不足4小时,请准备平仓\n`;
+      }
+      
+      // 追加市场趋势分析
+      const state = marketStates.get(pos.symbol);
+      if (state) {
+        // 计算盈亏百分比（用于建议）
+        const pnlPercent = pos.unrealized_pnl_percent || (pos.entry_price > 0 
+          ? ((pos.current_price - pos.entry_price) / pos.entry_price * 100 * (pos.side === 'long' ? 1 : -1) * pos.leverage)
+          : 0);
+          
+        // 尝试从metadata获取入场时的市场状态
+        let entryState: string | undefined;
+        try {
+          if (pos.metadata && typeof pos.metadata === 'string') {
+            const metadata = JSON.parse(pos.metadata);
+            entryState = metadata.marketState;
+          } else if (pos.metadata && typeof pos.metadata === 'object') {
+            entryState = pos.metadata.marketState;
+          }
+        } catch (e) {
+          // 忽略解析错误
+        }
+        
+        // 检测趋势反转
+        const reversalSignal = detectReversalSignal(pos.side, state, entryState);
+        
+        prompt += `  ├─ 📊 市场趋势分析（供决策参考）：\n`;
+        prompt += `  │   • 当前状态: ${state.state} (${getStateDescription(state.state)})\n`;
+        prompt += `  │   • 趋势强度: ${state.trendStrength}\n`;
+        prompt += `  │   • 动量状态: ${state.momentumState}\n`;
+        prompt += `  │   • 反转信号: ${reversalSignal.detected ? '⚠️ 是' : '否'}`;
+        if (reversalSignal.detected) {
+          prompt += ` (${reversalSignal.confidence}%置信度, ${reversalSignal.timeframes}个时间框架确认)\n`;
+          if (entryState) {
+            prompt += `  │   • 趋势变化: ${entryState} → ${state.state}\n`;
+          }
+        } else {
+          prompt += `\n`;
+        }
+        prompt += `  │   • 多时间框架一致性: ${Math.round(state.timeframeAlignment.alignmentScore * 100)}%\n`;
+        prompt += `  │   • 分析置信度: ${Math.round(state.confidence * 100)}%\n`;
+        
+        // 根据反转信号提供建议
+        if (reversalSignal.detected) {
+          const recommendation = getReversalRecommendation({ ...pos, unrealized_pnl_percent: pnlPercent }, state, reversalSignal);
+          prompt += `  └─ 💡 趋势建议: ${recommendation}\n`;
+        }
       }
       
       prompt += "\n";
@@ -1241,8 +1337,8 @@ ${params.scientificStopLoss?.enabled ? `
     
     // 统计分析
     const totalPnl = closeEvents.reduce((sum, e: any) => sum + (e.pnl || 0), 0);
-    const profitEvents = closeEvents.filter((e: any) => e.pnl > 0).length;
-    const lossEvents = closeEvents.filter((e: any) => e.pnl < 0).length;
+    const profitEvents = closeEvents.filter((e: any) => (e.pnl || 0) > 0).length;
+    const lossEvents = closeEvents.filter((e: any) => (e.pnl || 0) < 0).length;
     
     if (profitEvents > 0 || lossEvents > 0) {
       const winRate = profitEvents / (profitEvents + lossEvents) * 100;
@@ -1254,7 +1350,7 @@ ${params.scientificStopLoss?.enabled ? `
       prompt += `\n💡 策略优化建议：分析这些平仓事件，思考如何改进入场时机和止损止盈设置。\n\n`;
     }
   }
-
+  logger.info(`提交 AI 提示词:\n ${prompt}`);
   return prompt;
 }
 
@@ -1945,6 +2041,87 @@ function generateInstructions(strategy: TradingStrategy, intervalMinutes: number
 - **技术说明**：pnl_percent已包含杠杆效应，直接比较即可
 
 市场数据按时间顺序排列（最旧 → 最新），跨多个时间框架。使用此数据识别多时间框架趋势和关键水平。`;
+}
+
+/**
+ * 检测趋势反转信号
+ */
+function detectReversalSignal(
+  positionSide: 'long' | 'short',
+  currentState: MarketStateAnalysis,
+  entryState?: string
+): { detected: boolean; confidence: number; timeframes: number } {
+  if (!entryState) return { detected: false, confidence: 0, timeframes: 0 };
+  
+  // 判断是否发生趋势反转
+  const isLong = positionSide === 'long';
+  const wasUptrend = entryState.startsWith('uptrend');
+  const wasDowntrend = entryState.startsWith('downtrend');
+  const nowUptrend = currentState.state.startsWith('uptrend');
+  const nowDowntrend = currentState.state.startsWith('downtrend');
+  
+  // 多头持仓：入场时上涨→现在下跌
+  if (isLong && wasUptrend && nowDowntrend) {
+    return {
+      detected: true,
+      confidence: Math.round(currentState.confidence * 100),
+      timeframes: currentState.timeframeAlignment.is15mAnd1hAligned ? 3 : 2
+    };
+  }
+  
+  // 空头持仓：入场时下跌→现在上涨
+  if (!isLong && wasDowntrend && nowUptrend) {
+    return {
+      detected: true,
+      confidence: Math.round(currentState.confidence * 100),
+      timeframes: currentState.timeframeAlignment.is15mAnd1hAligned ? 3 : 2
+    };
+  }
+  
+  return { detected: false, confidence: 0, timeframes: 0 };
+}
+
+/**
+ * 获取趋势反转后的操作建议
+ */
+function getReversalRecommendation(
+  position: any,
+  state: MarketStateAnalysis,
+  reversal: { detected: boolean; confidence: number; timeframes: number }
+): string {
+  const pnlPercent = position.unrealized_pnl_percent || 0;
+  const side = position.side === 'long' ? '多头' : '空头';
+  const trendDir = state.trendStrength === 'trending_up' ? '上涨' : 
+                   state.trendStrength === 'trending_down' ? '下跌' : '震荡';
+  
+  if (pnlPercent < -5) {
+    return `持有${side}但趋势已转为${trendDir}，且亏损${Math.abs(pnlPercent).toFixed(1)}%，建议评估是否提前离场`;
+  } else if (pnlPercent < 5) {
+    return `持有${side}但趋势已转为${trendDir}，当前微利/微亏，建议关注是否需要离场`;
+  } else if (pnlPercent < 15) {
+    return `持有${side}但趋势已转为${trendDir}，盈利${pnlPercent.toFixed(1)}%，建议优先考虑分批止盈而非全部平仓`;
+  } else {
+    return `持有${side}但趋势已转为${trendDir}，盈利${pnlPercent.toFixed(1)}%，可能是正常回调，可暂时观望`;
+  }
+}
+
+/**
+ * 获取市场状态的中文描述
+ */
+function getStateDescription(state: string): string {
+  const descriptions: Record<string, string> = {
+    'uptrend_oversold': '上涨趋势中的超卖回调',
+    'uptrend_overbought': '上涨趋势中的超买',
+    'downtrend_overbought': '下跌趋势中的超买反弹',
+    'downtrend_oversold': '下跌趋势中的超卖',
+    'uptrend_continuation': '上涨趋势延续',
+    'downtrend_continuation': '下跌趋势延续',
+    'ranging_oversold': '震荡市超卖',
+    'ranging_overbought': '震荡市超买',
+    'ranging_neutral': '震荡市中性',
+    'no_clear_signal': '无明确信号'
+  };
+  return descriptions[state] || state;
 }
 
 /**

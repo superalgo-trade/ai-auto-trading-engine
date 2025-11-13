@@ -168,14 +168,14 @@ export class GateExchangeClient implements IExchangeClient {
       } catch (error) {
         lastError = error;
         if (i < retries) {
-          logger.warn(`获取 ${contract} K线数据失败，重试 ${i + 1}/${retries}...`);
+          logger.debug(`获取 ${contract} K线数据失败，重试 ${i + 1}/${retries}...`);
           // 使用指数退避策略
           await new Promise(resolve => setTimeout(resolve, 1000 * Math.pow(2, i)));
         }
       }
     }
     
-    logger.error(`获取 ${contract} K线数据失败（${retries}次重试）:`, lastError);
+    logger.debug(`获取 ${contract} K线数据失败（${retries}次重试）:`, lastError);
     throw lastError;
   }
 

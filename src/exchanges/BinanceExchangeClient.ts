@@ -458,7 +458,7 @@ export class BinanceExchangeClient implements IExchangeClient {
         volume: k[5].toString(),
       }));
     } catch (error) {
-      logger.error(`获取 ${contract} K线数据失败:`, error as Error);
+      logger.debug(`获取 ${contract} K线数据失败:`, error as Error);
       throw error;
     }
   }

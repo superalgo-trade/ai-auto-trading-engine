@@ -34,6 +34,7 @@ import {
 } from "../../utils/priceFormatter";
 import { formatStopLossPrice } from "../../utils/priceFormatter";
 import { positionStateManager } from "../../utils/positionStateManager";
+import { analyzeMarketState } from "../../services/marketStateAnalyzer";
 
 const logger = createLogger({
   name: "trade-execution",
@@ -628,6 +629,17 @@ IMPORTANT:
         ],
       });
       
+      // 🆕 分析并记录开仓时的市场状态
+      let entryMarketState: string | undefined;
+      try {
+        logger.debug(`📊 分析开仓时的市场状态...`);
+        const stateAnalysis = await analyzeMarketState(symbol);
+        entryMarketState = stateAnalysis.state;
+        logger.info(`✅ 开仓时市场状态: ${entryMarketState}`);
+      } catch (e) {
+        logger.warn(`⚠️  无法分析开仓时的市场状态: ${e}`);
+      }
+      
       // ✨ 科学止损：开仓后自动设置止损单
       // 🔴 使用预计算的止损价格，并根据实际成交价格微调
       let slOrderId: string | undefined;
@@ -804,8 +816,8 @@ IMPORTANT:
           sql: `INSERT OR REPLACE INTO positions 
                 (symbol, quantity, entry_price, current_price, liquidation_price, unrealized_pnl, 
                  leverage, side, entry_order_id, opened_at, profit_target, stop_loss, 
-                 tp_order_id, sl_order_id, market_state, strategy_type, signal_strength, opportunity_score)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                 tp_order_id, sl_order_id, market_state, strategy_type, signal_strength, opportunity_score, metadata)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           args: [
             symbol,
             finalQuantity,
@@ -825,6 +837,7 @@ IMPORTANT:
             strategyType || null,
             signalStrength || null,
             opportunityScore || null,
+            entryMarketState ? JSON.stringify({ marketState: entryMarketState, entryTime: Date.now() }) : null,
           ],
         });
         logger.debug(`✅ [事务] 步骤1: 持仓记录已插入`);

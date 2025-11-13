@@ -383,7 +383,7 @@ export async function performMultiTimeframeAnalysis(
           timeframes[key as keyof typeof timeframes] = data;
         })
         .catch(error => {
-          logger.error(`获取 ${symbol} ${config.interval} 数据失败:`, error);
+          logger.debug(`获取 ${symbol} ${config.interval} 数据失败:`, error);
         })
     );
   }

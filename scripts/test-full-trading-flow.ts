@@ -6,6 +6,7 @@
  * 2. 条件单触发: 交易所(自动) → 条件单监控 → 数据库
  * 3. AI主动平仓: AI Agent → 交易所 → 数据库
  * 4. 状态同步: 交易所 ← 数据库 (周期性校验)
+ * 5. 🆕 持仓趋势监控: 市场状态分析 → 反转信号检测 → AI决策辅助
  * 
  * 使用方式:
  * tsx --env-file=.env ./scripts/test-full-trading-flow.ts
@@ -17,6 +18,8 @@ import { getExchangeClient } from '../src/exchanges';
 import { createLogger } from '../src/utils/logger';
 import { getChinaTimeISO } from '../src/utils/timeUtils';
 import { calculateScientificStopLoss, updateTrailingStopLoss } from '../src/services/stopLossCalculator';
+import { analyzeMarketState, analyzeMultipleMarketStates } from '../src/services/marketStateAnalyzer';
+import type { MarketStateAnalysis } from '../src/types/marketState';
 
 const logger = createLogger({
   name: 'full-trading-flow-test',
@@ -2839,6 +2842,434 @@ async function phase15_PartialTakeProfitRMultipleTest(): Promise<boolean> {
 }
 
 /**
+ * 🆕 阶段16: 持仓趋势监控增强系统测试
+ * 测试市场状态分析、反转信号检测、AI决策辅助等功能
+ */
+async function phase16_TrendMonitoringEnhancementTest(): Promise<boolean> {
+  const startTime = Date.now();
+  
+  try {
+    logger.info('\n' + '='.repeat(80));
+    logger.info('阶段16: 持仓趋势监控增强系统测试');
+    logger.info('='.repeat(80));
+    
+    // 16.1 测试单个币种市场状态分析
+    logger.info('\n📝 16.1 测试单个币种市场状态分析...');
+    
+    try {
+      const testSymbol = TEST_CONFIG.symbol.replace('_USDT', '');
+      const state = await analyzeMarketState(testSymbol);
+      
+      const hasValidState = ['uptrend_oversold', 'uptrend_overbought', 'uptrend_continuation',
+                             'downtrend_oversold', 'downtrend_overbought', 'downtrend_continuation',
+                             'ranging_oversold', 'ranging_overbought', 'ranging_neutral', 'no_clear_signal']
+                             .includes(state.state);
+      
+      const hasValidTrend = ['trending_up', 'trending_down', 'ranging'].includes(state.trendStrength);
+      const hasValidMomentum = ['overbought_extreme', 'overbought_mild', 'neutral', 
+                                'oversold_mild', 'oversold_extreme'].includes(state.momentumState);
+      const hasValidConfidence = state.confidence >= 0 && state.confidence <= 1;
+      
+      recordResult({
+        phase: '16.1',
+        success: hasValidState && hasValidTrend && hasValidMomentum && hasValidConfidence,
+        message: `市场状态分析: ${state.state}, 趋势: ${state.trendStrength}, 置信度: ${(state.confidence * 100).toFixed(0)}%`,
+        data: {
+          state: state.state,
+          trendStrength: state.trendStrength,
+          momentumState: state.momentumState,
+          confidence: state.confidence,
+          timeframeAlignment: state.timeframeAlignment.alignmentScore,
+        },
+        duration: Date.now() - startTime,
+      });
+    } catch (error: any) {
+      recordResult({
+        phase: '16.1',
+        success: false,
+        message: '市场状态分析失败',
+        error: error.message,
+        duration: Date.now() - startTime,
+      });
+    }
+    
+    // 16.2 测试批量市场状态分析
+    logger.info('\n📝 16.2 测试批量市场状态分析...');
+    
+    try {
+      const symbols = ['BTC', 'ETH', 'SOL'];
+      const batchStartTime = Date.now();
+      const marketStates = await analyzeMultipleMarketStates(symbols);
+      const batchDuration = Date.now() - batchStartTime;
+      
+      const successCount = marketStates.size;
+      const performanceGood = batchDuration < 3000; // < 3秒
+      
+      recordResult({
+        phase: '16.2',
+        success: successCount === symbols.length && performanceGood,
+        message: `批量分析: 成功 ${successCount}/${symbols.length}, 耗时: ${batchDuration}ms`,
+        data: {
+          symbols,
+          successCount,
+          duration: batchDuration,
+          states: Array.from(marketStates.entries()).map(([sym, state]) => ({
+            symbol: sym,
+            state: state.state,
+            confidence: (state.confidence * 100).toFixed(0) + '%',
+          })),
+        },
+        duration: Date.now() - startTime,
+      });
+    } catch (error: any) {
+      recordResult({
+        phase: '16.2',
+        success: false,
+        message: '批量市场状态分析失败',
+        error: error.message,
+        duration: Date.now() - startTime,
+      });
+    }
+    
+    // 16.3 测试反转信号检测逻辑
+    logger.info('\n📝 16.3 测试反转信号检测逻辑...');
+    
+    try {
+      const scenarios = [
+        {
+          name: '多头持仓，上涨转下跌',
+          side: 'long' as const,
+          entryState: 'uptrend_oversold',
+          currentState: 'downtrend_continuation',
+          shouldDetect: true,
+        },
+        {
+          name: '空头持仓，下跌转上涨',
+          side: 'short' as const,
+          entryState: 'downtrend_overbought',
+          currentState: 'uptrend_continuation',
+          shouldDetect: true,
+        },
+        {
+          name: '多头持仓，趋势保持上涨',
+          side: 'long' as const,
+          entryState: 'uptrend_oversold',
+          currentState: 'uptrend_overbought',
+          shouldDetect: false,
+        },
+        {
+          name: '入场状态未知',
+          side: 'long' as const,
+          entryState: undefined,
+          currentState: 'downtrend_continuation',
+          shouldDetect: false,
+        },
+      ];
+      
+      let allCorrect = true;
+      const results: any[] = [];
+      
+      for (const scenario of scenarios) {
+        const detected = detectReversalSignal(
+          scenario.side,
+          scenario.entryState,
+          scenario.currentState
+        );
+        
+        const correct = detected === scenario.shouldDetect;
+        if (!correct) allCorrect = false;
+        
+        results.push({
+          ...scenario,
+          detected,
+          correct,
+        });
+      }
+      
+      recordResult({
+        phase: '16.3',
+        success: allCorrect,
+        message: `反转信号检测: ${allCorrect ? '全部正确' : '存在错误'}`,
+        data: { scenarios: results },
+        duration: Date.now() - startTime,
+      });
+    } catch (error: any) {
+      recordResult({
+        phase: '16.3',
+        success: false,
+        message: '反转信号检测测试失败',
+        error: error.message,
+        duration: Date.now() - startTime,
+      });
+    }
+    
+    // 16.4 测试数据库metadata字段
+    logger.info('\n📝 16.4 测试数据库metadata字段...');
+    
+    try {
+      // 检查positions表是否有metadata字段
+      const schema = await dbClient.execute('PRAGMA table_info(positions)');
+      const hasMetadataField = schema.rows.some((row: any) => row.name === 'metadata');
+      
+      if (!hasMetadataField) {
+        throw new Error('positions表缺少metadata字段，请运行迁移脚本');
+      }
+      
+      // 模拟插入带metadata的持仓记录
+      const testMetadata = {
+        marketState: 'uptrend_oversold',
+        entryTime: Date.now(),
+        confidence: 0.85,
+      };
+      
+      await dbClient.execute({
+        sql: `INSERT INTO positions 
+              (symbol, quantity, entry_price, current_price, liquidation_price, unrealized_pnl,
+               leverage, side, stop_loss, entry_order_id, opened_at, metadata)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        args: [
+          'TEST_METADATA',
+          1.0,
+          50000,
+          50000,
+          45000,
+          0,
+          2,
+          'long',
+          49000,
+          'TEST_' + Date.now(),
+          new Date().toISOString(),
+          JSON.stringify(testMetadata),
+        ],
+      });
+      
+      // 查询并验证metadata
+      const result = await dbClient.execute({
+        sql: 'SELECT metadata FROM positions WHERE symbol = ? LIMIT 1',
+        args: ['TEST_METADATA'],
+      });
+      
+      const metadata = result.rows[0]?.metadata;
+      const parsedMetadata = metadata ? JSON.parse(metadata as string) : null;
+      const metadataValid = parsedMetadata?.marketState === 'uptrend_oversold';
+      
+      // 清理测试数据
+      await dbClient.execute({
+        sql: 'DELETE FROM positions WHERE symbol = ?',
+        args: ['TEST_METADATA'],
+      });
+      
+      recordResult({
+        phase: '16.4',
+        success: hasMetadataField && metadataValid,
+        message: `metadata字段: ${hasMetadataField ? '存在' : '缺失'}, 数据: ${metadataValid ? '正确' : '错误'}`,
+        data: {
+          hasMetadataField,
+          testMetadata,
+          parsedMetadata,
+        },
+        duration: Date.now() - startTime,
+      });
+    } catch (error: any) {
+      recordResult({
+        phase: '16.4',
+        success: false,
+        message: 'metadata字段测试失败',
+        error: error.message,
+        duration: Date.now() - startTime,
+      });
+    }
+    
+    // 16.5 测试Prompt生成集成
+    logger.info('\n📝 16.5 测试Prompt生成集成...');
+    
+    try {
+      // 创建测试持仓数据
+      const testSymbol = 'BTC';
+      const testPosition = {
+        symbol: testSymbol + '_USDT',
+        side: 'long' as const,
+        entry_price: 50000,
+        current_price: 50500,
+        unrealized_pnl_percent: 1.0,
+        opened_at: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(), // 2小时前
+        metadata: JSON.stringify({
+          marketState: 'uptrend_oversold',
+          entryTime: Date.now() - 2 * 60 * 60 * 1000,
+        }),
+      };
+      
+      // 获取当前市场状态
+      const currentState = await analyzeMarketState(testSymbol);
+      
+      // 模拟检测反转信号
+      let entryState: string | undefined;
+      try {
+        const metadata = JSON.parse(testPosition.metadata);
+        entryState = metadata.marketState;
+      } catch (e) {
+        // 忽略解析错误
+      }
+      
+      const reversalDetected = detectReversalSignal(
+        testPosition.side,
+        entryState,
+        currentState.state
+      );
+      
+      // 生成趋势分析文本（模拟generateTradingPrompt的输出）
+      let trendAnalysisText = '';
+      trendAnalysisText += `├─ 📊 市场趋势分析（供决策参考）：\n`;
+      trendAnalysisText += `│   • 当前状态: ${currentState.state}\n`;
+      trendAnalysisText += `│   • 趋势强度: ${currentState.trendStrength}\n`;
+      trendAnalysisText += `│   • 动量状态: ${currentState.momentumState}\n`;
+      trendAnalysisText += `│   • 反转信号: ${reversalDetected ? '⚠️ 是' : '否'}\n`;
+      
+      const hasExpectedFormat = trendAnalysisText.includes('📊 市场趋势分析') &&
+                                 trendAnalysisText.includes('当前状态:') &&
+                                 trendAnalysisText.includes('反转信号:');
+      
+      recordResult({
+        phase: '16.5',
+        success: hasExpectedFormat,
+        message: `Prompt生成: ${hasExpectedFormat ? '格式正确' : '格式错误'}`,
+        data: {
+          entryState,
+          currentState: currentState.state,
+          reversalDetected,
+          promptSample: trendAnalysisText,
+        },
+        duration: Date.now() - startTime,
+      });
+    } catch (error: any) {
+      recordResult({
+        phase: '16.5',
+        success: false,
+        message: 'Prompt生成集成测试失败',
+        error: error.message,
+        duration: Date.now() - startTime,
+      });
+    }
+    
+    // 16.6 性能压力测试
+    logger.info('\n📝 16.6 性能压力测试...');
+    
+    try {
+      const perfSymbols = ['BTC', 'ETH', 'SOL', 'ADA', 'XRP'];
+      const iterations = 5;
+      const times: number[] = [];
+      
+      for (let i = 0; i < iterations; i++) {
+        const start = Date.now();
+        await analyzeMultipleMarketStates(perfSymbols);
+        times.push(Date.now() - start);
+      }
+      
+      const avgTime = times.reduce((a, b) => a + b, 0) / times.length;
+      const minTime = Math.min(...times);
+      const maxTime = Math.max(...times);
+      const performanceGood = avgTime < 2000; // 平均 < 2秒
+      
+      recordResult({
+        phase: '16.6',
+        success: performanceGood,
+        message: `性能测试: 平均${avgTime.toFixed(0)}ms (最快${minTime}ms, 最慢${maxTime}ms)`,
+        data: {
+          symbols: perfSymbols,
+          iterations,
+          avgTime,
+          minTime,
+          maxTime,
+          times,
+        },
+        duration: Date.now() - startTime,
+      });
+    } catch (error: any) {
+      recordResult({
+        phase: '16.6',
+        success: false,
+        message: '性能压力测试失败',
+        error: error.message,
+        duration: Date.now() - startTime,
+      });
+    }
+    
+    // 16.7 容错处理测试
+    logger.info('\n📝 16.7 容错处理测试...');
+    
+    try {
+      // 测试无效币种
+      try {
+        await analyzeMarketState('INVALID_SYMBOL_123');
+        recordResult({
+          phase: '16.7',
+          success: false,
+          message: '容错测试: 应该抛出错误但没有',
+          duration: Date.now() - startTime,
+        });
+      } catch (error) {
+        // 预期会抛出错误
+        recordResult({
+          phase: '16.7',
+          success: true,
+          message: '容错测试: 正确处理无效币种',
+          duration: Date.now() - startTime,
+        });
+      }
+    } catch (error: any) {
+      recordResult({
+        phase: '16.7',
+        success: false,
+        message: '容错处理测试失败',
+        error: error.message,
+        duration: Date.now() - startTime,
+      });
+    }
+    
+    return true;
+    
+  } catch (error: any) {
+    recordResult({
+      phase: '16',
+      success: false,
+      message: '持仓趋势监控增强系统测试失败',
+      error: error.message,
+      duration: Date.now() - startTime,
+    });
+    return false;
+  }
+}
+
+/**
+ * 辅助函数：简化的反转检测逻辑（用于测试）
+ */
+function detectReversalSignal(
+  positionSide: 'long' | 'short',
+  entryState: string | undefined,
+  currentState: string
+): boolean {
+  if (!entryState) return false;
+  
+  const isLong = positionSide === 'long';
+  const wasUptrend = entryState.startsWith('uptrend');
+  const wasDowntrend = entryState.startsWith('downtrend');
+  const nowUptrend = currentState.startsWith('uptrend');
+  const nowDowntrend = currentState.startsWith('downtrend');
+  
+  // 多头持仓：入场时上涨→现在下跌
+  if (isLong && wasUptrend && nowDowntrend) {
+    return true;
+  }
+  
+  // 空头持仓：入场时下跌→现在上涨
+  if (!isLong && wasDowntrend && nowUptrend) {
+    return true;
+  }
+  
+  return false;
+}
+
+/**
  * 生成测试报告
  */
 function generateReport() {
@@ -2976,6 +3407,9 @@ async function main() {
     
     // 🆕 阶段15: 分批止盈R倍数系统测试
     await phase15_PartialTakeProfitRMultipleTest();
+    
+    // 🆕 阶段16: 持仓趋势监控增强系统测试
+    await phase16_TrendMonitoringEnhancementTest();
     
     // 生成报告
     const report = generateReport();

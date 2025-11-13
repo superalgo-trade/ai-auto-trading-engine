@@ -208,7 +208,8 @@ CREATE TABLE IF NOT EXISTS positions (
   market_state TEXT,
   strategy_type TEXT,
   signal_strength REAL,
-  opportunity_score REAL
+  opportunity_score REAL,
+  metadata TEXT
 );
 
 -- 账户历史表
