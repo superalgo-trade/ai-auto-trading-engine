@@ -1350,7 +1350,7 @@ ${params.scientificStopLoss?.enabled ? `
       prompt += `\n💡 策略优化建议：分析这些平仓事件，思考如何改进入场时机和止损止盈设置。\n\n`;
     }
   }
-  logger.info(`提交 AI 提示词:\n ${prompt}`);
+  
   return prompt;
 }
 
