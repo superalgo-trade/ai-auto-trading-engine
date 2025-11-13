@@ -822,10 +822,7 @@ ${params.scientificStopLoss?.enabled ? `
    ❌ 错误案例：
    1. 直接调用 openPosition('XRP', ...) → 跳过了评估流程 ❌
    2. 调用 analyze_opening_opportunities() → 全部 < 60分 → 强行开仓 ❌
-   3. 调用 analyze_opening_opportunities() → XRP 67分 → 自主选择开 BTC ❌
-   
-(3) 加仓评估（谨慎使用）：
-   盈利>5%且趋势强化 → checkOpenPosition() 检查后 openPosition` : `
+   3. 调用 analyze_opening_opportunities() → XRP 67分 → 自主选择开 BTC ❌` : `
 (1) 持仓管理（最优先）：
 
    步骤1：检查分批止盈机会（首要任务）
@@ -838,11 +835,13 @@ ${params.scientificStopLoss?.enabled ? `
    ├─ 趋势反转（3+时间框架信号一致）→ 调用 closePosition({ symbol, reason: 'trend_reversal' })
    └─ 持仓时间 ≥ 36小时 → 调用 closePosition({ symbol, reason: 'time_limit' })
    
-(2) 新开仓评估：
-   分析市场数据 → 识别双向机会（做多/做空） → openPosition
-   
-(3) 加仓评估：
-   盈利>5%且趋势强化 → openPosition（≤50%原仓位，相同或更低杠杆）`}
+(2) 新开仓评估（强制流程）：
+   - 第1步：必须先调用 analyze_opening_opportunities() 获取系统评估
+   - 第2步：基于评分结果决策（≥${minOpportunityScore}分才考虑，<${Math.floor(minOpportunityScore * 0.75)}分强烈建议观望）
+   - 第3步：调用 checkOpenPosition() 验证止损合理性
+   - 第4步：调用 openPosition 执行开仓
+   - ❌ 禁止跳过 analyze_opening_opportunities() 直接开仓
+   - ❌ 禁止在所有评分 < ${minOpportunityScore}分时强行开仓`}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -992,7 +991,7 @@ ${params.scientificStopLoss?.enabled ? `
 
 【您的任务】
 直接基于上述数据做出交易决策，无需重复获取数据：
-1. 分析持仓管理需求（止损/止盈/加仓）→ 调用 closePosition / openPosition 执行
+1. 分析持仓管理需求（止损/止盈）→ 调用 closePosition / openPosition 执行
 2. 识别新交易机会（做多/做空）→ 调用 openPosition 执行
 3. 评估风险和仓位管理 → 调用 calculateRisk 验证
 
@@ -1388,17 +1387,6 @@ function generateInstructions(strategy: TradingStrategy, intervalMinutes: number
    - **趋势反转必须先平仓**：如果当前持有 BTC 多单，想开 BTC 空单时，必须先平掉多单（使用 closePosition({ symbol: 'BTC', reason: 'trend_reversal' })）
    - **防止对冲风险**：双向持仓会导致资金锁定、双倍手续费和额外风险
    - **执行顺序**：趋势反转时 → 先执行 closePosition({ symbol, reason: 'trend_reversal' }) 平掉原仓位 → 再执行 openPosition 开新方向
-   - **加仓机制（风险倍增，谨慎执行）**：对于已有持仓的币种，如果趋势强化且局势有利，**允许加仓**：
-     * **加仓条件**（全部满足才可加仓）：
-       - 持仓方向正确且已盈利（pnl_percent > 5%，必须有足够利润缓冲）
-       - 趋势强化：至少3个时间框架继续共振，信号强度增强
-       - 账户可用余额充足，加仓后总持仓不超过风控限制
-       - 加仓后该币种的总名义敞口不超过账户净值的${params.leverageMax}倍
-     * **加仓策略（专业风控要求）**：
-       - 单次加仓金额不超过原仓位的50%
-       - 最多加仓2次（即一个币种最多3个批次）
-       - **杠杆限制**：必须使用与原持仓相同或更低的杠杆（禁止提高杠杆，避免复合风险）
-       - 加仓后立即重新评估整体止损线（建议提高止损保护现有利润）
 4. **双向交易机会（重要提醒）**：
    - **做多机会**：当市场呈现上涨趋势时，开多单获利
    - **做空机会**：当市场呈现下跌趋势时，开空单同样能获利
@@ -1438,14 +1426,12 @@ function generateInstructions(strategy: TradingStrategy, intervalMinutes: number
   1. 使用getAccountBalance检查可用资金和账户净值
   2. 使用getPositions检查现有持仓数量和总敞口
   3. **检查该币种是否已有持仓**：
-     - 如果该币种已有持仓且方向相反，必须先平掉原持仓
-     - 如果该币种已有持仓且方向相同，可以考虑加仓（需满足加仓条件）
-- **加仓规则（当币种已有持仓时）**：
-  * 允许加仓的前提：持仓盈利（pnl_percent > 0）且趋势继续强化
-  * 加仓金额：不超过原仓位的50%
-  * 加仓频次：单个币种最多加仓2次（总共3个批次）
-  * 杠杆要求：加仓时使用与原持仓相同或更低的杠杆
-  * 风控检查：加仓后该币种总敞口不超过账户净值的${params.leverageMax}倍
+     - 如果该币种已有持仓且方向相反，必须先平掉原持仓（使用 closePosition({ symbol, reason: 'trend_reversal' })），再开新仓
+     - 如果该币种已有持仓且方向相同，禁止重复开仓
+  4. **检查总持仓数量**：禁止超过${RISK_PARAMS.MAX_POSITIONS}个持仓
+  5. **检查总敞口**：禁止超过账户净值的${params.leverageMax}倍
+  6. **检查杠杆倍数**：必须在${params.leverageMin}-${params.leverageMax}倍范围内
+
 - **风控策略（系统硬性底线 + AI战术灵活性）**：
   
   【系统硬性底线 - 强制执行，不可违反】：
@@ -1885,17 +1871,7 @@ function generateInstructions(strategy: TradingStrategy, intervalMinutes: number
    - ❌ 不要降低标准开仓
    - ❌ 不要为了"利用资金"而勉强开仓
    
-   a) 加仓评估（对已有盈利持仓）：
-      - 该币种已有持仓且方向正确
-      - 持仓当前盈利（pnl_percent > 5%，必须有足够利润缓冲）
-      - 趋势继续强化：至少3个时间框架共振，技术指标增强
-      - 可用余额充足，加仓金额≤原仓位的50%
-      - 该币种加仓次数 < 3次
-      - 加仓后总敞口不超过账户净值的${params.leverageMax}倍
-      - 杠杆要求：必须使用与原持仓相同或更低的杠杆
-      - 如果满足所有条件：立即调用 openPosition 加仓
-   
-   b) 新开仓评估（新币种 - ⚠️ 必须严格遵守以下流程）：
+   新开仓评估（新币种 - ⚠️ 必须严格遵守以下流程）：
       
       前置条件：
       - 现有持仓数 < ${RISK_PARAMS.MAX_POSITIONS}
@@ -2007,8 +1983,6 @@ function generateInstructions(strategy: TradingStrategy, intervalMinutes: number
 
 仓位管理：
 - 严禁双向持仓：同一币种不能同时持有多单和空单
-- 允许加仓：对盈利>5%的持仓，趋势强化时可加仓≤50%，最多2次
-- 杠杆限制：加仓时必须使用相同或更低杠杆（禁止提高）
 - 最多持仓：${RISK_PARAMS.MAX_POSITIONS}个币种
 - 双向交易：做多和做空都能赚钱，不要只盯着做多机会
 

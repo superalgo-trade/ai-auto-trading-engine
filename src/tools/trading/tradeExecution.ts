@@ -109,12 +109,13 @@ IMPORTANT:
         };
       }
       
-      // 2. 检查该币种是否已有持仓（禁止双向持仓）
+      // 2. 检查该币种是否已有持仓
       const existingPosition = activePositions.find((p: any) => {
         const posSymbol = exchangeClient.extractSymbol(p.contract);
         return posSymbol === symbol;
       });
       
+      // 3. 如果方向不同，禁止双向持仓
       if (existingPosition) {
         const existingSize = parsePositionSize(existingPosition.size);
         const existingSide = existingSize > 0 ? "long" : "short";
@@ -126,8 +127,13 @@ IMPORTANT:
           };
         }
         
-        // 如果方向相同，允许加仓（但需要注意总持仓限制）
-        logger.info(`${symbol} 已有${side === "long" ? "多" : "空"}单持仓，允许加仓`);
+        // 3. 如果方向相同，不允许加仓
+        if (existingSide === side) {
+          return {
+            success: false,
+            message: `${symbol} 已有${existingSide === "long" ? "多" : "空"}单持仓，禁止加仓。`,
+          };
+        }
       }
       
       // 3. 获取账户信息
@@ -155,35 +161,8 @@ IMPORTANT:
           message: `保证金不足: 需要 ${requiredMargin.toFixed(2)} USDT（含手续费），可用 ${availableBalance.toFixed(2)} USDT。建议降低开仓金额或平仓释放保证金。`,
         };
       }
-      
-      // 4. 检查账户回撤（从数据库获取初始净值和峰值净值）
-      // 注释：已移除回撤10%禁止开仓的限制
-      // const initialBalanceResult = await dbClient.execute(
-      //   "SELECT total_value FROM account_history ORDER BY timestamp ASC LIMIT 1"
-      // );
-      // const initialBalance = initialBalanceResult.rows[0]
-      //   ? Number.parseFloat(initialBalanceResult.rows[0].total_value as string)
-      //   : totalBalance;
-      // 
-      // const peakBalanceResult = await dbClient.execute(
-      //   "SELECT MAX(total_value) as peak FROM account_history"
-      // );
-      // const peakBalance = peakBalanceResult.rows[0]?.peak 
-      //   ? Number.parseFloat(peakBalanceResult.rows[0].peak as string)
-      //   : totalBalance;
-      // 
-      // const drawdownFromPeak = peakBalance > 0 
-      //   ? ((peakBalance - totalBalance) / peakBalance) * 100 
-      //   : 0;
-      // 
-      // if (drawdownFromPeak >= RISK_PARAMS.ACCOUNT_DRAWDOWN_NO_NEW_POSITION_PERCENT) {
-      //   return {
-      //     success: false,
-      //     message: `账户回撤已达 ${drawdownFromPeak.toFixed(2)}% ≥ ${RISK_PARAMS.ACCOUNT_DRAWDOWN_NO_NEW_POSITION_PERCENT}%，触发风控保护，禁止新开仓`,
-      //   };
-      // }
-      
-      // 5. 检查总敞口（不超过账户净值的15倍）
+            
+      // 4. 检查总敞口（不超过账户净值的15倍）
       let currentTotalExposure = 0;
       for (const pos of activePositions) {
         const posSize = Math.abs(parsePositionSize(pos.size));
@@ -206,7 +185,7 @@ IMPORTANT:
         };
       }
       
-      // 6. 检查单笔仓位（建议不超过账户净值的30%）
+      // 5. 检查单笔仓位（建议不超过账户净值的30%）
       const maxSinglePosition = totalBalance * 0.30; // 30%
       if (amountUsdt > maxSinglePosition) {
         logger.warn(`开仓金额 ${amountUsdt.toFixed(2)} USDT 超过建议仓位 ${maxSinglePosition.toFixed(2)} USDT（账户净值的30%）`);
