@@ -54,6 +54,10 @@ body {
     font-weight: bold;
     color: var(--accent-green);
     text-shadow: 0 0 10px var(--accent-green);
+    display: flex;
+    align-items: center;
+    line-height: 1;
+    padding-top: 5px;
 }
 
 .nav-menu {
