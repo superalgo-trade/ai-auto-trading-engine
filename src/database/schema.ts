@@ -271,7 +271,7 @@ CREATE TABLE IF NOT EXISTS price_orders (
   side TEXT NOT NULL,
   type TEXT NOT NULL,
   trigger_price REAL NOT NULL,
-  order_price REAL NOT NULL,
+  order_price REAL DEFAULT 0,
   quantity REAL NOT NULL,
   status TEXT NOT NULL DEFAULT 'active',
   created_at TEXT NOT NULL,
@@ -305,6 +305,7 @@ CREATE TABLE IF NOT EXISTS position_close_events (
 CREATE TABLE IF NOT EXISTS partial_take_profit_history (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   symbol TEXT NOT NULL,
+  side TEXT,
   stage INTEGER NOT NULL,
   r_multiple REAL NOT NULL,
   trigger_price REAL NOT NULL,
@@ -313,6 +314,7 @@ CREATE TABLE IF NOT EXISTS partial_take_profit_history (
   remaining_quantity REAL NOT NULL,
   pnl REAL NOT NULL,
   new_stop_loss_price REAL,
+  order_id TEXT,
   status TEXT NOT NULL DEFAULT 'completed',
   notes TEXT,
   timestamp TEXT NOT NULL

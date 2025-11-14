@@ -264,6 +264,7 @@ async function getPartialTakeProfitHistory(symbol: string): Promise<any[]> {
  */
 async function recordPartialTakeProfit(data: {
   symbol: string;
+  side: "long" | "short";
   stage: number;
   rMultiple: number;
   triggerPrice: number;
@@ -272,19 +273,21 @@ async function recordPartialTakeProfit(data: {
   remainingQuantity: number;
   pnl: number;
   newStopLossPrice?: number;
+  orderId?: string;
   status: "completed" | "failed";
   notes?: string;
 }): Promise<void> {
   await dbClient.execute({
     sql: `
       INSERT INTO partial_take_profit_history (
-        symbol, stage, r_multiple, trigger_price, close_percent,
+        symbol, side, stage, r_multiple, trigger_price, close_percent,
         closed_quantity, remaining_quantity, pnl, new_stop_loss_price,
-        status, notes, timestamp
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        order_id, status, notes, timestamp
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `,
     args: [
       data.symbol,
+      data.side,
       data.stage,
       data.rMultiple,
       data.triggerPrice,
@@ -293,6 +296,7 @@ async function recordPartialTakeProfit(data: {
       data.remainingQuantity,
       data.pnl,
       data.newStopLossPrice || null,
+      data.orderId || null,
       data.status,
       data.notes || null,
       getChinaTimeISO(),
@@ -336,30 +340,80 @@ export const partialTakeProfitTool = createTool({
     const contract = exchangeClient.normalizeContract(symbol);
     
     try {
-      // 1. 获取当前持仓
-      const allPositions = await exchangeClient.getPositions();
-      const position = allPositions.find((p: any) => {
-        const posSymbol = exchangeClient.extractSymbol(p.contract);
-        return posSymbol === symbol && Math.abs(Number.parseFloat(p.size || "0")) > 0;
-      });
+      // 🔧 获取完整的合约名称用于数据库查询
+      // ⚠️ 关键修复：数据库中可能存储的是带下划线的格式（如 ETH_USDT），也可能是不带下划线的（如 ETHUSDT）
+      // 需要尝试两种格式
+      let dbSymbol = contract;
+      const dbSymbolWithUnderscore = contract.includes('_') ? contract : contract.replace('USDT', '_USDT');
       
-      if (!position) {
-        return {
-          success: false,
-          message: `未找到 ${symbol} 的持仓`,
-        };
+      // 1. 获取当前持仓（优先从交易所，失败则从数据库）
+      let position: any = null;
+      let currentSize = 0;
+      let side: "long" | "short" = "long";
+      let entryPrice = 0;
+      let currentPrice = 0;
+      let leverage = 1;
+      
+      try {
+        const allPositions = await exchangeClient.getPositions();
+        position = allPositions.find((p: any) => {
+          const posSymbol = exchangeClient.extractSymbol(p.contract);
+          return posSymbol === symbol && Math.abs(Number.parseFloat(p.size || "0")) > 0;
+        });
+        
+        if (position) {
+          currentSize = Math.abs(Number.parseFloat(position.size || "0"));
+          side = Number.parseFloat(position.size || "0") > 0 ? "long" : "short";
+          entryPrice = Number.parseFloat(position.entryPrice || "0");
+          currentPrice = Number.parseFloat(position.markPrice || "0");
+          leverage = Number.parseInt(position.leverage || "1", 10);
+        }
+      } catch (error) {
+        logger.warn(`无法从交易所获取${symbol}持仓，尝试从数据库读取`);
       }
       
-      const currentSize = Math.abs(Number.parseFloat(position.size || "0"));
-      const side: "long" | "short" = Number.parseFloat(position.size || "0") > 0 ? "long" : "short";
-      const entryPrice = Number.parseFloat(position.entryPrice || "0");
-      const currentPrice = Number.parseFloat(position.markPrice || "0");
-      const leverage = Number.parseInt(position.leverage || "1", 10);
+      // 如果交易所无持仓，从数据库读取
+      if (!position) {
+        // ⚠️ 尝试两种格式查询：ETHUSDT 和 ETH_USDT
+        let dbPosition = await dbClient.execute({
+          sql: "SELECT * FROM positions WHERE symbol = ? AND quantity != 0 LIMIT 1",
+          args: [dbSymbol],
+        });
+        
+        // 如果第一种格式找不到，尝试带下划线的格式
+        if (dbPosition.rows.length === 0 && dbSymbol !== dbSymbolWithUnderscore) {
+          dbPosition = await dbClient.execute({
+            sql: "SELECT * FROM positions WHERE symbol = ? AND quantity != 0 LIMIT 1",
+            args: [dbSymbolWithUnderscore],
+          });
+          
+          // 如果找到了，更新 dbSymbol
+          if (dbPosition.rows.length > 0) {
+            dbSymbol = dbSymbolWithUnderscore;
+          }
+        }
+        
+        if (dbPosition.rows.length === 0) {
+          return {
+            success: false,
+            message: `未找到 ${symbol} 的持仓`,
+          };
+        }
+        
+        const row = dbPosition.rows[0];
+        currentSize = Math.abs(Number.parseFloat(row.quantity as string || "0"));
+        side = row.side as "long" | "short";
+        entryPrice = Number.parseFloat(row.entry_price as string || "0");
+        currentPrice = Number.parseFloat(row.current_price as string || "0");
+        leverage = Number.parseInt(row.leverage as string || "1", 10);
+        position = row; // 使用数据库记录
+        dbSymbol = row.symbol as string; // 更新dbSymbol为数据库中的实际值
+      }
       
       // 2. 从数据库获取止损价
       const positionResult = await dbClient.execute({
         sql: "SELECT stop_loss, partial_close_percentage FROM positions WHERE symbol = ? AND quantity != 0 LIMIT 1",
-        args: [symbol],
+        args: [dbSymbol],
       });
       
       if (positionResult.rows.length === 0 || !positionResult.rows[0].stop_loss) {
@@ -372,18 +426,36 @@ export const partialTakeProfitTool = createTool({
       const stopLossPrice = Number.parseFloat(positionResult.rows[0].stop_loss as string);
       const alreadyClosedPercent = Number.parseFloat(positionResult.rows[0].partial_close_percentage as string || "0");
       
+      // 🔧 如果已执行过分批止盈，需要从历史记录恢复原始止损价来计算R倍数
+      // 因为止损价已经移动到成本价或1R位置，直接使用当前止损价会导致R倍数计算错误
+      let originalStopLoss = stopLossPrice;
+      const takeProfitHistory = await getPartialTakeProfitHistory(dbSymbol);
+      if (takeProfitHistory.length > 0) {
+        // 从最早的记录推算原始止损价
+        // Stage1: 止损移至成本价，newStopLoss = entryPrice
+        // Stage2: 止损移至1R，newStopLoss = entryPrice + R * (entryPrice - originalStopLoss)
+        const firstStage = takeProfitHistory.sort((a, b) => a.stage - b.stage)[0];
+        if (firstStage.stage === 1 && firstStage.new_stop_loss_price) {
+          // Stage1后止损=成本价，可以使用当前止损作为入场价参考
+          // 通过triggerPrice反推：triggerPrice = entry + 1R = entry + (entry - originalStopLoss)
+          // 所以: originalStopLoss = 2 * entry - triggerPrice
+          originalStopLoss = 2 * entryPrice - firstStage.trigger_price;
+          logger.info(`从Stage1历史恢复原始止损价: ${originalStopLoss.toFixed(2)} (入场=${entryPrice}, Stage1触发=${firstStage.trigger_price})`);
+        }
+      }
+      
       // 3. 分析市场波动率（用于动态调整R倍数）
       const volatility = await analyzeMarketVolatility(symbol, "15m");
       
       logger.info(`${symbol} 波动率分析: ${volatility.description} (ATR=${volatility.atrPercent}%, 调整系数=${volatility.adjustmentFactor}x)`);
       
-      // 4. 计算当前R倍数
-      const currentR = calculateRMultiple(entryPrice, currentPrice, stopLossPrice, side);
+      // 4. 计算当前R倍数（使用原始止损价）
+      const currentR = calculateRMultiple(entryPrice, currentPrice, originalStopLoss, side);
       
-      logger.info(`${symbol} 当前状态: 入场=${entryPrice}, 当前=${currentPrice}, 止损=${stopLossPrice}, 原始R=${currentR.toFixed(2)}`);
+      logger.info(`${symbol} 当前状态: 入场=${entryPrice}, 当前=${currentPrice}, 原始止损=${originalStopLoss.toFixed(2)}, 当前止损=${stopLossPrice.toFixed(2)}, R=${currentR.toFixed(2)}`);
       
       // 5. 检查分批止盈历史
-      const history = await getPartialTakeProfitHistory(symbol);
+      const history = await getPartialTakeProfitHistory(dbSymbol);
       const stageHistory = history.filter((h) => h.stage === Number.parseInt(stage, 10));
       
       if (stageHistory.length > 0) {
@@ -439,8 +511,8 @@ export const partialTakeProfitTool = createTool({
           };
         }
         
-        // 止损移至 1R 位置（使用基础R，不受波动率影响）
-        newStopLossPrice = calculateTargetPrice(entryPrice, stopLossPrice, 1, side);
+        // 🔧 止损移至 1R 位置（使用原始止损价计算，不受波动率影响）
+        newStopLossPrice = calculateTargetPrice(entryPrice, originalStopLoss, 1, side);
         
         logger.info(`${symbol} 阶段2 R倍数要求: 基础=${baseRequiredR}R, 调整后=${requiredR.toFixed(2)}R (${volatility.level}波动)`);
         
@@ -492,9 +564,10 @@ export const partialTakeProfitTool = createTool({
           };
         }
         
-        // 阶段3不执行平仓，只记录启用移动止损
+        // 阶段3不执行平仓,只记录启用移动止损
         await recordPartialTakeProfit({
-          symbol,
+          symbol: dbSymbol,
+          side,
           stage: stageNum,
           rMultiple: currentR,
           triggerPrice: currentPrice,
@@ -532,7 +605,14 @@ export const partialTakeProfitTool = createTool({
       const contractInfo = await exchangeClient.getContractInfo(contract);
       const minQty = contractInfo.orderSizeMin;
       
-      const quantityResult = calculatePartialCloseQuantity(currentSize, closePercent, minQty);
+      // 🔧 Gate.io合约以"张"为单位，需要转换
+      // quanto_multiplier是每张合约的币数（如0.0001 ETH/张）
+      const quantoMultiplier = Number.parseFloat(contractInfo.quantoMultiplier || contractInfo.quanto_multiplier || "1");
+      
+      // 转换为合约数量（张数）
+      const currentSizeInContracts = quantoMultiplier < 1 ? currentSize / quantoMultiplier : currentSize;
+      
+      const quantityResult = calculatePartialCloseQuantity(currentSizeInContracts, closePercent, minQty);
       
       if (quantityResult.error) {
         return {
@@ -543,14 +623,18 @@ export const partialTakeProfitTool = createTool({
       
       const { closeQuantity, remainingQuantity, decimalPlaces, meetsMinQuantity, remainingMeetsMin } = quantityResult;
       
-      logger.info(`准备平仓: symbol=${symbol}, closePercent=${closePercent}%, 持仓=${currentSize.toFixed(decimalPlaces)}, 平仓=${closeQuantity.toFixed(decimalPlaces)}, 剩余=${remainingQuantity.toFixed(decimalPlaces)}, 精度=${decimalPlaces}位`);
+      logger.info(`准备平仓: symbol=${symbol}, closePercent=${closePercent}%, 持仓=${currentSizeInContracts.toFixed(decimalPlaces)}张, 平仓=${closeQuantity.toFixed(decimalPlaces)}张, 剩余=${remainingQuantity.toFixed(decimalPlaces)}张, 精度=${decimalPlaces}位`);
+      
+      // 🔧 将张数转换回实际数量（ETH）
+      const closeQuantityInCoin = quantoMultiplier < 1 ? closeQuantity * quantoMultiplier : closeQuantity;
+      const remainingQuantityInCoin = quantoMultiplier < 1 ? remainingQuantity * quantoMultiplier : remainingQuantity;
       
       // 检查平仓数量是否满足最小交易数量要求
       if (!meetsMinQuantity) {
         return {
           success: false,
-          message: `分批平仓数量 ${closeQuantity.toFixed(decimalPlaces)} 小于最小交易数量 ${minQty}，无法执行。建议增加持仓规模或调整平仓比例。`,
-          closeQuantity,
+          message: `分批平仓数量 ${closeQuantity.toFixed(decimalPlaces)}张 小于最小交易数量 ${minQty}张，无法执行。建议增加持仓规模或调整平仓比例。`,
+          closeQuantity: closeQuantityInCoin,
           minQuantity: minQty,
           currentSize,
           closePercent,
@@ -560,12 +644,12 @@ export const partialTakeProfitTool = createTool({
       
       // 检查剩余数量是否满足最小持仓要求（如果不为0的话）
       if (!remainingMeetsMin) {
-        logger.warn(`分批平仓后剩余数量 ${remainingQuantity.toFixed(decimalPlaces)} 小于最小交易数量 ${minQty}`);
+        logger.warn(`分批平仓后剩余数量 ${remainingQuantity.toFixed(decimalPlaces)}张 小于最小交易数量 ${minQty}张`);
         return {
           success: false,
-          message: `分批平仓后剩余数量 ${remainingQuantity.toFixed(decimalPlaces)} 小于最小交易数量 ${minQty}，建议调整平仓比例或全部平仓`,
-          closeQuantity,
-          remainingQuantity,
+          message: `分批平仓后剩余数量 ${remainingQuantity.toFixed(decimalPlaces)}张 小于最小交易数量 ${minQty}张，建议调整平仓比例或全部平仓`,
+          closeQuantity: closeQuantityInCoin,
+          remainingQuantity: remainingQuantityInCoin,
           minQuantity: minQty,
           suggestion: "建议全部平仓或增加持仓规模",
         };
@@ -573,40 +657,60 @@ export const partialTakeProfitTool = createTool({
       
       // 执行平仓（使用市价单平仓）
       let closeOrderResponse;
-      try {
-        const closeSide = side === "long" ? "sell" : "buy";
-        // 平仓时的数量需要根据方向确定正负
-        // 对于 long 仓位，平仓数量应该是负数（卖出）
-        // 对于 short 仓位，平仓数量应该是正数（买入）
-        const closeSize = side === "long" ? -closeQuantity : closeQuantity;
+      
+      // 🔧 检测测试模式，避免真实交易
+      const isTestMode = process.env.TEST_MODE === 'true';
+      
+      if (isTestMode) {
+        logger.warn(`⚠️ 测试模式：跳过真实平仓操作，仅模拟数据更新`);
         
-        closeOrderResponse = await exchangeClient.placeOrder({
+        // 模拟订单响应
+        closeOrderResponse = {
+          id: `TEST_CLOSE_${Date.now()}`,
           contract,
-          size: closeSize,
-          price: 0, // 市价单，price设为0
-          reduceOnly: true,
-        });
-        
-        const decimalPlaces = getDecimalPlacesBySymbol(symbol, currentPrice);
-        logger.info(`✅ 分批平仓订单已提交: ${symbol} ${closeQuantity.toFixed(decimalPlaces)} @ 市价, 订单ID=${closeOrderResponse.id}`);
-      } catch (error: any) {
-        await recordPartialTakeProfit({
-          symbol,
-          stage: stageNum,
-          rMultiple: currentR,
-          triggerPrice: currentPrice,
-          closePercent,
-          closedQuantity: 0,
-          remainingQuantity: currentSize,
-          pnl: 0,
-          status: "failed",
-          notes: `平仓失败: ${error.message}`,
-        });
-        
-        return {
-          success: false,
-          message: `平仓失败: ${error.message}`,
+          size: side === "long" ? -closeQuantityInCoin : closeQuantityInCoin,
+          price: currentPrice.toString(),
+          fill_price: currentPrice.toString(),
+          status: 'filled',
         };
+      } else {
+        // 真实交易模式
+        try {
+          const closeSide = side === "long" ? "sell" : "buy";
+          // 平仓时的数量需要根据方向确定正负
+          // 对于 long 仓位，平仓数量应该是负数（卖出）
+          // 对于 short 仓位，平仓数量应该是正数（买入）
+          const closeSize = side === "long" ? -closeQuantityInCoin : closeQuantityInCoin;
+          
+          closeOrderResponse = await exchangeClient.placeOrder({
+            contract,
+            size: closeSize,
+            price: 0, // 市价单，price设为0
+            reduceOnly: true,
+          });
+          
+          const decimalPlaces = getDecimalPlacesBySymbol(symbol, currentPrice);
+          logger.info(`✅ 分批平仓订单已提交: ${symbol} ${closeQuantityInCoin.toFixed(decimalPlaces)} @ 市价, 订单ID=${closeOrderResponse.id}`);
+        } catch (error: any) {
+          await recordPartialTakeProfit({
+            symbol: dbSymbol,
+            side,
+            stage: stageNum,
+            rMultiple: currentR,
+            triggerPrice: currentPrice,
+            closePercent,
+            closedQuantity: 0,
+            remainingQuantity: currentSize,
+            pnl: 0,
+            status: "failed",
+            notes: `平仓失败: ${error.message}`,
+          });
+          
+          return {
+            success: false,
+            message: `平仓失败: ${error.message}`,
+          };
+        }
       }
       
       // 7. 计算盈亏和手续费
@@ -615,7 +719,7 @@ export const partialTakeProfitTool = createTool({
       const pnl = await exchangeClient.calculatePnl(
         entryPrice,
         currentPrice,
-        closeQuantity,
+        closeQuantityInCoin,
         side,
         contract
       );
@@ -628,10 +732,10 @@ export const partialTakeProfitTool = createTool({
         const { getQuantoMultiplier } = await import('../../utils/contractUtils.js');
         const quantoMultiplier = await getQuantoMultiplier(contract);
         // 手续费 = 名义价值 * 费率
-        estimatedFee = currentPrice * closeQuantity * quantoMultiplier * 0.0005;
+        estimatedFee = currentPrice * closeQuantityInCoin * quantoMultiplier * 0.0005;
       } else {
         // Binance USDT合约
-        estimatedFee = Math.abs(closeQuantity * currentPrice * 0.0005);
+        estimatedFee = Math.abs(closeQuantityInCoin * currentPrice * 0.0005);
       }
       
       // 净盈亏 = 毛盈亏 - 手续费
@@ -645,11 +749,11 @@ export const partialTakeProfitTool = createTool({
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           args: [
             closeOrderResponse.id,
-            symbol,
+            dbSymbol,  // ⭐ 使用完整符号名称（ETH_USDT）而不是短名称（ETH）
             side,
             'close',
             currentPrice,
-            closeQuantity,
+            closeQuantityInCoin,
             leverage,
             netPnl,
             estimatedFee,
@@ -658,7 +762,7 @@ export const partialTakeProfitTool = createTool({
           ]
         });
         
-        logger.info(`✅ 分批平仓交易已记录到 trades 表: ${symbol} ${closeQuantity.toFixed(decimalPlaces)} @ ${currentPrice}, PnL=${netPnl.toFixed(2)} USDT`);
+        logger.info(`✅ 分批平仓交易已记录到 trades 表: ${symbol} ${closeQuantityInCoin.toFixed(decimalPlaces)} @ ${currentPrice}, PnL=${netPnl.toFixed(2)} USDT`);
       } catch (error: any) {
         logger.error(`记录分批平仓交易到 trades 表失败: ${error.message}`);
         // 不影响主流程，继续执行
@@ -666,12 +770,12 @@ export const partialTakeProfitTool = createTool({
       
       // 9. 更新条件单（⭐ 关键：分批平仓后必须更新条件单数量）
       // 即使止损价格不变，也需要重新设置条件单，因为持仓数量改变了
-      logger.info(`${symbol} 分批平仓后更新条件单，剩余持仓: ${remainingQuantity.toFixed(decimalPlaces)}`);
+      logger.info(`${symbol} 分批平仓后更新条件单，剩余持仓: ${remainingQuantityInCoin.toFixed(decimalPlaces)}`);
       
       // 从数据库获取当前的止损和止盈价格
       const posResult = await dbClient.execute({
         sql: "SELECT stop_loss, profit_target FROM positions WHERE symbol = ?",
-        args: [symbol],
+        args: [dbSymbol],
       });
       
       const currentStopLoss = posResult.rows.length > 0 
@@ -689,64 +793,205 @@ export const partialTakeProfitTool = createTool({
         logger.info(`更新止损价: ${currentStopLoss} -> ${newStopLossPrice}`);
         await dbClient.execute({
           sql: "UPDATE positions SET stop_loss = ? WHERE symbol = ?",
-          args: [newStopLossPrice, symbol],
+          args: [newStopLossPrice, dbSymbol],
         });
       }
       
       // 更新交易所的条件单（会自动使用最新的持仓数量）
-      try {
-        // 先取消旧的条件单
-        await exchangeClient.cancelPositionStopLoss(contract);
-        
-        // 重新设置条件单，使用最新的持仓数量
-        const result = await exchangeClient.setPositionStopLoss(
-          contract,
-          finalStopLoss > 0 ? finalStopLoss : undefined,
-          profitTarget > 0 ? profitTarget : undefined
-        );
-        
-        if (result.success) {
-          logger.info(`✅ 条件单已更新: 止损=${result.actualStopLoss || 'N/A'}, 止盈=${result.actualTakeProfit || 'N/A'}`);
+      if (!isTestMode) {
+        try {
+          // ⭐ 先在数据库中标记旧条件单为已取消
+          await dbClient.execute({
+            sql: "UPDATE price_orders SET status = 'cancelled', updated_at = ? WHERE symbol = ? AND status = 'active'",
+            args: [getChinaTimeISO(), dbSymbol],
+          });
+          logger.info(`✅ 数据库中的旧条件单已标记为取消: ${symbol}`);
           
-          // 更新数据库中的订单ID
-          if (result.stopLossOrderId) {
-            await dbClient.execute({
-              sql: "UPDATE positions SET sl_order_id = ? WHERE symbol = ?",
-              args: [result.stopLossOrderId, symbol],
-            });
-          }
+          // 取消交易所的旧条件单
+          await exchangeClient.cancelPositionStopLoss(contract);
+          logger.info(`✅ 交易所的旧条件单已取消: ${symbol}`);
           
-          if (result.takeProfitOrderId) {
+          // 重新设置条件单，使用最新的持仓数量
+          const result = await exchangeClient.setPositionStopLoss(
+            contract,
+            finalStopLoss > 0 ? finalStopLoss : undefined,
+            profitTarget > 0 ? profitTarget : undefined
+          );
+        
+          if (result.success) {
+            logger.info(`✅ 条件单已更新: 止损=${result.actualStopLoss || 'N/A'}, 止盈=${result.actualTakeProfit || 'N/A'}`);
+            
+            // ⭐ 更新数据库中的持仓数量
             await dbClient.execute({
-              sql: "UPDATE positions SET tp_order_id = ? WHERE symbol = ?",
-              args: [result.takeProfitOrderId, symbol],
+              sql: "UPDATE positions SET quantity = ? WHERE symbol = ?",
+              args: [remainingQuantityInCoin, dbSymbol],
             });
+            
+            // 更新数据库中的订单ID
+            if (result.stopLossOrderId) {
+              await dbClient.execute({
+                sql: "UPDATE positions SET sl_order_id = ? WHERE symbol = ?",
+                args: [result.stopLossOrderId, dbSymbol],
+              });
+              
+              // ⭐ 在 price_orders 表中记录新的止损条件单
+              await dbClient.execute({
+                sql: `INSERT INTO price_orders 
+                      (order_id, symbol, side, type, trigger_price, quantity, status, position_order_id, created_at)
+                      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                args: [
+                  result.stopLossOrderId,
+                  symbol,
+                  side,
+                  'stop_loss',
+                  result.actualStopLoss || 0,
+                  remainingQuantityInCoin,
+                  'active',
+                  closeOrderResponse.id,
+                  getChinaTimeISO(),
+                ],
+              });
+            }
+            
+            if (result.takeProfitOrderId) {
+              await dbClient.execute({
+                sql: "UPDATE positions SET tp_order_id = ? WHERE symbol = ?",
+                args: [result.takeProfitOrderId, dbSymbol],
+              });
+              
+              // ⭐ 在 price_orders 表中记录新的止盈条件单
+              if (result.actualTakeProfit && result.actualTakeProfit > 0) {
+                await dbClient.execute({
+                  sql: `INSERT INTO price_orders 
+                        (order_id, symbol, side, type, trigger_price, quantity, status, position_order_id, created_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                  args: [
+                    result.takeProfitOrderId,
+                    symbol,
+                    side,
+                    'take_profit',
+                    result.actualTakeProfit,
+                    remainingQuantityInCoin,
+                    'active',
+                    closeOrderResponse.id,
+                    getChinaTimeISO(),
+                  ],
+                });
+              }
+            }
+          } else {
+            logger.error(`❌ 更新条件单失败: ${result.message}`);
           }
-        } else {
-          logger.error(`❌ 更新条件单失败: ${result.message}`);
+        } catch (error: any) {
+          logger.error(`❌ 更新条件单异常: ${error.message}`);
         }
-      } catch (error: any) {
-        logger.error(`❌ 更新条件单异常: ${error.message}`);
+      } else {
+        logger.warn(`⚠️ 测试模式：跳过更新交易所条件单`);
+        
+        // ⭐ 测试模式：仍需更新数据库中的条件单和持仓数量
+        // 1. 标记旧条件单为已取消
+        await dbClient.execute({
+          sql: "UPDATE price_orders SET status = 'cancelled', updated_at = ? WHERE symbol = ? AND status = 'active'",
+          args: [getChinaTimeISO(), dbSymbol],
+        });
+        
+        // 2. 插入新的止损条件单（使用新的止损价和剩余数量）
+        if (finalStopLoss > 0) {
+          const newSlOrderId = `SL_TEST_${Date.now()}`;
+          await dbClient.execute({
+            sql: `INSERT INTO price_orders 
+                  (order_id, symbol, side, type, trigger_price, quantity, status, position_order_id, created_at)
+                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            args: [
+              newSlOrderId,
+              dbSymbol,
+              side,
+              'stop_loss',
+              finalStopLoss,
+              remainingQuantityInCoin,
+              'active',
+              closeOrderResponse.id,
+              getChinaTimeISO(),
+            ],
+          });
+          
+          // 更新positions表的sl_order_id
+          await dbClient.execute({
+            sql: "UPDATE positions SET sl_order_id = ? WHERE symbol = ?",
+            args: [newSlOrderId, dbSymbol],
+          });
+        }
+        
+        // 3. 插入新的止盈条件单（使用剩余数量）
+        if (profitTarget > 0) {
+          const newTpOrderId = `TP_TEST_${Date.now()}`;
+          await dbClient.execute({
+            sql: `INSERT INTO price_orders 
+                  (order_id, symbol, side, type, trigger_price, quantity, status, position_order_id, created_at)
+                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            args: [
+              newTpOrderId,
+              dbSymbol,
+              side,
+              'take_profit',
+              profitTarget,
+              remainingQuantityInCoin,
+              'active',
+              closeOrderResponse.id,
+              getChinaTimeISO(),
+            ],
+          });
+          
+          // 更新positions表的tp_order_id
+          await dbClient.execute({
+            sql: "UPDATE positions SET tp_order_id = ? WHERE symbol = ?",
+            args: [newTpOrderId, dbSymbol],
+          });
+        }
       }
       
-      // 10. 更新数据库中的已平仓百分比
+      // 10. 更新数据库中的持仓数量、已平仓百分比、未实现盈亏
       const newClosedPercent = alreadyClosedPercent + closePercent;
+      
+      // ⭐ 关键：重新计算剩余持仓的未实现盈亏
+      // unrealized_pnl = (current_price - entry_price) * remaining_quantity * direction
+      // 对于 Gate.io 币本位合约，还需要乘以 quanto_multiplier
+      let updatedUnrealizedPnl: number;
+      try {
+        updatedUnrealizedPnl = await exchangeClient.calculatePnl(
+          entryPrice,
+          currentPrice,
+          remainingQuantityInCoin,
+          side,
+          contract
+        );
+        logger.info(`✅ 重新计算未实现盈亏: ${updatedUnrealizedPnl.toFixed(2)} USDT (剩余持仓: ${remainingQuantityInCoin.toFixed(decimalPlaces)})`);
+      } catch (error: any) {
+        logger.warn(`计算未实现盈亏失败，使用简化公式: ${error.message}`);
+        // 后备方案：简化计算（不考虑 quanto_multiplier）
+        const priceDiff = currentPrice - entryPrice;
+        const direction = side === 'long' ? 1 : -1;
+        updatedUnrealizedPnl = priceDiff * remainingQuantityInCoin * direction;
+      }
+      
       await dbClient.execute({
-        sql: "UPDATE positions SET partial_close_percentage = ? WHERE symbol = ?",
-        args: [newClosedPercent, symbol],
+        sql: "UPDATE positions SET quantity = ?, partial_close_percentage = ?, unrealized_pnl = ?, current_price = ? WHERE symbol = ?",
+        args: [remainingQuantityInCoin, newClosedPercent, updatedUnrealizedPnl, currentPrice, dbSymbol],
       });
       
       // 10. 记录分批止盈历史
       await recordPartialTakeProfit({
-        symbol,
+        symbol: dbSymbol,
+        side,
         stage: stageNum,
         rMultiple: currentR,
         triggerPrice: currentPrice,
         closePercent,
-        closedQuantity: closeQuantity,
-        remainingQuantity,
+        closedQuantity: closeQuantityInCoin,
+        remainingQuantity: remainingQuantityInCoin,
         pnl: netPnl,
         newStopLossPrice,
+        orderId: closeOrderResponse.id,
         status: "completed",
         notes: `阶段${stageNum}完成：R=${currentR.toFixed(2)}, 平仓${closePercent}%, PnL=${netPnl.toFixed(2)} USDT`,
       });
@@ -765,24 +1010,24 @@ export const partialTakeProfitTool = createTool({
                  created_at, processed)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           args: [
-            symbol,
+            dbSymbol,  // ⭐ 使用完整符号名称（ETH_USDT）而不是短名称（ETH）
             side,
             entryPrice,
             currentPrice,      // 使用当前价格作为退出价格
-            closeQuantity,
+            closeQuantityInCoin,
             leverage,
             netPnl,
             pnlPercent,
             estimatedFee,
             'partial_close',   // ⭐ 平仓原因：分批平仓
             'ai_decision',     // 触发类型：AI决策
-            `partial_${symbol}_stage${stageNum}_${Date.now()}`, // 生成唯一订单ID
+            closeOrderResponse.id, // ⭐ 使用真实的交易订单ID
             getChinaTimeISO(),
             1,  // 已处理
           ],
         });
         
-        logger.info(`📝 已记录分批平仓事件到 position_close_events 表: ${symbol} 阶段${stageNum}`);
+        logger.info(`📝 已记录分批平仓事件到 position_close_events 表: ${symbol} 阶段${stageNum}, 订单ID=${closeOrderResponse.id}`);
       } catch (error: any) {
         logger.error(`记录分批平仓事件到 position_close_events 失败: ${error.message}`);
         // 不影响主流程，继续执行
@@ -795,8 +1040,8 @@ export const partialTakeProfitTool = createTool({
         stage: stageNum,
         currentR,
         closePercent,
-        closedQuantity: closeQuantity,
-        remainingQuantity,
+        closedQuantity: closeQuantityInCoin,
+        remainingQuantity: remainingQuantityInCoin,
         pnl: netPnl.toFixed(2),
         newStopLossPrice: newStopLossPrice ? newStopLossPrice.toFixed(2) : undefined,
         totalClosedPercent: newClosedPercent,
@@ -843,16 +1088,39 @@ export const checkPartialTakeProfitOpportunityTool = createTool({
     const exchangeClient = getExchangeClient();
     
     try {
-      // 获取所有持仓
-      const allPositions = await exchangeClient.getPositions();
-      const activePositions = allPositions.filter((p: any) => Math.abs(Number.parseFloat(p.size || "0")) > 0);
+      // 🔧 先从数据库获取持仓，如果交易所无持仓则使用数据库数据（支持测试模式）
+      let activePositions: any[] = [];
       
+      try {
+        const exchangePositions = await exchangeClient.getPositions();
+        activePositions = exchangePositions.filter((p: any) => Math.abs(Number.parseFloat(p.size || "0")) > 0);
+      } catch (error) {
+        logger.warn("无法从交易所获取持仓，尝试从数据库读取");
+      }
+      
+      // 如果交易所无持仓，从数据库读取
       if (activePositions.length === 0) {
-        return {
-          success: true,
-          message: "当前没有持仓",
-          opportunities: {},
-        };
+        const dbPositions = await dbClient.execute({
+          sql: "SELECT * FROM positions WHERE quantity != 0",
+          args: [],
+        });
+        
+        if (dbPositions.rows.length === 0) {
+          return {
+            success: true,
+            message: "当前没有持仓",
+            opportunities: {},
+          };
+        }
+        
+        // 将数据库持仓转换为交易所格式
+        activePositions = dbPositions.rows.map((row: any) => ({
+          contract: row.symbol,
+          size: row.side === "long" ? row.quantity : -row.quantity,
+          entryPrice: row.entry_price,
+          markPrice: row.current_price,
+          leverage: row.leverage,
+        }));
       }
       
       const opportunities: Record<string, any> = {};
@@ -863,11 +1131,24 @@ export const checkPartialTakeProfitOpportunityTool = createTool({
         const entryPrice = Number.parseFloat(position.entryPrice || "0");
         const currentPrice = Number.parseFloat(position.markPrice || "0");
         
-        // 从数据库获取止损价
-        const positionResult = await dbClient.execute({
+        // 🔧 从数据库获取止损价
+        // ⚠️ 关键修复：数据库中可能存储的是带下划线的格式（如 ETH_USDT），也可能是不带下划线的（如 ETHUSDT）
+        const dbSymbol = position.contract;
+        const dbSymbolWithUnderscore = dbSymbol.includes('_') ? dbSymbol : dbSymbol.replace('USDT', '_USDT');
+        
+        // 尝试两种格式查询
+        let positionResult = await dbClient.execute({
           sql: "SELECT stop_loss FROM positions WHERE symbol = ? AND quantity != 0 LIMIT 1",
-          args: [symbol],
+          args: [dbSymbol],
         });
+        
+        // 如果第一种格式找不到，尝试带下划线的格式
+        if (positionResult.rows.length === 0 && dbSymbol !== dbSymbolWithUnderscore) {
+          positionResult = await dbClient.execute({
+            sql: "SELECT stop_loss FROM positions WHERE symbol = ? AND quantity != 0 LIMIT 1",
+            args: [dbSymbolWithUnderscore],
+          });
+        }
         
         if (positionResult.rows.length === 0 || !positionResult.rows[0].stop_loss) {
           opportunities[symbol] = {
@@ -881,19 +1162,37 @@ export const checkPartialTakeProfitOpportunityTool = createTool({
         
         const stopLossPrice = Number.parseFloat(positionResult.rows[0].stop_loss as string);
         
+        // 🔧 确定实际使用的数据库符号格式（用于后续查询）
+        const actualDbSymbol = positionResult.rows.length > 0 ? 
+          (await dbClient.execute({
+            sql: "SELECT symbol FROM positions WHERE symbol = ? AND quantity != 0 LIMIT 1",
+            args: [dbSymbol],
+          })).rows.length > 0 ? dbSymbol : dbSymbolWithUnderscore
+          : dbSymbol;
+        
+        // 🔧 如果已执行过分批止盈，恢复原始止损价来计算R倍数
+        let originalStopLoss = stopLossPrice;
+        const takeProfitHistory = await getPartialTakeProfitHistory(actualDbSymbol);
+        if (takeProfitHistory.length > 0) {
+          const firstStage = takeProfitHistory.sort((a, b) => a.stage - b.stage)[0];
+          if (firstStage.stage === 1 && firstStage.trigger_price) {
+            originalStopLoss = 2 * entryPrice - firstStage.trigger_price;
+          }
+        }
+        
         // 分析市场波动率
         const volatility = await analyzeMarketVolatility(symbol, "15m");
         
-        // 计算R倍数
-        const currentR = calculateRMultiple(entryPrice, currentPrice, stopLossPrice, side);
+        // 计算R倍数（使用原始止损价）
+        const currentR = calculateRMultiple(entryPrice, currentPrice, originalStopLoss, side);
         
         // 计算动态调整后的R倍数要求
         const adjustedR1 = adjustRMultipleForVolatility(1, volatility);
         const adjustedR2 = adjustRMultipleForVolatility(2, volatility);
         const adjustedR3 = adjustRMultipleForVolatility(3, volatility);
         
-        // 获取历史
-        const history = await getPartialTakeProfitHistory(symbol);
+        // 获取历史（使用实际的数据库符号）
+        const history = await getPartialTakeProfitHistory(actualDbSymbol);
         const executedStages = history.map((h) => h.stage);
         
         // 判断可执行阶段（使用动态调整后的R倍数）
@@ -905,10 +1204,14 @@ export const checkPartialTakeProfitOpportunityTool = createTool({
         const contract = exchangeClient.normalizeContract(symbol);
         const contractInfo = await exchangeClient.getContractInfo(contract);
         
+        // 🔧 Gate.io合约以"张"为单位，需要转换
+        const quantoMultiplier = Number.parseFloat(contractInfo.quantoMultiplier || contractInfo.quanto_multiplier || "1");
+        const currentSizeInContracts = quantoMultiplier < 1 ? currentSize / quantoMultiplier : currentSize;
+        
         // 🔧 使用统一的数量精度处理函数
         const closePercent = 33.33;
         const quantityResult = calculatePartialCloseQuantity(
-          currentSize, 
+          currentSizeInContracts, 
           closePercent, 
           contractInfo.orderSizeMin
         );

@@ -670,18 +670,18 @@ export async function generateTradingPrompt(data: {
 ┌────────────────────────────────────────────────────────────────┐
 ${params.scientificStopLoss?.enabled ? `│ 科学止损（交易所服务器端自动执行）：                           │
 │   • 开仓时已自动设置止损条件单，24/7监控                       │
-│   • AI职责：✅ 监控状态，✅ 必要时优化（updateTrailingStop）   │
-│   • AI职责：❌ 非盈利状况下，不要手动平仓（除非条件单异常）    │
+│   • AI职责：✅ 信任止损单保护，❌ 不要因"接近止损"主动平仓    │
+│   • AI职责：✅ 仅在趋势明确反转经审慎思考后主动平仓                      │
 │   • 止损距离: ${params.scientificStopLoss.minDistance}%-${params.scientificStopLoss.maxDistance}% (ATR${params.scientificStopLoss.atrMultiplier}x + 支撑/阻力位)                    │
 │                                                                │` : `│ 策略止损：                  │
 │   策略止损线: ${formatPercent(params.stopLoss.low)}% ~ ${formatPercent(params.stopLoss.high)}%          │
 │   根据杠杆倍数动态调整                  │
 │                                                                │`}
-${params.scientificStopLoss?.enabled ? `│ 移动止损优化（可选，非必须）：                                 │
-│   • 对于盈利持仓，可调用 updateTrailingStop() 检查优化机会     │
-│   • 如果 shouldUpdate=true，调用 updatePositionStopLoss() 执行 │
-│   • 参考触发点: ≥+${formatPercent(params.trailingStop.level1.trigger)}%, ≥+${formatPercent(params.trailingStop.level2.trigger)}%, ≥+${formatPercent(params.trailingStop.level3.trigger)}%                    │
-│   • ⚠️ 分批止盈后无需手动移动止损（已自动处理）                │
+${params.scientificStopLoss?.enabled ? `│ 移动止损优化（可选，低优先级）：                               │
+│   • ⚠️ 分批止盈是主要止盈策略，移动止损仅作为辅助优化          │
+│   • 仅用于：盈利持仓 + 未达到分批止盈阈值 + 想进一步保护利润  │
+│   • 调用方式：updateTrailingStop() → updatePositionStopLoss()  │
+│   • 不是必须操作：大多数情况下由分批止盈自动移动止损即可       │
 │                                                                │` : `│ 移动止盈：                  │
 │   • 盈利≥+${formatPercent(params.trailingStop.level1.trigger)}% → 止损移至+${formatPercent(params.trailingStop.level1.stopAt)}%        │
 │   • 盈利≥+${formatPercent(params.trailingStop.level2.trigger)}% → 止损移至+${formatPercent(params.trailingStop.level2.stopAt)}%       │

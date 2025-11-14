@@ -315,6 +315,7 @@ async function showStatus() {
         const rMultiple = 'R=' + parseFloat(tp.r_multiple).toFixed(2);
         const closePercent = parseFloat(tp.close_percent).toFixed(0) + '%';
         const pnl = '+' + parseFloat(tp.pnl).toFixed(2);
+        const closedQty = tp.closed_quantity ? parseFloat(tp.closed_quantity).toFixed(2) : '-';
         tpTable.push([
           tp.symbol,
           tp.side,
@@ -322,9 +323,9 @@ async function showStatus() {
           rMultiple,
           tp.trigger_price,
           closePercent,
-          tp.close_quantity,
+          closedQty,
           pnl,
-          String(tp.order_id || '-').substring(0, 8),
+          String(tp.order_id || '-').substring(0, 16),  // 增加到16位
           time
         ]);
       });
