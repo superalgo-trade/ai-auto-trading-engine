@@ -1147,9 +1147,9 @@ export const checkPartialTakeProfitOpportunityTool = createTool({
         const currentPrice = Number.parseFloat(position.markPrice || "0");
         
         // 🔧 从数据库获取止损价
-        // ⚠️ 关键修复：使用 position.contract（完整格式）而非 extractSymbol 简化格式
-        // 数据库中存储的是完整合约名称（如 BTC_USDT）
-        const dbSymbol = position.contract;
+        // ⚠️ 关键修复：数据库中存储的symbol是简化格式（如 BTC），而非完整合约名（BTC_USDT）
+        // 必须使用 extractSymbol() 提取简化符号进行查询
+        const dbSymbol = symbol;  // 使用简化符号（BTC）而非完整合约名（BTC_USDT）
         
         // 查询数据库止损价
         const positionResult = await dbClient.execute({
