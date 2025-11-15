@@ -1151,18 +1151,32 @@ export const checkPartialTakeProfitOpportunityTool = createTool({
         // 必须使用 extractSymbol() 提取简化符号进行查询
         const dbSymbol = symbol;  // 使用简化符号（BTC）而非完整合约名（BTC_USDT）
         
+        logger.info(`🔍 检查持仓止损: contract=${position.contract}, extractedSymbol=${symbol}, dbSymbol=${dbSymbol}`);
+        
         // 查询数据库止损价
         const positionResult = await dbClient.execute({
           sql: "SELECT stop_loss FROM positions WHERE symbol = ? AND quantity != 0 LIMIT 1",
           args: [dbSymbol],
         });
         
+        logger.info(`🔍 数据库查询结果: symbol=${dbSymbol}, rows=${positionResult.rows.length}, stop_loss=${positionResult.rows[0]?.stop_loss || 'NULL'}`);
+        
         let stopLossPrice = 0;
         let hasStopLoss = false;
         
         if (positionResult.rows.length > 0 && positionResult.rows[0].stop_loss) {
-          stopLossPrice = Number.parseFloat(positionResult.rows[0].stop_loss as string);
-          hasStopLoss = true;
+          const rawStopLoss = positionResult.rows[0].stop_loss;
+          stopLossPrice = Number.parseFloat(rawStopLoss as string);
+          
+          // ⚠️ 关键修复：检查止损价是否为有效数值（不是0、NaN或空）
+          if (!Number.isNaN(stopLossPrice) && stopLossPrice > 0) {
+            hasStopLoss = true;
+            logger.info(`✅ ${symbol} 找到有效止损价: ${stopLossPrice}`);
+          } else {
+            logger.warn(`❌ ${symbol} 止损价无效: rawValue=${rawStopLoss}, parsedValue=${stopLossPrice}`);
+          }
+        } else {
+          logger.warn(`❌ ${symbol} 未找到止损价: rows=${positionResult.rows.length}`);
         }
         
         // 如果没有止损价，返回基本信息但标注无法使用分批止盈
@@ -1306,6 +1320,10 @@ export const checkPartialTakeProfitOpportunityTool = createTool({
           recommendation,
         };
       }
+      
+      // 🔧 添加详细日志输出
+      logger.info(`📋 分批止盈检查完成，返回结果:`);
+      logger.info(JSON.stringify({ success: true, message: `检查了 ${activePositions.length} 个持仓的分批止盈机会`, opportunities }, null, 2));
       
       return {
         success: true,
