@@ -1065,6 +1065,7 @@ export const checkPartialTakeProfitOpportunityTool = createTool({
 
 会分析所有持仓，返回：
 • 当前R倍数（风险倍数）
+• 止损价格（stopLossPrice）和是否已设置止损（hasStopLoss）
 • 可以执行的阶段
 • 已执行的阶段历史
 • 下一步建议
@@ -1072,15 +1073,29 @@ export const checkPartialTakeProfitOpportunityTool = createTool({
 适用场景：
 • 每个交易周期检查一次
 • 判断是否应该执行分批止盈
-• 了解持仓的盈利状态
+• 了解持仓的盈利状态和止损设置情况
 
-返回示例：
+返回示例（已设置止损）：
 {
   "BTC": {
     "currentR": 1.5,
+    "stopLossPrice": 95000,
+    "hasStopLoss": true,
     "canExecuteStages": [1],
     "executedStages": [],
     "recommendation": "建议执行阶段1（1R平仓1/3）"
+  }
+}
+
+返回示例（未设置止损）：
+{
+  "BTC": {
+    "currentR": null,
+    "stopLossPrice": null,
+    "hasStopLoss": false,
+    "canExecuteStages": [],
+    "executedStages": [],
+    "recommendation": "❌ 持仓没有设置止损价，无法使用基于R倍数的分批止盈"
   }
 }`,
   parameters: z.object({}),
@@ -1132,43 +1147,43 @@ export const checkPartialTakeProfitOpportunityTool = createTool({
         const currentPrice = Number.parseFloat(position.markPrice || "0");
         
         // 🔧 从数据库获取止损价
-        // ⚠️ 关键修复：数据库中可能存储的是带下划线的格式（如 ETH_USDT），也可能是不带下划线的（如 ETHUSDT）
+        // ⚠️ 关键修复：使用 position.contract（完整格式）而非 extractSymbol 简化格式
+        // 数据库中存储的是完整合约名称（如 BTC_USDT）
         const dbSymbol = position.contract;
-        const dbSymbolWithUnderscore = dbSymbol.includes('_') ? dbSymbol : dbSymbol.replace('USDT', '_USDT');
         
-        // 尝试两种格式查询
-        let positionResult = await dbClient.execute({
+        // 查询数据库止损价
+        const positionResult = await dbClient.execute({
           sql: "SELECT stop_loss FROM positions WHERE symbol = ? AND quantity != 0 LIMIT 1",
           args: [dbSymbol],
         });
         
-        // 如果第一种格式找不到，尝试带下划线的格式
-        if (positionResult.rows.length === 0 && dbSymbol !== dbSymbolWithUnderscore) {
-          positionResult = await dbClient.execute({
-            sql: "SELECT stop_loss FROM positions WHERE symbol = ? AND quantity != 0 LIMIT 1",
-            args: [dbSymbolWithUnderscore],
-          });
+        let stopLossPrice = 0;
+        let hasStopLoss = false;
+        
+        if (positionResult.rows.length > 0 && positionResult.rows[0].stop_loss) {
+          stopLossPrice = Number.parseFloat(positionResult.rows[0].stop_loss as string);
+          hasStopLoss = true;
         }
         
-        if (positionResult.rows.length === 0 || !positionResult.rows[0].stop_loss) {
+        // 如果没有止损价，返回基本信息但标注无法使用分批止盈
+        if (!hasStopLoss) {
           opportunities[symbol] = {
             currentR: null,
+            entryPrice,
+            currentPrice,
+            stopLossPrice: null,
+            side,
+            currentSize: Math.abs(Number.parseFloat(position.size || "0")),
             canExecuteStages: [],
             executedStages: [],
-            recommendation: "持仓没有设置止损价，无法使用基于R倍数的分批止盈",
+            recommendation: "❌ 持仓没有设置止损价，无法使用基于R倍数的分批止盈",
+            hasStopLoss: false,
           };
           continue;
         }
         
-        const stopLossPrice = Number.parseFloat(positionResult.rows[0].stop_loss as string);
-        
-        // 🔧 确定实际使用的数据库符号格式（用于后续查询）
-        const actualDbSymbol = positionResult.rows.length > 0 ? 
-          (await dbClient.execute({
-            sql: "SELECT symbol FROM positions WHERE symbol = ? AND quantity != 0 LIMIT 1",
-            args: [dbSymbol],
-          })).rows.length > 0 ? dbSymbol : dbSymbolWithUnderscore
-          : dbSymbol;
+        // 使用dbSymbol作为实际数据库符号（已经是完整格式）
+        const actualDbSymbol = dbSymbol;
         
         // 🔧 如果已执行过分批止盈，恢复原始止损价来计算R倍数
         let originalStopLoss = stopLossPrice;
@@ -1266,6 +1281,7 @@ export const checkPartialTakeProfitOpportunityTool = createTool({
           entryPrice,
           currentPrice,
           stopLossPrice,
+          hasStopLoss: true,
           side,
           currentSize,
           closeQuantity: Number.parseFloat(closeQuantity.toFixed(decimalPlaces)),
