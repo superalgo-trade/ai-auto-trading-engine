@@ -88,7 +88,17 @@ async function main() {
   logger.info("启动账户资产记录器...");
   startAccountRecorder();
   
-  // 7. 启动条件单监控服务
+   
+  // 7. 启动健康检查服务
+  const healthCheckEnabled = process.env.HEALTH_CHECK_ENABLED !== 'false';
+  if (healthCheckEnabled) {
+    logger.info("启动健康检查服务...");
+    startHealthCheck();
+  } else {
+    logger.info("健康检查服务已禁用（HEALTH_CHECK_ENABLED=false）");
+  }
+
+  // 8. 启动条件单监控服务
   const monitorEnabled = process.env.PRICE_ORDER_MONITOR_ENABLED !== 'false';
   if (monitorEnabled) {
     try {
@@ -126,15 +136,6 @@ async function main() {
     }
   } else {
     logger.info("条件单监控服务已禁用（PRICE_ORDER_MONITOR_ENABLED=false）");
-  }
-  
-  // 8. 启动健康检查服务
-  const healthCheckEnabled = process.env.HEALTH_CHECK_ENABLED !== 'false';
-  if (healthCheckEnabled) {
-    logger.info("启动健康检查服务...");
-    startHealthCheck();
-  } else {
-    logger.info("健康检查服务已禁用（HEALTH_CHECK_ENABLED=false）");
   }
   
   // 9. 启动自动修复服务（可选）

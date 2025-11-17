@@ -108,23 +108,30 @@ class AlertTracker {
   recordApiFailure() {
     if (!this.apiFailureStartTime) {
       this.apiFailureStartTime = Date.now();
+      logger.warn(`⚠️ 交易所API开始出现异常，时间: ${new Date().toISOString()}`);
     }
     
     const failureDuration = Date.now() - this.apiFailureStartTime;
     const failureMinutes = Math.floor(failureDuration / 60000);
+    const failureSeconds = Math.floor(failureDuration / 1000);
     
-    // API连续不可用超过5分钟，发送告警
-    if (failureDuration >= 5 * 60 * 1000) {
+    // 降低告警阈值：从 5 分钟降低到 1 分钟
+    if (failureDuration >= 1 * 60 * 1000) {
+      logger.error(`🚨 交易所API已连续不可用 ${failureMinutes} 分钟 ${failureSeconds % 60} 秒`);
+      
       emailAlertService.sendAlert({
         level: AlertLevel.ERROR,
         title: '交易所API连续不可用',
         message: `交易所API已连续不可用 ${failureMinutes} 分钟，请检查网络连接和API密钥`,
         details: {
           failureDurationMinutes: failureMinutes,
+          failureDurationSeconds: failureSeconds,
           startTime: new Date(this.apiFailureStartTime).toISOString(),
           timestamp: new Date().toISOString()
         }
       });
+    } else {
+      logger.warn(`⚠️ 交易所API异常持续中... (${failureSeconds} 秒)`);
     }
   }
 
@@ -176,8 +183,41 @@ export async function performHealthCheck(): Promise<HealthCheckResult> {
   };
   
   try {
-    // ========== 检查项1: 孤儿条件单 ==========
-    logger.debug('检查1: 孤儿条件单...');
+    // ========== 检查项1: 交易所API健康 ==========
+    logger.debug('检查1: 交易所API...');
+    
+    try {
+      const exchangeClient = getExchangeClient();
+      const account = await exchangeClient.getFuturesAccount();
+      if (account && account.total) {
+        logger.debug('✅ 交易所API正常');
+        alertTracker.resetApiFailure();
+      } else {
+        warnings.push('交易所API响应异常');
+        logger.warn('⚠️ 交易所API响应异常: 返回数据格式不正确');
+        alertTracker.recordApiFailure();
+      }
+    } catch (apiError: any) {
+      const errorMsg = apiError.message || '未知错误';
+      issues.push(`交易所API连接失败: ${errorMsg}`);
+      logger.error('❌ 交易所API连接失败:', errorMsg);
+      logger.error('❌ 完整错误信息:', apiError);
+      alertTracker.recordApiFailure();
+    }
+ 
+    // ========== 检查项2: 数据库连接健康 ==========
+    logger.debug('检查2: 数据库连接...');
+    
+    try {
+      await dbClient.execute('SELECT 1');
+      logger.debug('✅ 数据库连接正常');
+    } catch (dbError: any) {
+      issues.push('数据库连接异常');
+      logger.error('❌ 数据库连接异常:', dbError.message);
+    }
+
+    // ========== 检查项3: 孤儿条件单 ==========
+    logger.debug('检查3: 孤儿条件单...');
     
     // 🔧 关键修复: 增加时间容错机制，避免误判刚创建的条件单
     // 对于60秒内创建的条件单，给予缓冲时间等待持仓记s'dsd  录同步
@@ -216,8 +256,8 @@ export async function performHealthCheck(): Promise<HealthCheckResult> {
       logger.debug('✅ 无孤儿条件单');
     }
     
-    // ========== 检查项2: 未解决的不一致状态 ==========
-    logger.debug('检查2: 不一致状态...');
+    // ========== 检查项4: 未解决的不一致状态 ==========
+    logger.debug('检查4: 不一致状态...');
     
     const inconsistentStates = await dbClient.execute(`
       SELECT * FROM inconsistent_states 
@@ -240,8 +280,8 @@ export async function performHealthCheck(): Promise<HealthCheckResult> {
       logger.debug('✅ 无不一致状态');
     }
     
-    // ========== 检查项3: 交易所与数据库持仓对比 ==========
-    logger.debug('检查3: 持仓一致性...');
+    // ========== 检查项5: 交易所与数据库持仓对比 ==========
+    logger.debug('检查5: 持仓一致性...');
     
     try {
       const exchangeClient = getExchangeClient();
@@ -318,37 +358,6 @@ export async function performHealthCheck(): Promise<HealthCheckResult> {
       warnings.push(`持仓一致性检查失败: ${positionError.message}`);
     }
     
-    // ========== 检查项4: 数据库连接健康 ==========
-    logger.debug('检查4: 数据库连接...');
-    
-    try {
-      await dbClient.execute('SELECT 1');
-      logger.debug('✅ 数据库连接正常');
-    } catch (dbError: any) {
-      issues.push('数据库连接异常');
-      logger.error('❌ 数据库连接异常:', dbError.message);
-    }
-    
-    // ========== 检查项5: 交易所API健康 ==========
-    logger.debug('检查5: 交易所API...');
-    
-    try {
-      const exchangeClient = getExchangeClient();
-      const account = await exchangeClient.getFuturesAccount();
-      if (account && account.total) {
-        logger.debug('✅ 交易所API正常');
-        alertTracker.resetApiFailure();
-      } else {
-        warnings.push('交易所API响应异常');
-        logger.warn('⚠️ 交易所API响应异常');
-        alertTracker.recordApiFailure();
-      }
-    } catch (apiError: any) {
-      issues.push('交易所API连接失败');
-      logger.error('❌ 交易所API连接失败:', apiError.message);
-      alertTracker.recordApiFailure();
-    }
-    
     // ========== 检查项6: 分批止盈自动执行（兜底保护）==========
     logger.debug('检查6: 分批止盈自动执行...');
     
@@ -398,14 +407,20 @@ export async function performHealthCheck(): Promise<HealthCheckResult> {
   };
   
   if (healthy) {
-    logger.debug('✅ 健康检查通过，系统运行正常');
+    logger.info('✅ 健康检查通过，系统运行正常');
     alertTracker.resetHealthCheckFailures();
   } else if (issues.length > 0) {
+    logger.error(`\n${'='.repeat(80)}`);
     logger.error(`❌ 健康检查发现 ${issues.length} 个严重问题，${warnings.length} 个警告`);
+    logger.error(`${'='.repeat(80)}`);
     issues.forEach((issue, i) => logger.error(`   ${i + 1}. ${issue}`));
+    if (warnings.length > 0) {
+      warnings.forEach((warning, i) => logger.warn(`   警告 ${i + 1}. ${warning}`));
+    }
+    logger.error(`${'='.repeat(80)}\n`);
     alertTracker.recordHealthCheckFailure();
   } else {
-    logger.warn(`⚠️ 健康检查发现 ${warnings.length} 个警告`);
+    logger.warn(`\n⚠️ 健康检查发现 ${warnings.length} 个警告`);
     warnings.forEach((warning, i) => logger.warn(`   ${i + 1}. ${warning}`));
     alertTracker.resetHealthCheckFailures();
   }
