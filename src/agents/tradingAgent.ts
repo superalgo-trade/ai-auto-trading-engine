@@ -620,7 +620,7 @@ export function getMaxOpportunitiesToShow(): number {
  * 从环境变量读取最小开仓机会评分阈值
  */
 export function getMinOpportunityScore(): number {
-  return Number.parseInt(process.env.MIN_OPPORTUNITY_SCORE || "80", 10);
+  return Number.parseInt(process.env.MIN_OPPORTUNITY_SCORE || "75", 10);
 }
 
 /**

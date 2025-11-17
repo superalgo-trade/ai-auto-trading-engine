@@ -376,6 +376,25 @@ export const partialTakeProfitTool = createTool({
       
       logger.info(`🔍 开始执行分批止盈: symbol=${symbol}, contract=${contract}, dbSymbol=${dbSymbol}, stage=${stage}`);
       
+      // ⚡ 30秒内去重保护：防止健康检查和AI Agent并发冲突
+      const requestedStage = Number.parseInt(stage, 10);
+      const cutoffTime = new Date(Date.now() - 30000).toISOString();
+      const recentCheck = await dbClient.execute({
+        sql: `SELECT COUNT(*) as count FROM partial_take_profit_history 
+              WHERE symbol LIKE ? AND stage = ? AND timestamp > ?`,
+        args: [`%${symbol}%`, requestedStage, cutoffTime]
+      });
+      
+      const recentExecutions = Number(recentCheck.rows[0]?.count || 0);
+      if (recentExecutions > 0) {
+        logger.info(`⏭️ ${symbol} Stage${stage} 最近30秒内已执行，跳过（去重保护）`);
+        return {
+          success: false,
+          message: `${symbol} Stage${stage} 最近30秒内已执行，跳过以避免重复`,
+          reason: 'recently_executed'
+        };
+      }
+      
       // 1. 获取当前持仓（优先从交易所，失败则从数据库）
       let position: any = null;
       let currentSize = 0;

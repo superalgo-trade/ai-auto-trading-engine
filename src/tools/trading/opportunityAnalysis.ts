@@ -44,7 +44,7 @@ const logger = createLogger({
 });
 
 // 环境变量配置
-const MIN_OPPORTUNITY_SCORE = Number.parseInt(process.env.MIN_OPPORTUNITY_SCORE || "40", 10); // 从60降到40
+const MIN_OPPORTUNITY_SCORE = Number.parseInt(process.env.MIN_OPPORTUNITY_SCORE || "75", 10);
 const MAX_OPPORTUNITIES_TO_SHOW = Number.parseInt(process.env.MAX_OPPORTUNITIES_TO_SHOW || "3", 10);
 
 const analyzeOpeningOpportunitiesSchema = z.object({

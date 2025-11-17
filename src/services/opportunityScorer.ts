@@ -240,7 +240,7 @@ function calculateLiquidityScore(symbol: string): number {
 export function scoreAndRankOpportunities(
   strategyResults: StrategyResult[],
   marketStates: Map<string, MarketStateAnalysis>,
-  minScore: number = 60
+  minScore: number = Number.parseInt(process.env.MIN_OPPORTUNITY_SCORE || "75", 10)
 ): OpportunityScore[] {
   logger.info(`评分 ${strategyResults.length} 个机会...`);
   
