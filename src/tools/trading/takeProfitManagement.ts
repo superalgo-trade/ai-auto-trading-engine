@@ -1367,10 +1367,15 @@ export const checkPartialTakeProfitOpportunityTool = createTool({
         }
         
         if (canExecuteStages.length === 0 && recommendation === "") {
-          if (currentR < adjustedR1) {
-            recommendation = `当前R=${currentR.toFixed(2)}，未达到阶段1要求（${adjustedR1.toFixed(2)}R，${volatility.level}波动），继续持有`;
-          } else if (executedStages.includes(3)) {
+          // 根据已执行的阶段，给出下一阶段的建议
+          if (executedStages.includes(3)) {
             recommendation = "所有阶段已完成，使用移动止损管理剩余仓位";
+          } else if (executedStages.includes(2)) {
+            recommendation = `当前R=${currentR.toFixed(2)}，阶段1-2已完成，未达到阶段3要求（${adjustedR3.toFixed(2)}R，${volatility.level}波动），继续持有`;
+          } else if (executedStages.includes(1)) {
+            recommendation = `当前R=${currentR.toFixed(2)}，阶段1已完成，未达到阶段2要求（${adjustedR2.toFixed(2)}R，${volatility.level}波动），继续持有`;
+          } else if (currentR < adjustedR1) {
+            recommendation = `当前R=${currentR.toFixed(2)}，未达到阶段1要求（${adjustedR1.toFixed(2)}R，${volatility.level}波动），继续持有`;
           } else {
             recommendation = "已执行当前R倍数对应的所有阶段";
           }

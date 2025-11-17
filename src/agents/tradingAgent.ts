@@ -1309,9 +1309,42 @@ ${params.scientificStopLoss?.enabled ? `
     for (const event of closeEvents) {
       const e = event as any;
       const eventTime = formatChinaTime(e.created_at);
-      const reasonText = e.close_reason === 'stop_loss_triggered' ? '🛑 止损触发' : 
-                         e.close_reason === 'take_profit_triggered' ? '🎯 止盈触发' : 
-                         e.close_reason === 'manual' ? '📝 手动平仓' : '⚠️ 强制平仓';
+      
+      // 根据 close_reason 映射显示文本
+      let reasonText = '⚠️ 未知原因';
+      switch (e.close_reason) {
+        case 'stop_loss_triggered':
+          reasonText = '🛑 止损触发';
+          break;
+        case 'take_profit_triggered':
+          reasonText = '🎯 止盈触发';
+          break;
+        case 'partial_close':
+          reasonText = '📈 分批止盈';
+          break;
+        case 'manual_close':
+        case 'manual':
+          reasonText = '📝 手动平仓';
+          break;
+        case 'ai_decision':
+          reasonText = '🤖 AI决策平仓';
+          break;
+        case 'trend_reversal':
+          reasonText = '🔄 趋势反转平仓';
+          break;
+        case 'peak_drawdown':
+          reasonText = '📉 峰值回撤平仓';
+          break;
+        case 'time_limit':
+          reasonText = '⏰ 超时平仓';
+          break;
+        case 'trailing_stop':
+          reasonText = '🎯 移动止损触发';
+          break;
+        case 'forced_close':
+          reasonText = '⚠️ 强制平仓';
+          break;
+      }
       
       prompt += `${e.symbol} ${e.side === 'long' ? '多单' : '空单'} (${eventTime})\n`;
       prompt += `  触发原因: ${reasonText}\n`;
@@ -1324,11 +1357,39 @@ ${params.scientificStopLoss?.enabled ? `
       prompt += `, 成交价: ${formatPrice(e.close_price)}\n`;
       prompt += `  盈亏: ${e.pnl >= 0 ? '+' : ''}${formatUSDT(e.pnl)} USDT (${e.pnl_percent >= 0 ? '+' : ''}${formatPercent(e.pnl_percent)}%)\n`;
       
-      // 根据结果提供分析提示
-      if (e.close_reason === 'stop_loss_triggered' && e.pnl < 0) {
-        prompt += `  💡 分析：止损保护了本金，防止了更大亏损\n`;
-      } else if (e.close_reason === 'take_profit_triggered' && e.pnl > 0) {
-        prompt += `  💡 分析：成功止盈，锁定了利润\n`;
+      // 根据平仓原因和结果提供分析提示
+      switch (e.close_reason) {
+        case 'stop_loss_triggered':
+          if (e.pnl < 0) {
+            prompt += `  💡 分析：止损保护了本金，防止了更大亏损\n`;
+          } else {
+            prompt += `  💡 分析：止损触发但仍获利，说明入场时机和止损设置都很合理\n`;
+          }
+          break;
+        case 'take_profit_triggered':
+          if (e.pnl > 0) {
+            prompt += `  💡 分析：成功止盈，锁定了利润\n`;
+          }
+          break;
+        case 'partial_close':
+          if (e.pnl > 0) {
+            prompt += `  💡 分析：分批止盈执行成功，部分锁定利润，剩余仓位继续持有\n`;
+          }
+          break;
+        case 'peak_drawdown':
+          prompt += `  💡 分析：峰值回撤平仓，成功保护了部分利润，避免盈利回吐过多\n`;
+          break;
+        case 'trend_reversal':
+          prompt += `  💡 分析：趋势反转平仓，及时止盈/止损避免趋势反转造成损失\n`;
+          break;
+        case 'trailing_stop':
+          if (e.pnl > 0) {
+            prompt += `  💡 分析：移动止损触发，成功锁定大部分利润\n`;
+          }
+          break;
+        case 'forced_close':
+          prompt += `  💡 分析：系统强制平仓（可能超时或风控触发），需要检查持仓策略\n`;
+          break;
       }
       
       prompt += `\n`;
@@ -1339,10 +1400,30 @@ ${params.scientificStopLoss?.enabled ? `
     const profitEvents = closeEvents.filter((e: any) => (e.pnl || 0) > 0).length;
     const lossEvents = closeEvents.filter((e: any) => (e.pnl || 0) < 0).length;
     
+    // 分类统计
+    const stopLossCount = closeEvents.filter((e: any) => e.close_reason === 'stop_loss_triggered').length;
+    const takeProfitCount = closeEvents.filter((e: any) => e.close_reason === 'take_profit_triggered').length;
+    const partialCloseCount = closeEvents.filter((e: any) => e.close_reason === 'partial_close').length;
+    const otherCount = closeEvents.length - stopLossCount - takeProfitCount - partialCloseCount;
+    
     if (profitEvents > 0 || lossEvents > 0) {
       const winRate = profitEvents / (profitEvents + lossEvents) * 100;
       prompt += `近期平仓事件统计：\n`;
-      prompt += `  - 止损/止盈触发次数: ${closeEvents.length}次\n`;
+      prompt += `  - 平仓总次数: ${closeEvents.length}次`;
+      
+      // 详细分类
+      const categories = [];
+      if (stopLossCount > 0) categories.push(`止损${stopLossCount}次`);
+      if (takeProfitCount > 0) categories.push(`止盈${takeProfitCount}次`);
+      if (partialCloseCount > 0) categories.push(`分批止盈${partialCloseCount}次`);
+      if (otherCount > 0) categories.push(`其他${otherCount}次`);
+      
+      if (categories.length > 0) {
+        prompt += ` (${categories.join(', ')})\n`;
+      } else {
+        prompt += `\n`;
+      }
+      
       prompt += `  - 盈利平仓: ${profitEvents}次, 亏损平仓: ${lossEvents}次\n`;
       prompt += `  - 胜率: ${formatPercent(winRate, 1)}%\n`;
       prompt += `  - 净盈亏: ${totalPnl >= 0 ? '+' : ''}${formatUSDT(totalPnl)} USDT\n`;
