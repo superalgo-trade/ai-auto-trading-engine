@@ -348,6 +348,101 @@ export async function performHealthCheck(): Promise<HealthCheckResult> {
       alertTracker.recordApiFailure();
     }
     
+    // ========== 检查项6: 分批止盈机会检测（兜底保护）==========
+    logger.debug('检查6: 分批止盈机会...');
+    
+    try {
+      // 🔧 关键优化：检查是否有持仓达到分批止盈条件但未执行
+      // 这是兜底保护机制，确保即使AI忽略了，健康检查也能发现
+      
+      const dbPositions = await dbClient.execute({
+        sql: 'SELECT symbol, side, entry_price, stop_loss, quantity FROM positions WHERE quantity != 0'
+      });
+      
+      if (dbPositions.rows.length > 0) {
+        const exchangeClient = getExchangeClient();
+        let missedOpportunities = 0;
+        
+        for (const pos of dbPositions.rows) {
+          const symbol = pos.symbol as string;
+          const side = pos.side as 'long' | 'short';
+          const entryPrice = parseFloat(pos.entry_price as string || '0');
+          const stopLossPrice = parseFloat(pos.stop_loss as string || '0');
+          
+          // 跳过没有止损价的持仓（无法计算R倍数）
+          if (!stopLossPrice || stopLossPrice <= 0) {
+            continue;
+          }
+          
+          // 获取当前价格
+          try {
+            const contract = exchangeClient.normalizeContract(symbol);
+            const ticker = await exchangeClient.getFuturesTicker(contract);
+            const currentPrice = parseFloat(ticker.last || '0');
+            
+            if (currentPrice <= 0) continue;
+            
+            // 计算当前R倍数
+            const riskDistance = Math.abs(entryPrice - stopLossPrice);
+            if (riskDistance === 0) continue;
+            
+            let profitDistance: number;
+            if (side === 'long') {
+              profitDistance = currentPrice - entryPrice;
+            } else {
+              profitDistance = entryPrice - currentPrice;
+            }
+            
+            const currentR = profitDistance / riskDistance;
+            
+            // 检查是否达到Stage1条件（≥1R）但未执行
+            if (currentR >= 0.9) { // 0.9R 就开始提醒，给一些缓冲
+              // 检查是否已执行Stage1
+              const historyCheck = await dbClient.execute({
+                sql: 'SELECT COUNT(*) as count FROM partial_take_profit_history WHERE symbol = ? AND stage = 1',
+                args: [symbol]
+              });
+              
+              const stage1Executed = Number(historyCheck.rows[0]?.count || 0) > 0;
+              
+              if (!stage1Executed) {
+                missedOpportunities++;
+                logger.warn(`⚠️ ${symbol} 已达到 ${currentR.toFixed(2)}R，建议执行Stage1分批止盈`);
+                warnings.push(`${symbol} 达到${currentR.toFixed(2)}R，可能错过分批止盈机会`);
+              }
+            }
+            
+            // 检查是否达到Stage2条件（≥2R）但未执行
+            if (currentR >= 1.9) {
+              const historyCheck = await dbClient.execute({
+                sql: 'SELECT COUNT(*) as count FROM partial_take_profit_history WHERE symbol = ? AND stage = 2',
+                args: [symbol]
+              });
+              
+              const stage2Executed = Number(historyCheck.rows[0]?.count || 0) > 0;
+              
+              if (!stage2Executed) {
+                missedOpportunities++;
+                logger.warn(`⚠️ ${symbol} 已达到 ${currentR.toFixed(2)}R，建议执行Stage2分批止盈`);
+                warnings.push(`${symbol} 达到${currentR.toFixed(2)}R，可能错过Stage2分批止盈`);
+              }
+            }
+          } catch (priceError: any) {
+            logger.debug(`获取${symbol}价格失败，跳过分批止盈检查: ${priceError.message}`);
+          }
+        }
+        
+        if (missedOpportunities > 0) {
+          logger.warn(`⚠️ 检测到 ${missedOpportunities} 个可能错过的分批止盈机会`);
+        } else {
+          logger.debug('✅ 无错过的分批止盈机会');
+        }
+      }
+    } catch (partialTpError: any) {
+      logger.debug('分批止盈机会检查失败:', partialTpError.message);
+      // 不影响整体健康检查结果，只记录日志
+    }
+    
   } catch (error: any) {
     issues.push(`健康检查执行失败: ${error.message}`);
     logger.error('❌ 健康检查执行失败:', error);

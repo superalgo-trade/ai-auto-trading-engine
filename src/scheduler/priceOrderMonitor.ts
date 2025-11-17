@@ -164,11 +164,17 @@ export class PriceOrderMonitor {
       );
 
       // 4. 识别已触发的条件单
+      // 🔧 核心优化：记录初始条件单状态，用于检测状态变化
+      const initialOrderStates = new Map<string, boolean>(
+        activeOrders.map(order => [order.order_id, exchangeOrderMap.has(order.order_id)])
+      );
+      
       for (const dbOrder of activeOrders) {
         try {
           const contract = this.exchangeClient.normalizeContract(dbOrder.symbol);
           let orderInExchange = exchangeOrderMap.has(dbOrder.order_id);
           const positionInExchange = exchangePositionMap.has(contract);
+          const initialOrderState = initialOrderStates.get(dbOrder.order_id) || false;
           
           // 🔧 智能修复：如果数据库中的条件单ID在交易所不存在，
           // 但交易所有该合约的条件单，尝试同步更新数据库ID
@@ -222,27 +228,73 @@ export class PriceOrderMonitor {
             }
           }
           
-          // 判断条件单是否触发的逻辑：
-          // 1. 订单不在交易所 + 持仓不存在 = 确定触发
-          // 2. 订单不在交易所 + 持仓存在 = 可能触发（需要查成交记录）
+          // 🔧 核心改进：多层次触发检测逻辑
+          // 
+          // 检测条件：
+          // 1. 条件单状态变化（从存在到不存在）- 最可靠的触发信号
+          // 2. 条件单不存在 + 持仓不存在 - 确定触发
+          // 3. 条件单不存在 + 持仓存在 + 有成交记录 - 触发中（等待持仓完全平仓）
+          // 4. 条件单不存在 + 持仓存在 + 价格穿越触发线 - 可能触发（容错处理）
           
           if (!orderInExchange) {
+            // 场景1：条件单消失
+            let shouldHandle = false;
+            let detectionReason = '';
+            
             if (!positionInExchange) {
-              // 情况1：订单没了，持仓也没了 - 确定触发
-              logger.info(`🔍 ${dbOrder.symbol} 条件单和持仓均不存在，确认触发: ${dbOrder.order_id}`);
-              await this.handleTriggeredOrder(dbOrder);
+              // 1a. 订单没了，持仓也没了 - 确定触发
+              shouldHandle = true;
+              detectionReason = '条件单和持仓均已消失';
+              logger.info(`🔍 ${dbOrder.symbol} ${detectionReason}，确认触发: ${dbOrder.order_id}`);
             } else {
-              // 情况2：订单没了，但持仓还在 - 可能是订单被取消或其他原因
-              // 检查成交记录确认
-              logger.debug(`🔍 ${dbOrder.symbol} 条件单不存在但持仓存在，检查成交记录: ${dbOrder.order_id}`);
+              // 1b. 订单没了，但持仓还在 - 需要深入分析
+              logger.debug(`🔍 ${dbOrder.symbol} 条件单已消失但持仓存在，深入分析: ${dbOrder.order_id}`);
+              
+              // 先检查是否有平仓成交记录
               const closeTrade = await this.findCloseTrade(dbOrder);
+              
               if (closeTrade) {
-                // 确实有平仓交易，说明条件单触发了
-                await this.handleTriggeredOrder(dbOrder);
+                // 有成交记录 - 确认触发，持仓正在平仓中
+                shouldHandle = true;
+                detectionReason = '条件单消失且有平仓成交记录';
+                logger.info(`🔍 ${dbOrder.symbol} ${detectionReason}: ${dbOrder.order_id}`);
               } else {
-                // 没有平仓交易，可能是条件单被取消了
-                logger.debug(`${dbOrder.symbol} 条件单 ${dbOrder.order_id} 未触发，可能被取消`);
+                // 没有成交记录 - 检查价格是否穿越触发线
+                try {
+                  const currentTicker = await this.exchangeClient.getFuturesTicker(contract);
+                  const currentPrice = parseFloat(currentTicker.last || '0');
+                  const triggerPrice = parseFloat(dbOrder.trigger_price);
+                  
+                  let priceCrossed = false;
+                  if (dbOrder.type === 'stop_loss') {
+                    priceCrossed = dbOrder.side === 'long' 
+                      ? currentPrice <= triggerPrice 
+                      : currentPrice >= triggerPrice;
+                  } else {
+                    priceCrossed = dbOrder.side === 'long'
+                      ? currentPrice >= triggerPrice
+                      : currentPrice <= triggerPrice;
+                  }
+                  
+                  if (priceCrossed) {
+                    // 价格已穿越触发线 - 很可能触发了，但成交记录还没返回
+                    shouldHandle = true;
+                    detectionReason = `条件单消失且价格已穿越触发线(当前=${currentPrice.toFixed(2)}, 触发=${triggerPrice.toFixed(2)})`;
+                    logger.info(`🔍 ${dbOrder.symbol} ${detectionReason}: ${dbOrder.order_id}`);
+                  } else {
+                    // 价格未穿越 - 可能是条件单被取消了
+                    detectionReason = '条件单消失但价格未穿越触发线，可能被手动取消';
+                    logger.debug(`${dbOrder.symbol} ${detectionReason}: ${dbOrder.order_id}`);
+                  }
+                } catch (priceError: any) {
+                  logger.warn(`获取价格失败，无法判断是否触发: ${priceError.message}`);
+                }
               }
+            }
+            
+            if (shouldHandle) {
+              logger.info(`✅ 触发检测: ${dbOrder.symbol} ${dbOrder.type} - ${detectionReason}`);
+              await this.handleTriggeredOrder(dbOrder);
             }
           }
         } catch (error: any) {
@@ -486,19 +538,25 @@ export class PriceOrderMonitor {
     
     // 计算手续费
     const contractType = this.exchangeClient.getContractType();
-    let positionValue: number;
+    let openFee: number;
+    let closeFee: number;
     
     if (contractType === 'inverse') {
+      // 反向合约手续费计算：基于USDT名义价值
+      // 名义价值 = 张数 * 合约乘数 * 价格
+      // 手续费 = 名义价值 * 手续费率 (0.05%)
       const quantoMultiplier = await getQuantoMultiplier(contract);
-      positionValue = quantity * quantoMultiplier * exitPrice;
+      openFee = quantity * quantoMultiplier * entryPrice * 0.0005;
+      closeFee = quantity * quantoMultiplier * exitPrice * 0.0005;
     } else {
-      positionValue = quantity * exitPrice;
+      // 正向合约手续费计算：基于USDT价值
+      openFee = quantity * entryPrice * 0.0005;
+      closeFee = quantity * exitPrice * 0.0005;
     }
     
-    const openFee = positionValue * 0.0005;
-    const closeFee = positionValue * 0.0005;
     const totalFee = openFee + closeFee;
     const netPnl = grossPnl - totalFee;
+
     
     // 计算盈亏百分比
     const priceChangePercent = order.side === "long"
@@ -571,7 +629,7 @@ export class PriceOrderMonitor {
           order.symbol, order.side, closeReason, 'exchange_order',
           parseFloat(order.trigger_price), exitPrice, entryPrice,
           quantity, leverage, netPnl, pnlPercent, totalFee,
-          order.order_id, trade.id, closeOrderId, timestamp, 0
+          order.order_id, trade.id, closeOrderId, timestamp, 1  // 已处理
         ]
       });
       logger.debug('✅ [事务] 步骤5: 平仓事件已记录');
@@ -627,7 +685,7 @@ export class PriceOrderMonitor {
     if (result.rows.length > 0) {
       const oppositeOrderId = result.rows[0].order_id as string;
       
-      // 先尝试在交易所端取消（兼容币安和Gate.io）
+      // 🔧 优化: 先尝试在交易所端取消（兼容币安和Gate.io）
       try {
         const contract = this.exchangeClient.normalizeContract(triggeredOrder.symbol);
         
@@ -645,25 +703,38 @@ export class PriceOrderMonitor {
             logger.debug(`✅ 已在Gate.io交易所取消反向条件单: ${oppositeOrderId}`);
           }
         } else if (exchangeName === 'binance') {
-          // Binance: 需要symbol和orderId一起取消
+          // 🔧 币安关键修复: 使用正确的API路径和参数格式
           const binanceClient = this.exchangeClient as any;
           if (binanceClient.privateRequest && typeof binanceClient.privateRequest === 'function') {
-            const symbol = contract.replace('_', '');
+            // 币安要求symbol必须是大写且无下划线的格式 (如: ETHUSDT)
+            const symbol = contract.replace('_', '').toUpperCase();
+            
+            // 使用正确的API端点: DELETE /fapi/v1/order
+            // 参数: symbol (必需), orderId (必需)
             await binanceClient.privateRequest('/fapi/v1/order', {
               symbol,
               orderId: oppositeOrderId
             }, 'DELETE', 2);
+            
             logger.debug(`✅ 已在Binance交易所取消反向条件单: ${oppositeOrderId} (symbol=${symbol})`);
           }
         }
       } catch (cancelError: any) {
         // 如果取消失败（订单可能已被触发或不存在），记录警告但继续更新数据库
-        logger.warn(`⚠️ 交易所端取消反向条件单失败（可能已触发）: ${cancelError.message}`);
+        // 这是正常的：币安在止损触发时会自动取消止盈单
+        const errorMsg = cancelError.message || String(cancelError);
+        if (errorMsg.includes('Unknown order') || 
+            errorMsg.includes('does not exist') ||
+            errorMsg.includes('Order does not exist')) {
+          logger.debug(`反向条件单已不在交易所（可能已被自动取消）: ${oppositeOrderId}`);
+        } else {
+          logger.warn(`⚠️ 交易所端取消反向条件单失败: ${errorMsg}`);
+        }
       }
       
-      // 更新数据库状态
+      // 更新数据库状态（无论交易所是否成功取消）
       await this.updateOrderStatus(oppositeOrderId, 'cancelled');
-      logger.debug(`✅ 已取消反向条件单: ${oppositeOrderId}`);
+      logger.debug(`✅ 已更新反向条件单数据库状态为cancelled: ${oppositeOrderId}`);
     }
   }
 
@@ -1005,9 +1076,20 @@ export class PriceOrderMonitor {
         ? 'stop_loss_triggered' 
         : 'take_profit_triggered';
 
-      // 计算总手续费（开仓 + 平仓，这里只有平仓的，估算开仓手续费）
+      // 计算总手续费（开仓 + 平仓）
+      const contractType = this.exchangeClient.getContractType();
       const closeFee = parseFloat(trade.fee || '0');
-      const estimatedOpenFee = Math.abs(entryPrice * quantity * 0.0002); // 估算开仓手续费
+      let estimatedOpenFee: number;
+      
+      if (contractType === 'inverse') {
+        // 反向合约：手续费 = 张数 * 合约乘数 * 价格 * 费率
+        const quantoMultiplier = await getQuantoMultiplier(contract);
+        estimatedOpenFee = quantity * quantoMultiplier * entryPrice * 0.0005;
+      } else {
+        // 正向合约：手续费 = 数量 * 价格 * 费率
+        estimatedOpenFee = quantity * entryPrice * 0.0005;
+      }
+      
       const totalFee = closeFee + estimatedOpenFee;
 
       // 🔧 修复: order_id 统一存储实际平仓成交的订单ID，与 trades 表保持一致

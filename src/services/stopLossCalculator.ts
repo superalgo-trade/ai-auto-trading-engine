@@ -374,28 +374,28 @@ export async function calculateScientificStopLoss(
   }
   
   // ===== 4. 应用最小/最大止损限制 =====
-  // const minStopDistance = entryPrice * (config.minStopLossPercent / 100);
-  // const maxStopDistance = entryPrice * (config.maxStopLossPercent / 100);
+  const minStopDistance = entryPrice * (config.minStopLossPercent / 100);
+  const maxStopDistance = entryPrice * (config.maxStopLossPercent / 100);
   
-  // if (side === "long") {
-  //   const currentDistance = entryPrice - finalStopPrice;
-  //   if (currentDistance < minStopDistance) {
-  //     finalStopPrice = entryPrice - minStopDistance;
-  //     logger.warn(`止损距离过小，调整为最小值 ${config.minStopLossPercent}%`);
-  //   } else if (currentDistance > maxStopDistance) {
-  //     finalStopPrice = entryPrice - maxStopDistance;
-  //     logger.warn(`止损距离过大，调整为最大值 ${config.maxStopLossPercent}%`);
-  //   }
-  // } else {
-  //   const currentDistance = finalStopPrice - entryPrice;
-  //   if (currentDistance < minStopDistance) {
-  //     finalStopPrice = entryPrice + minStopDistance;
-  //     logger.warn(`止损距离过小，调整为最小值 ${config.minStopLossPercent}%`);
-  //   } else if (currentDistance > maxStopDistance) {
-  //     finalStopPrice = entryPrice + maxStopDistance;
-  //     logger.warn(`止损距离过大，调整为最大值 ${config.maxStopLossPercent}%`);
-  //   }
-  // }
+  if (side === "long") {
+    const currentDistance = entryPrice - finalStopPrice;
+    if (currentDistance < minStopDistance) {
+      finalStopPrice = entryPrice - minStopDistance;
+      logger.warn(`止损距离过小，调整为最小值 ${config.minStopLossPercent}%`);
+    } else if (currentDistance > maxStopDistance) {
+      finalStopPrice = entryPrice - maxStopDistance;
+      logger.warn(`止损距离过大，调整为最大值 ${config.maxStopLossPercent}%`);
+    }
+  } else {
+    const currentDistance = finalStopPrice - entryPrice;
+    if (currentDistance < minStopDistance) {
+      finalStopPrice = entryPrice + minStopDistance;
+      logger.warn(`止损距离过小，调整为最小值 ${config.minStopLossPercent}%`);
+    } else if (currentDistance > maxStopDistance) {
+      finalStopPrice = entryPrice + maxStopDistance;
+      logger.warn(`止损距离过大，调整为最大值 ${config.maxStopLossPercent}%`);
+    }
+  }
   
   // ===== 5. 计算止损距离百分比 =====
   // 📝 重要说明：这里计算的是"价格变化百分比"，不含杠杆倍数

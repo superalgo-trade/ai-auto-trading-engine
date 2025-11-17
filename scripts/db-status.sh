@@ -314,7 +314,8 @@ async function showStatus() {
         const time = new Date(tp.timestamp).toLocaleString('zh-CN', { hour12: false });
         const rMultiple = 'R=' + parseFloat(tp.r_multiple).toFixed(2);
         const closePercent = parseFloat(tp.close_percent).toFixed(0) + '%';
-        const pnl = '+' + parseFloat(tp.pnl).toFixed(2);
+        const pnlValue = parseFloat(tp.pnl);
+        const pnl = pnlValue >= 0 ? '+' + pnlValue.toFixed(2) : pnlValue.toFixed(2);
         const closedQty = tp.closed_quantity ? parseFloat(tp.closed_quantity).toFixed(2) : '-';
         tpTable.push([
           tp.symbol,

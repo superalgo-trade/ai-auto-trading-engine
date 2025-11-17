@@ -287,7 +287,14 @@ async function phase2_OpenPositionWithOrders(): Promise<{
       const mockSlOrderId = `SL_${Date.now()}`;
       const mockTpOrderId = `TP_${Date.now()}`;
       const fillPrice = currentPrice;
-      const fillSize = TEST_CONFIG.amountUsdt / currentPrice;
+      
+      // 🔧 使用交易所客户端的calculateQuantity方法
+      const fillSize = await exchangeClient.calculateQuantity(
+        TEST_CONFIG.amountUsdt,
+        currentPrice,
+        TEST_CONFIG.leverage,
+        contract
+      );
       
       // 插入模拟数据到数据库
       await dbClient.execute({
@@ -399,7 +406,13 @@ async function phase2_OpenPositionWithOrders(): Promise<{
     await exchangeClient.setLeverage(contract, TEST_CONFIG.leverage);
     
     // 2.6 市价单开仓
-    const quantity = TEST_CONFIG.amountUsdt / currentPrice;
+    // 🔧 使用交易所客户端的calculateQuantity方法
+    const quantity = await exchangeClient.calculateQuantity(
+      TEST_CONFIG.amountUsdt,
+      currentPrice,
+      TEST_CONFIG.leverage,
+      contract
+    );
     const size = TEST_CONFIG.side === 'long' ? quantity : -quantity;
     
     const order = await exchangeClient.placeOrder({

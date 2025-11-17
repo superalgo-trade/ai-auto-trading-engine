@@ -245,9 +245,14 @@ export function calculateTargetPrice(
 
 /**
  * 获取持仓的分批止盈历史
+ * 🔧 支持多种symbol格式查询（兼容不同交易所和历史数据）
  */
 async function getPartialTakeProfitHistory(symbol: string): Promise<any[]> {
-  const result = await dbClient.execute({
+  const exchangeClient = getExchangeClient();
+  const contract = exchangeClient.normalizeContract(symbol);
+  
+  // 尝试简化符号查询（标准格式）
+  let result = await dbClient.execute({
     sql: `
       SELECT * FROM partial_take_profit_history
       WHERE symbol = ? AND status = 'completed'
@@ -255,6 +260,31 @@ async function getPartialTakeProfitHistory(symbol: string): Promise<any[]> {
     `,
     args: [symbol],
   });
+  
+  // 如果没找到，尝试Binance格式（无下划线）
+  if (result.rows.length === 0 && contract !== symbol) {
+    result = await dbClient.execute({
+      sql: `
+        SELECT * FROM partial_take_profit_history
+        WHERE symbol = ? AND status = 'completed'
+        ORDER BY timestamp DESC
+      `,
+      args: [contract],
+    });
+  }
+  
+  // 如果还没找到，尝试Gate.io格式（带下划线）
+  if (result.rows.length === 0) {
+    const gateFormat = symbol + '_USDT';
+    result = await dbClient.execute({
+      sql: `
+        SELECT * FROM partial_take_profit_history
+        WHERE symbol = ? AND status = 'completed'
+        ORDER BY timestamp DESC
+      `,
+      args: [gateFormat],
+    });
+  }
   
   return result.rows as any[];
 }
@@ -340,11 +370,11 @@ export const partialTakeProfitTool = createTool({
     const contract = exchangeClient.normalizeContract(symbol);
     
     try {
-      // 🔧 获取完整的合约名称用于数据库查询
-      // ⚠️ 关键修复：数据库中可能存储的是带下划线的格式（如 ETH_USDT），也可能是不带下划线的（如 ETHUSDT）
-      // 需要尝试两种格式
-      let dbSymbol = contract;
-      const dbSymbolWithUnderscore = contract.includes('_') ? contract : contract.replace('USDT', '_USDT');
+      // 🔧 关键修复：数据库统一使用简化符号（BTC、ETH等），而非完整合约名
+      // 这样可以在 Gate.io 和 Binance 之间保持一致性
+      let dbSymbol = symbol;  // 使用简化符号（BTC、ETH等）
+      
+      logger.info(`🔍 开始执行分批止盈: symbol=${symbol}, contract=${contract}, dbSymbol=${dbSymbol}, stage=${stage}`);
       
       // 1. 获取当前持仓（优先从交易所，失败则从数据库）
       let position: any = null;
@@ -372,34 +402,53 @@ export const partialTakeProfitTool = createTool({
         logger.warn(`无法从交易所获取${symbol}持仓，尝试从数据库读取`);
       }
       
-      // 如果交易所无持仓，从数据库读取
-      if (!position) {
-        // ⚠️ 尝试两种格式查询：ETHUSDT 和 ETH_USDT
-        let dbPosition = await dbClient.execute({
+      // 🔧 无论持仓从哪里获取，都需要确定数据库中的symbol格式
+      // 尝试多种格式查询数据库（兼容不同交易所和测试数据）
+      // 1. 简化符号（标准格式）：ETH
+      // 2. Binance格式（无下划线）：ETHUSDT
+      // 3. Gate.io格式（带下划线）：ETH_USDT
+      
+      let dbPosition = await dbClient.execute({
+        sql: "SELECT * FROM positions WHERE symbol = ? AND quantity != 0 LIMIT 1",
+        args: [symbol],
+      });
+      
+      // 如果没找到，尝试Binance格式（ETHUSDT）
+      if (dbPosition.rows.length === 0) {
+        dbPosition = await dbClient.execute({
           sql: "SELECT * FROM positions WHERE symbol = ? AND quantity != 0 LIMIT 1",
-          args: [dbSymbol],
+          args: [contract],
         });
         
-        // 如果第一种格式找不到，尝试带下划线的格式
-        if (dbPosition.rows.length === 0 && dbSymbol !== dbSymbolWithUnderscore) {
-          dbPosition = await dbClient.execute({
-            sql: "SELECT * FROM positions WHERE symbol = ? AND quantity != 0 LIMIT 1",
-            args: [dbSymbolWithUnderscore],
-          });
-          
-          // 如果找到了，更新 dbSymbol
-          if (dbPosition.rows.length > 0) {
-            dbSymbol = dbSymbolWithUnderscore;
-          }
+        if (dbPosition.rows.length > 0) {
+          logger.info(`使用Binance格式 ${contract} 找到持仓记录`);
+          dbSymbol = contract;
         }
+      }
+      
+      // 如果还没找到，尝试Gate.io格式（ETH_USDT）
+      if (dbPosition.rows.length === 0) {
+        const gateFormat = symbol + '_USDT';
+        dbPosition = await dbClient.execute({
+          sql: "SELECT * FROM positions WHERE symbol = ? AND quantity != 0 LIMIT 1",
+          args: [gateFormat],
+        });
         
-        if (dbPosition.rows.length === 0) {
-          return {
-            success: false,
-            message: `未找到 ${symbol} 的持仓`,
-          };
+        if (dbPosition.rows.length > 0) {
+          logger.info(`使用Gate.io格式 ${gateFormat} 找到持仓记录`);
+          dbSymbol = gateFormat;
         }
-        
+      }
+      
+      if (dbPosition.rows.length === 0) {
+        return {
+          success: false,
+          message: `未找到 ${symbol} 的持仓（已尝试格式: ${symbol}, ${contract}, ${symbol}_USDT）`,
+        };
+      }
+      
+      // 如果交易所无持仓，从数据库读取
+      if (!position) {
         const row = dbPosition.rows[0];
         currentSize = Math.abs(Number.parseFloat(row.quantity as string || "0"));
         side = row.side as "long" | "short";
@@ -407,7 +456,6 @@ export const partialTakeProfitTool = createTool({
         currentPrice = Number.parseFloat(row.current_price as string || "0");
         leverage = Number.parseInt(row.leverage as string || "1", 10);
         position = row; // 使用数据库记录
-        dbSymbol = row.symbol as string; // 更新dbSymbol为数据库中的实际值
       }
       
       // 2. 从数据库获取止损价
@@ -416,14 +464,25 @@ export const partialTakeProfitTool = createTool({
         args: [dbSymbol],
       });
       
-      if (positionResult.rows.length === 0 || !positionResult.rows[0].stop_loss) {
+      if (positionResult.rows.length === 0) {
+        return {
+          success: false,
+          message: `${symbol} 持仓不存在或已关闭`,
+        };
+      }
+      
+      const rawStopLoss = positionResult.rows[0].stop_loss;
+      const stopLossPrice = Number.parseFloat(rawStopLoss as string || "0");
+      
+      // ⚠️ 严格验证止损价是否有效
+      if (!rawStopLoss || Number.isNaN(stopLossPrice) || stopLossPrice <= 0) {
+        logger.warn(`${symbol} 止损价无效: rawValue=${rawStopLoss}, parsedValue=${stopLossPrice}`);
         return {
           success: false,
           message: `${symbol} 持仓没有设置止损价，无法使用基于R倍数的分批止盈。请先设置止损。`,
         };
       }
       
-      const stopLossPrice = Number.parseFloat(positionResult.rows[0].stop_loss as string);
       const alreadyClosedPercent = Number.parseFloat(positionResult.rows[0].partial_close_percentage as string || "0");
       
       // 🔧 如果已执行过分批止盈，需要从历史记录恢复原始止损价来计算R倍数
@@ -1147,19 +1206,27 @@ export const checkPartialTakeProfitOpportunityTool = createTool({
         const currentPrice = Number.parseFloat(position.markPrice || "0");
         
         // 🔧 从数据库获取止损价
-        // ⚠️ 关键修复：数据库中存储的symbol是简化格式（如 BTC），而非完整合约名（BTC_USDT）
-        // 必须使用 extractSymbol() 提取简化符号进行查询
-        const dbSymbol = symbol;  // 使用简化符号（BTC）而非完整合约名（BTC_USDT）
+        // ⚠️ 数据库应该使用简化符号（BTC、ETH等），这样可以在两个交易所间保持一致
+        // 但为了兼容历史数据，我们先尝试简化符号，如果找不到再尝试完整合约名
         
-        logger.info(`🔍 检查持仓止损: contract=${position.contract}, extractedSymbol=${symbol}, dbSymbol=${dbSymbol}`);
+        logger.info(`🔍 检查持仓止损: contract=${position.contract}, extractedSymbol=${symbol}`);
         
-        // 查询数据库止损价
-        const positionResult = await dbClient.execute({
+        // 优先使用简化符号查询（标准格式）
+        let positionResult = await dbClient.execute({
           sql: "SELECT stop_loss FROM positions WHERE symbol = ? AND quantity != 0 LIMIT 1",
-          args: [dbSymbol],
+          args: [symbol],
         });
         
-        logger.info(`🔍 数据库查询结果: symbol=${dbSymbol}, rows=${positionResult.rows.length}, stop_loss=${positionResult.rows[0]?.stop_loss || 'NULL'}`);
+        // 如果没找到，尝试使用完整合约名查询（兼容旧数据）
+        if (positionResult.rows.length === 0) {
+          positionResult = await dbClient.execute({
+            sql: "SELECT stop_loss FROM positions WHERE symbol = ? AND quantity != 0 LIMIT 1",
+            args: [position.contract],
+          });
+          logger.info(`🔍 数据库查询结果（完整格式）: contract=${position.contract}, rows=${positionResult.rows.length}, stop_loss=${positionResult.rows[0]?.stop_loss || 'NULL'}`);
+        } else {
+          logger.info(`🔍 数据库查询结果（简化格式）: symbol=${symbol}, rows=${positionResult.rows.length}, stop_loss=${positionResult.rows[0]?.stop_loss || 'NULL'}`);
+        }
         
         let stopLossPrice = 0;
         let hasStopLoss = false;
@@ -1196,8 +1263,8 @@ export const checkPartialTakeProfitOpportunityTool = createTool({
           continue;
         }
         
-        // 使用dbSymbol作为实际数据库符号（已经是完整格式）
-        const actualDbSymbol = dbSymbol;
+        // 🔧 使用symbol作为数据库查询的实际键（已兼容两种格式）
+        const actualDbSymbol = symbol;
         
         // 🔧 如果已执行过分批止盈，恢复原始止损价来计算R倍数
         let originalStopLoss = stopLossPrice;

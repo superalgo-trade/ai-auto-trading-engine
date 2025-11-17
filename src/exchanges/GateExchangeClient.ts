@@ -807,11 +807,17 @@ export class GateExchangeClient implements IExchangeClient {
     const { getQuantoMultiplier } = await import('../utils/contractUtils.js');
     const quantoMultiplier = await getQuantoMultiplier(contract);
     
-    const priceChange = side === 'long' 
-      ? (exitPrice - entryPrice) 
-      : (entryPrice - exitPrice);
+    // Gate.io 反向合约盈亏计算
+    // 多头：PNL (USDT) = 张数 * 合约乘数 * (1/开仓价 - 1/平仓价)
+    // 空头：PNL (USDT) = 张数 * 合约乘数 * (1/平仓价 - 1/开仓价)
+    // 
+    // 原理：反向合约以币计价，但盈亏以USDT结算
+    // 每张合约价值固定的币数量，但USDT价值随价格变化
+    const pnl = side === 'long'
+      ? quantity * quantoMultiplier * (1 / entryPrice - 1 / exitPrice)
+      : quantity * quantoMultiplier * (1 / exitPrice - 1 / entryPrice);
     
-    return priceChange * quantity * quantoMultiplier;
+    return pnl;
   }
 
   /**

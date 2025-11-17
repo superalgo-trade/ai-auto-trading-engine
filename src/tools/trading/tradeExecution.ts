@@ -1098,12 +1098,12 @@ export const closePositionTool = createTool({
       let closeFee: number;
       
       if (contractType === 'inverse') {
-        // Gate.io: 手续费 = 名义价值 * 0.05%
+        // Gate.io反向合约: 手续费 = 张数 * 合约乘数 * 价格 * 费率
         const quantoMultiplier = await getQuantoMultiplier(contract);
-        openFee = entryPrice * closeSize * quantoMultiplier * 0.0005;
-        closeFee = currentPrice * closeSize * quantoMultiplier * 0.0005;
+        openFee = closeSize * quantoMultiplier * entryPrice * 0.0005;
+        closeFee = closeSize * quantoMultiplier * currentPrice * 0.0005;
       } else {
-        // Binance: 手续费 = 名义价值 * 0.05%
+        // Binance正向合约: 手续费 = (数量 * 价格) * 费率
         openFee = entryPrice * closeSize * 0.0005;
         closeFee = currentPrice * closeSize * 0.0005;
       }
