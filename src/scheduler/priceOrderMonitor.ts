@@ -790,26 +790,40 @@ export class PriceOrderMonitor {
           
           if (!isCloseTrade) return false;
 
-          // 🔧 价格验证优化：收紧价格匹配条件到0.05%，减少误判
+          // 🔧 价格验证优化：放宽价格匹配条件，允许市价成交偏差
+          // 止损单触发后通常以市价成交，可能与触发价有较大偏差（尤其是快速行情）
           const tradePrice = parseFloat(t.price);
           const triggerPrice = parseFloat(order.trigger_price);
-          const priceTolerancePercent = 0.05; // 0.05% 价格容差
+          
+          // 使用2%的价格容差，允许市价单的滑点
+          const priceTolerancePercent = 2.0; // 2% 价格容差
           const priceTolerance = triggerPrice * (priceTolerancePercent / 100);
 
           let priceMatches = false;
           if (order.type === 'stop_loss') {
-            // 止损：多单向下突破，空单向上突破
+            // 止损：价格触及或穿越触发价即可能触发
+            // 多单止损：价格下跌触发，成交价应 <= 触发价附近
+            // 空单止损：价格上涨触发，成交价应 >= 触发价附近
+            // 但考虑到市价单滑点，两个方向都给予容差
             if (order.side === 'long') {
-              priceMatches = tradePrice <= triggerPrice + priceTolerance;
+              // 多单止损：允许成交价在触发价下方或上方2%范围内
+              priceMatches = tradePrice >= triggerPrice - priceTolerance && 
+                           tradePrice <= triggerPrice + priceTolerance;
             } else {
-              priceMatches = tradePrice >= triggerPrice - priceTolerance;
+              // 空单止损：允许成交价在触发价下方或上方2%范围内
+              priceMatches = tradePrice >= triggerPrice - priceTolerance && 
+                           tradePrice <= triggerPrice + priceTolerance;
             }
           } else {
-            // 止盈：多单向上突破，空单向下突破
+            // 止盈：同样放宽条件
+            // 多单止盈：价格上涨触发
+            // 空单止盈：价格下跌触发
             if (order.side === 'long') {
-              priceMatches = tradePrice >= triggerPrice - priceTolerance;
+              priceMatches = tradePrice >= triggerPrice - priceTolerance && 
+                           tradePrice <= triggerPrice + priceTolerance;
             } else {
-              priceMatches = tradePrice <= triggerPrice + priceTolerance;
+              priceMatches = tradePrice >= triggerPrice - priceTolerance && 
+                           tradePrice <= triggerPrice + priceTolerance;
             }
           }
           
