@@ -84,7 +84,8 @@ export class PriceOrderMonitor {
     }
 
     const intervalSeconds = parseInt(process.env.PRICE_ORDER_CHECK_INTERVAL || '30');
-    logger.info(`启动条件单监控服务，检测间隔: ${intervalSeconds}秒`);
+    logger.info(`🚀 启动条件单监控服务，检测间隔: ${intervalSeconds}秒`);
+    logger.info(`📋 环境变量 PRICE_ORDER_CHECK_INTERVAL = ${process.env.PRICE_ORDER_CHECK_INTERVAL || '(未设置，使用默认30秒)'}`);
 
     // 立即执行第一次检测，捕获系统离线期间触发的条件单
     logger.info('立即执行首次检测，捕获系统离线期间的平仓事件...');
@@ -112,20 +113,22 @@ export class PriceOrderMonitor {
    */
   private async checkTriggeredOrders() {
     if (this.isRunning) {
-      logger.debug('上一次检测尚未完成，跳过本次检测');
+      logger.debug('⏭️  上一次检测尚未完成，跳过本次检测');
       return;
     }
 
     this.isRunning = true;
+    const startTime = Date.now();
+    
     try {
       // 1. 获取数据库中active的条件单
       const activeOrders = await this.getActiveOrdersFromDB();
       if (activeOrders.length === 0) {
-        logger.debug('没有活跃的条件单需要检测');
+        logger.debug('✅ 没有活跃的条件单需要检测');
         return;
       }
 
-      logger.debug(`检测本地端 ${activeOrders.length} 个活跃条件单`);
+      logger.debug(`🔍 检测 ${activeOrders.length} 个活跃条件单...`);
 
       // 2. 获取交易所的条件单
       let exchangeOrders: any[] = [];
@@ -302,9 +305,11 @@ export class PriceOrderMonitor {
         }
       }
     } catch (error: any) {
-      logger.error('检测条件单触发失败:', error);
+      logger.error('❌ 检测条件单触发失败:', error);
     } finally {
       this.isRunning = false;
+      const elapsedTime = Date.now() - startTime;
+      logger.debug(`⏱️  本次条件单检测完成，耗时: ${elapsedTime}ms`);
     }
   }
 

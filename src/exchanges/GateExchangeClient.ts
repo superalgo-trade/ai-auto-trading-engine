@@ -55,9 +55,15 @@ export class GateExchangeClient implements IExchangeClient {
   private accountInfoCache: { data: AccountInfo; timestamp: number } | null = null;
   private readonly ACCOUNT_INFO_CACHE_TTL = 5000; // 账户信息缓存5秒
   private tickerCache: Map<string, { data: TickerInfo; timestamp: number }> = new Map();
-  private readonly TICKER_CACHE_TTL = 2000; // 行情缓存2秒
+  private readonly TICKER_CACHE_TTL = 10000; // 行情缓存10秒 (从2秒增加)
   private candleCache: Map<string, { data: CandleData[]; timestamp: number }> = new Map();
-  private readonly CANDLE_CACHE_TTL = 30000; // K线缓存30秒
+  private readonly CANDLE_CACHE_TTL = 300000; // K线缓存5分钟 (从30秒大幅增加)
+
+  // ============ 熔断器机制 ============
+  private consecutiveFailures = 0;
+  private readonly MAX_CONSECUTIVE_FAILURES = 3; // 连续失败3次触发熔断
+  private circuitBreakerOpenUntil = 0;
+  private readonly CIRCUIT_BREAKER_TIMEOUT = 60000; // 熔断器打开60秒后尝试恢复
 
   constructor(config: ExchangeConfig) {
     this.config = config;
@@ -125,12 +131,59 @@ export class GateExchangeClient implements IExchangeClient {
     return Date.now() - timestamp < ttl;
   }
 
+  /**
+   * 检查熔断器状态
+   */
+  private isCircuitBreakerOpen(): boolean {
+    const now = Date.now();
+    if (this.circuitBreakerOpenUntil > now) {
+      return true;
+    }
+    // 熔断器超时后重置
+    if (this.circuitBreakerOpenUntil > 0 && this.circuitBreakerOpenUntil <= now) {
+      logger.info('🔄 熔断器恢复，尝试重新连接...');
+      this.consecutiveFailures = 0;
+      this.circuitBreakerOpenUntil = 0;
+    }
+    return false;
+  }
+
+  /**
+   * 记录请求成功
+   */
+  private recordSuccess(): void {
+    if (this.consecutiveFailures > 0) {
+      logger.info(`✅ API请求恢复正常，清除 ${this.consecutiveFailures} 次失败记录`);
+      this.consecutiveFailures = 0;
+    }
+  }
+
+  /**
+   * 记录请求失败
+   */
+  private recordFailure(): void {
+    this.consecutiveFailures++;
+    if (this.consecutiveFailures >= this.MAX_CONSECUTIVE_FAILURES) {
+      this.circuitBreakerOpenUntil = Date.now() + this.CIRCUIT_BREAKER_TIMEOUT;
+      logger.error(`🚨 连续失败 ${this.consecutiveFailures} 次，触发熔断器，${this.CIRCUIT_BREAKER_TIMEOUT / 1000}秒内将使用缓存数据`);
+    }
+  }
+
   async getFuturesTicker(contract: string, retries: number = 2): Promise<TickerInfo> {
     // 检查缓存
     const cacheKey = contract;
     const cached = this.tickerCache.get(cacheKey);
     if (cached && this.isCacheValid(cached.timestamp, this.TICKER_CACHE_TTL)) {
       return cached.data;
+    }
+
+    // 如果熔断器打开，使用过期缓存
+    if (this.isCircuitBreakerOpen()) {
+      if (cached) {
+        logger.warn(`熔断器已打开，使用 ${contract} 的缓存数据`);
+        return cached.data;
+      }
+      throw new Error('熔断器已打开且无可用缓存');
     }
 
     let lastError: any;
@@ -161,6 +214,8 @@ export class GateExchangeClient implements IExchangeClient {
           timestamp: Date.now()
         });
 
+        // 请求成功，记录成功状态
+        this.recordSuccess();
         return tickerData;
       } catch (error) {
         lastError = error;
@@ -170,6 +225,16 @@ export class GateExchangeClient implements IExchangeClient {
           await new Promise(resolve => setTimeout(resolve, 1000 * Math.pow(2, i)));
         }
       }
+    }
+    
+    // 记录失败
+    this.recordFailure();
+    
+    // 如果有缓存，使用缓存降级
+    if (cached) {
+      const errorMsg = lastError instanceof Error ? lastError.message : String(lastError);
+      logger.warn(`获取 ${contract} 价格失败，使用缓存数据: ${errorMsg}`);
+      return cached.data;
     }
     
     logger.error(`获取 ${contract} 价格失败（${retries}次重试）:`, lastError);
@@ -237,6 +302,15 @@ export class GateExchangeClient implements IExchangeClient {
       return this.accountInfoCache.data;
     }
 
+    // 如果熔断器打开，使用过期缓存
+    if (this.isCircuitBreakerOpen()) {
+      if (this.accountInfoCache) {
+        logger.warn('熔断器已打开，使用账户信息缓存数据');
+        return this.accountInfoCache.data;
+      }
+      throw new Error('熔断器已打开且无可用缓存');
+    }
+
     let lastError: any;
     
     for (let i = 0; i <= retries; i++) {
@@ -258,6 +332,8 @@ export class GateExchangeClient implements IExchangeClient {
           timestamp: Date.now()
         };
 
+        // 请求成功，记录成功状态
+        this.recordSuccess();
         return accountData;
       } catch (error: any) {
         lastError = error;
@@ -271,6 +347,7 @@ export class GateExchangeClient implements IExchangeClient {
           logger.error(`3. API 密钥是否有期货交易权限`);
           logger.error(`当前使用: ${this.config.isTestnet ? '测试网' : '正式网'}`);
           logger.error(`API Key: ${this.config.apiKey.substring(0, 8)}...`);
+          this.recordFailure();
           throw error;
         }
         
@@ -282,6 +359,16 @@ export class GateExchangeClient implements IExchangeClient {
       }
     }
     
+    // 记录失败
+    this.recordFailure();
+    
+    // 如果有缓存，使用缓存降级
+    if (this.accountInfoCache) {
+      const errorMsg = lastError instanceof Error ? lastError.message : String(lastError);
+      logger.warn(`获取账户余额失败，使用缓存数据: ${errorMsg}`);
+      return this.accountInfoCache.data;
+    }
+    
     logger.error(`获取账户余额失败（${retries}次重试）:`, lastError);
     throw lastError;
   }
@@ -290,6 +377,15 @@ export class GateExchangeClient implements IExchangeClient {
     // 检查缓存
     if (this.positionsCache && this.isCacheValid(this.positionsCache.timestamp, this.POSITIONS_CACHE_TTL)) {
       return this.positionsCache.data;
+    }
+
+    // 如果熔断器打开，使用过期缓存
+    if (this.isCircuitBreakerOpen()) {
+      if (this.positionsCache) {
+        logger.warn('熔断器已打开，使用持仓信息缓存数据');
+        return this.positionsCache.data;
+      }
+      throw new Error('熔断器已打开且无可用缓存');
     }
 
     let lastError: any;
@@ -324,6 +420,8 @@ export class GateExchangeClient implements IExchangeClient {
           timestamp: Date.now()
         };
 
+        // 请求成功，记录成功状态
+        this.recordSuccess();
         return positionsData;
       } catch (error) {
         lastError = error;
@@ -333,6 +431,16 @@ export class GateExchangeClient implements IExchangeClient {
           await new Promise(resolve => setTimeout(resolve, 1000 * Math.pow(2, i)));
         }
       }
+    }
+    
+    // 记录失败
+    this.recordFailure();
+    
+    // 如果有缓存，使用缓存降级
+    if (this.positionsCache) {
+      const errorMsg = lastError instanceof Error ? lastError.message : String(lastError);
+      logger.warn(`获取持仓失败，使用缓存数据: ${errorMsg}`);
+      return this.positionsCache.data;
     }
     
     logger.error(`获取持仓失败（${retries}次重试）:`, lastError);

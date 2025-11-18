@@ -20,14 +20,14 @@
 document.addEventListener('DOMContentLoaded', () => {
     loadAllData();
     
-    // 每3秒刷新账户和持仓数据，实时显示变化
+    // 每10秒刷新账户和持仓数据，实时显示变化
     setInterval(async () => {
         await Promise.all([
             loadAccountData(),
             loadPositionsData()
         ]);
         updateLastUpdateTime();
-    }, 3000);
+    }, 10000);
     
     // AI决策和交易历史每5秒更新一次
     setInterval(async () => {
@@ -37,7 +37,7 @@ document.addEventListener('DOMContentLoaded', () => {
             loadTradingStats(),
             updateEquityChart()
         ]);
-    }, 5 * 1000); // 5秒 = 5000毫秒
+    }, 10 * 1000); // 10秒 = 10000毫秒
 
     // 移动端优化：添加触摸滚动优化
     initMobileOptimizations();

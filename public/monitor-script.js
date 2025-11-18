@@ -723,39 +723,39 @@ class TradingMonitor {
 
     // 启动数据更新
     startDataUpdates() {
-        // 每3秒更新账户和持仓（实时数据）
+        // 每10秒更新账户和持仓（实时数据）
         setInterval(async () => {
             await Promise.all([
                 this.loadAccountData(),
                 this.loadPositionsData(),
                 this.loadPriceOrdersData()
             ]);
-        }, 3000);
+        }, 10000);
 
         // 每10秒更新价格（实时价格）
         setInterval(async () => {
             await this.loadTickerPrices();
         }, 10000);
 
-        // 每5秒更新交易记录、日志和交易统计
+        // 每10秒更新交易记录、日志和交易统计
         setInterval(async () => {
             await Promise.all([
                 this.loadTradesData(),
                 this.loadLogsData(),
                 this.loadTradingStats()
             ]);
-        }, 5000);
+        }, 10000);
 
-        // 每5秒更新资产曲线图表
+        // 每10秒更新资产曲线图表
         setInterval(async () => {
             await this.updateEquityChart();
-        }, 5000);
+        }, 10000);
 
-        // 每30秒更新系统健康状态
+        // 每60秒更新系统健康状态
         this.updateHealthStatus();
         setInterval(async () => {
             await this.updateHealthStatus();
-        }, 30000);
+        }, 60000);
     }
 
     // 更新系统健康状态

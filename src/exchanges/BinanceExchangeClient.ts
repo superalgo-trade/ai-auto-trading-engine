@@ -54,8 +54,6 @@ export class BinanceExchangeClient implements IExchangeClient {
   private readonly MAX_CACHE_SIZE = 1000; // 最大缓存数量
   private readonly CACHE_TTL = 24 * 60 * 60 * 1000; // 缓存有效期：24小时
   private readonly contractInfoCache: Map<string, ContractInfo> = new Map();
-  private networkHealthy = true;
-  private lastNetworkCheck = 0;
 
   // ============ 数据缓存机制 ============
   private positionsCache: { data: PositionInfo[]; timestamp: number } | null = null;
@@ -63,9 +61,9 @@ export class BinanceExchangeClient implements IExchangeClient {
   private accountInfoCache: { data: AccountInfo; timestamp: number } | null = null;
   private readonly ACCOUNT_INFO_CACHE_TTL = 5000; // 账户信息缓存5秒
   private tickerCache: Map<string, { data: TickerInfo; timestamp: number }> = new Map();
-  private readonly TICKER_CACHE_TTL = 2000; // 行情缓存2秒
+  private readonly TICKER_CACHE_TTL = 10000; // 行情缓存10秒 (从2秒增加)
   private candleCache: Map<string, { data: CandleData[]; timestamp: number }> = new Map();
-  private readonly CANDLE_CACHE_TTL = 30000; // K线缓存30秒
+  private readonly CANDLE_CACHE_TTL = 300000; // K线缓存5分钟 (从30秒大幅增加)
   
   // ============ 请求限流机制 ============
   private requestTimestamps: number[] = [];
@@ -74,18 +72,38 @@ export class BinanceExchangeClient implements IExchangeClient {
   private readonly MIN_REQUEST_DELAY = 100; // 最小请求间隔100ms
   private lastRequestTime = 0;
 
+  // ============ 熔断器机制 ============
+  private consecutiveFailures = 0;
+  private readonly MAX_CONSECUTIVE_FAILURES = 3; // 连续失败3次触发熔断
+  private circuitBreakerOpenUntil = 0;
+  private readonly CIRCUIT_BREAKER_TIMEOUT = 60000; // 熔断器打开60秒后尝试恢复
+  
+  // ============ IP封禁感知 ============
+  private ipBannedUntil = 0; // IP被封禁的截止时间
+
   constructor(config: ExchangeConfig) {
     this.config = config;
     this.apiKey = config.apiKey;
     this.apiSecret = config.apiSecret;
     
-    // 使用正式的测试网地址
+    // Binance测试网URL (按优先级排列)
+    // 注意: Binance测试网可能会变更或维护，如果一个不可用请尝试另一个
+    const testnetUrls = [
+      'https://testnet.binancefuture.com',  // 官方测试网
+      'https://testnet.binance.vision',      // 备用测试网1
+    ];
+    
     this.baseUrl = config.isTestnet 
-      ? 'https://testnet.binancefuture.com' 
+      ? testnetUrls[0]  // 默认使用第一个
       : 'https://fapi.binance.com';
 
     if (config.isTestnet) {
       logger.info('使用 Binance U本位合约测试网');
+      logger.info(`测试网URL: ${this.baseUrl}`);
+      logger.info('⚠️  如果测试网连接失败，可以尝试以下备选URL:');
+      testnetUrls.slice(1).forEach((url, idx) => {
+        logger.info(`   备选${idx + 1}: ${url}`);
+      });
     } else {
       logger.info('使用 Binance U本位合约正式网');
     }
@@ -173,8 +191,28 @@ export class BinanceExchangeClient implements IExchangeClient {
       this.lastSyncTime = Date.now();
       
     //   logger.info(`服务器时间同步完成，原始偏差: ${rawOffset}ms，应用偏差: ${this.timeOffset}ms，RTT: ${rtt}ms`);
-    } catch (error) {
-      logger.error('同步服务器时间失败:', error as Error);
+    } catch (error: any) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      
+      // 如果是HTML响应错误，提供更详细的指导
+      if (errorMsg.includes('HTML页面')) {
+        logger.error('❌ Binance API连接失败: 服务器返回HTML而非JSON');
+        logger.error('可能的原因:');
+        logger.error('  1. 测试网URL已变更或服务已关闭');
+        logger.error('  2. 网络被拦截或重定向');
+        logger.error('  3. DNS解析错误');
+        logger.error(`当前URL: ${this.baseUrl}`);
+        
+        if (this.config.isTestnet) {
+          logger.error('建议操作:');
+          logger.error('  - 验证测试网是否可访问: curl ' + this.baseUrl + '/fapi/v1/ping');
+          logger.error('  - 尝试使用备用测试网URL (修改配置文件)');
+          logger.error('  - 或切换到正式网进行测试 (设置 BINANCE_TESTNET=false)');
+        }
+      } else {
+        logger.error('同步服务器时间失败:', error as Error);
+      }
+      
       throw error;
     }
   }
@@ -216,6 +254,66 @@ export class BinanceExchangeClient implements IExchangeClient {
       .createHmac('sha256', this.apiSecret)
       .update(queryString)
       .digest('hex');
+  }
+
+  /**
+   * 检查熔断器状态
+   */
+  private isCircuitBreakerOpen(): boolean {
+    const now = Date.now();
+    
+    // 检查IP封禁状态
+    if (this.ipBannedUntil > now) {
+      const remainingSeconds = Math.ceil((this.ipBannedUntil - now) / 1000);
+      if (remainingSeconds % 10 === 0) { // 每10秒提示一次
+        logger.warn(`⏰ IP仍被封禁，剩余 ${remainingSeconds} 秒，使用缓存数据`);
+      }
+      return true;
+    }
+    
+    // IP封禁结束，清除状态
+    if (this.ipBannedUntil > 0 && this.ipBannedUntil <= now) {
+      logger.info('✅ IP封禁已解除，恢复API请求');
+      this.ipBannedUntil = 0;
+      this.consecutiveFailures = 0;
+      this.circuitBreakerOpenUntil = 0;
+      return false;
+    }
+    
+    // 检查普通熔断器
+    if (this.circuitBreakerOpenUntil > now) {
+      return true;
+    }
+    
+    // 熔断器超时后重置
+    if (this.circuitBreakerOpenUntil > 0 && this.circuitBreakerOpenUntil <= now) {
+      logger.info('🔄 熔断器恢复，尝试重新连接...');
+      this.consecutiveFailures = 0;
+      this.circuitBreakerOpenUntil = 0;
+    }
+    
+    return false;
+  }
+
+  /**
+   * 记录请求成功
+   */
+  private recordSuccess(): void {
+    if (this.consecutiveFailures > 0) {
+      logger.info(`✅ API请求恢复正常，清除 ${this.consecutiveFailures} 次失败记录`);
+      this.consecutiveFailures = 0;
+    }
+  }
+
+  /**
+   * 记录请求失败
+   */
+  private recordFailure(): void {
+    this.consecutiveFailures++;
+    if (this.consecutiveFailures >= this.MAX_CONSECUTIVE_FAILURES) {
+      this.circuitBreakerOpenUntil = Date.now() + this.CIRCUIT_BREAKER_TIMEOUT;
+      logger.error(`🚨 连续失败 ${this.consecutiveFailures} 次，触发熔断器，${this.CIRCUIT_BREAKER_TIMEOUT / 1000}秒内将使用缓存数据`);
+    }
   }
 
   /**
@@ -262,6 +360,11 @@ export class BinanceExchangeClient implements IExchangeClient {
    * 处理API请求，包含重试、超时和错误处理逻辑
    */
   private async handleRequest(url: URL, options: RequestInit, retries = 3): Promise<any> {
+    // 检查熔断器状态
+    if (this.isCircuitBreakerOpen()) {
+      throw new Error('熔断器已打开，暂停API请求');
+    }
+
     // 应用限流控制
     await this.rateLimitControl();
     
@@ -282,20 +385,72 @@ export class BinanceExchangeClient implements IExchangeClient {
         const response = await fetch(url.toString(), options);
         clearTimeout(timeoutId);
 
+        // 检查响应内容类型，防止HTML响应被当作JSON解析
+        const contentType = response.headers.get('content-type');
+        const isHtmlResponse = contentType?.includes('text/html') || contentType?.includes('text/plain');
+        
         if (!response.ok) {
+          // 处理HTML错误响应
+          if (isHtmlResponse) {
+            const htmlText = await response.text();
+            const errorMsg = `API返回HTML页面 (HTTP ${response.status})，可能是URL错误或服务不可用`;
+            
+            if (attempt === retries) {
+              this.recordFailure();
+              logger.error(`${errorMsg}`);
+              logger.error(`URL: ${url.toString()}`);
+              logger.error(`响应预览: ${htmlText.substring(0, 200)}...`);
+              
+              if (this.config.isTestnet) {
+                logger.error(`⚠️  Binance 测试网可能已迁移或不可用`);
+                logger.error(`建议检查: https://testnet.binancefuture.com 是否可访问`);
+                logger.error(`或考虑切换到正式网进行测试`);
+              }
+            }
+            
+            throw new Error(errorMsg);
+          }
+          
           const error = await response.json();
+          
+          // 🔥 特殊处理: IP被封禁 (-1003)
+          if (error.code === -1003) {
+            // 解析封禁时间
+            const banMessage = error.msg || '';
+            const banMatch = banMessage.match(/banned until (\d+)/);
+            if (banMatch) {
+              const banUntilTimestamp = parseInt(banMatch[1]);
+              this.ipBannedUntil = banUntilTimestamp;
+              const banDuration = Math.ceil((banUntilTimestamp - Date.now()) / 1000);
+              
+              logger.error(`🚨 IP被Binance封禁，封禁时长: ${banDuration}秒`);
+              logger.error(`💡 建议: 使用WebSocket或大幅减少API调用频率`);
+              logger.error(`⏰ 系统将在封禁期间使用缓存数据`);
+              
+              // 立即触发熔断器，使用封禁时长
+              this.circuitBreakerOpenUntil = banUntilTimestamp;
+              this.consecutiveFailures = this.MAX_CONSECUTIVE_FAILURES;
+            } else {
+              // 没有封禁时间，使用默认熔断时长
+              logger.error(`🚨 IP被Binance封禁（-1003），触发熔断器`);
+              this.circuitBreakerOpenUntil = Date.now() + this.CIRCUIT_BREAKER_TIMEOUT;
+              this.consecutiveFailures = this.MAX_CONSECUTIVE_FAILURES;
+            }
+            
+            throw new Error(`IP被封禁: ${error.msg}`);
+          }
           
           // 如果是时间戳错误 (-1021)，重新同步时间并重试
           if (error.code === -1021 && attempt < retries) {
-            logger.warn(`时间戳错误，重新同步服务器时间 (${attempt}/${retries})`);
+            logger.debug(`时间戳错误，重新同步服务器时间 (${attempt}/${retries})`);
             await this.syncServerTime();
             await new Promise(resolve => setTimeout(resolve, 1000));
             continue;
           }
           
           if (attempt === retries) {
+            this.recordFailure();
             logger.error(`API请求失败(${attempt}/${retries}):`, error as Error);
-            // throw new Error(`API请求失败: ${error.msg || error.message || response.statusText}`);
           }
           logger.warn(`API请求失败(${attempt}/${retries}):`, error);
           // 增加重试间隔，使用指数退避策略
@@ -303,7 +458,54 @@ export class BinanceExchangeClient implements IExchangeClient {
           continue;
         }
 
-        return response.json();
+        // 成功响应也检查是否是HTML
+        if (isHtmlResponse) {
+          const htmlText = await response.text();
+          const errorMsg = `API返回HTML页面而非JSON数据`;
+          
+          if (attempt === retries) {
+            this.recordFailure();
+            logger.error(`${errorMsg}`);
+            logger.error(`URL: ${url.toString()}`);
+            logger.error(`响应预览: ${htmlText.substring(0, 200)}...`);
+            
+            if (this.config.isTestnet) {
+              logger.error(`⚠️  Binance 测试网URL可能不正确`);
+              logger.error(`当前使用: ${this.baseUrl}`);
+              logger.error(`建议验证测试网是否可用或切换到正式网`);
+            }
+          }
+          
+          throw new Error(errorMsg);
+        }
+
+        // 请求成功，记录成功状态并解析JSON
+        this.recordSuccess();
+        
+        try {
+          return await response.json();
+        } catch (jsonError: any) {
+          // JSON解析失败，可能是返回了HTML
+          const text = await response.text().catch(() => 'Unable to read response');
+          const errorMsg = `JSON解析失败: ${jsonError.message}`;
+          
+          logger.error(`${errorMsg}`);
+          logger.error(`URL: ${url.toString()}`);
+          logger.error(`响应预览: ${text.substring(0, 200)}...`);
+          
+          if (text.includes('<!DOCTYPE') || text.includes('<html')) {
+            logger.error(`⚠️  API返回了HTML页面而非JSON数据`);
+            if (this.config.isTestnet) {
+              logger.error(`Binance 测试网可能存在问题，建议：`);
+              logger.error(`1. 检查 ${this.baseUrl} 是否可访问`);
+              logger.error(`2. 验证API Key是否用于正确的环境(测试网/正式网)`);
+              logger.error(`3. 考虑切换到正式网或检查网络代理设置`);
+            }
+          }
+          
+          this.recordFailure();
+          throw new Error(`${errorMsg} - 响应可能是HTML而非JSON`);
+        }
 
       } catch (error: any) {
         clearTimeout(timeoutId);
@@ -312,27 +514,23 @@ export class BinanceExchangeClient implements IExchangeClient {
                          error.message?.includes('timeout') ||
                          error.message?.includes('aborted') ||
                          error.message?.includes('Timeout');
+        
+        const isJsonError = error.message?.includes('JSON') || 
+                           error.message?.includes('Unexpected token');
 
         if (attempt === retries) {
+          this.recordFailure();
           logger.error(`API请求失败(${attempt}/${retries}):`, error as Error);
-          
-          // 最后一次尝试失败，检查网络健康
-          const healthy = await this.checkNetworkHealth();
-          if (!healthy) {
-            logger.error(`⚠️  网络连接异常，请检查：`);
-            logger.error(`  1. 网络连接是否正常`);
-            logger.error(`  2. 是否需要配置代理访问 ${this.baseUrl}`);
-            logger.error(`  3. 防火墙设置是否阻止了访问`);
-            if (this.config.isTestnet) {
-              logger.error(`  4. Binance 测试网 (testnet.binancefuture.com) 是否可访问`);
-            }
-          }
-          
+          throw error;
+        }
+        
+        // JSON解析错误不重试，直接失败
+        if (isJsonError) {
+          logger.warn(`JSON解析错误，不再重试`);
+          this.recordFailure();
           throw error;
         }
 
-        // logger.warn(`${isTimeout ? '请求超时' : 'API请求失败'}(${attempt}/${retries}), 将在 ${isTimeout ? attempt * 2 : attempt} 秒后重试`);
-        
         // 使用指数退避策略，超时错误延迟更长
         const delay = isTimeout ? 
           Math.min(3000 * Math.pow(2, attempt - 1), 15000) : 
@@ -342,6 +540,7 @@ export class BinanceExchangeClient implements IExchangeClient {
       }
     }
 
+    this.recordFailure();
     throw new Error(`API请求失败，已重试${retries}次`);
   }
 
@@ -419,12 +618,51 @@ export class BinanceExchangeClient implements IExchangeClient {
           const response = await fetch(url.toString(), options);
           clearTimeout(timeoutId);
 
+          // 检查响应内容类型
+          const contentType = response.headers.get('content-type');
+          const isHtmlResponse = contentType?.includes('text/html') || contentType?.includes('text/plain');
+          
           if (!response.ok) {
+            // 处理HTML错误响应
+            if (isHtmlResponse) {
+              const htmlText = await response.text();
+              if (attempt === retries) {
+                logger.error(`API返回HTML页面 (HTTP ${response.status})`);
+                logger.error(`URL: ${url.toString()}`);
+                throw new Error(`API返回HTML页面而非JSON数据`);
+              }
+              await new Promise(resolve => setTimeout(resolve, Math.min(1000 * attempt, 3000)));
+              continue;
+            }
+            
             const error = await response.json();
+            
+            // 🔥 特殊处理: IP被封禁 (-1003)
+            if (error.code === -1003) {
+              const banMessage = error.msg || '';
+              const banMatch = banMessage.match(/banned until (\d+)/);
+              if (banMatch) {
+                const banUntilTimestamp = parseInt(banMatch[1]);
+                this.ipBannedUntil = banUntilTimestamp;
+                const banDuration = Math.ceil((banUntilTimestamp - Date.now()) / 1000);
+                
+                if (attempt === retries) {
+                  logger.error(`🚨 IP被Binance封禁，封禁时长: ${banDuration}秒`);
+                }
+                
+                this.circuitBreakerOpenUntil = banUntilTimestamp;
+                this.consecutiveFailures = this.MAX_CONSECUTIVE_FAILURES;
+              } else {
+                this.circuitBreakerOpenUntil = Date.now() + this.CIRCUIT_BREAKER_TIMEOUT;
+                this.consecutiveFailures = this.MAX_CONSECUTIVE_FAILURES;
+              }
+              
+              throw new Error(`IP被封禁: ${error.msg}`);
+            }
             
             // 如果是时间戳错误 (-1021)，重新同步时间并重试
             if (error.code === -1021 && attempt < retries) {
-              logger.warn(`时间戳错误，重新同步服务器时间 (${attempt}/${retries})`);
+              logger.debug(`时间戳错误，重新同步服务器时间 (${attempt}/${retries})`);
               await this.syncServerTime();
               await new Promise(resolve => setTimeout(resolve, 500));
               continue;
@@ -439,15 +677,51 @@ export class BinanceExchangeClient implements IExchangeClient {
             continue;
           }
 
-          return response.json();
+          // 成功响应也检查是否是HTML
+          if (isHtmlResponse) {
+            const htmlText = await response.text();
+            if (attempt === retries) {
+              logger.error(`API返回HTML页面而非JSON数据`);
+              logger.error(`URL: ${url.toString()}`);
+              throw new Error(`API返回HTML页面而非JSON数据`);
+            }
+            await new Promise(resolve => setTimeout(resolve, Math.min(1000 * attempt, 3000)));
+            continue;
+          }
+
+          // 安全地解析JSON
+          try {
+            return await response.json();
+          } catch (jsonError: any) {
+            const text = await response.text().catch(() => 'Unable to read response');
+            logger.error(`JSON解析失败: ${jsonError.message}`);
+            logger.error(`URL: ${url.toString()}`);
+            logger.error(`响应预览: ${text.substring(0, 200)}...`);
+            
+            if (attempt === retries) {
+              throw new Error(`JSON解析失败: ${jsonError.message}`);
+            }
+            
+            await new Promise(resolve => setTimeout(resolve, Math.min(1000 * attempt, 3000)));
+            continue;
+          }
         } catch (fetchError: any) {
           clearTimeout(timeoutId);
           
           const isTimeout = fetchError.name === 'AbortError' || 
                            fetchError.message?.includes('timeout') ||
                            fetchError.message?.includes('aborted');
+          
+          const isJsonError = fetchError.message?.includes('JSON') || 
+                             fetchError.message?.includes('Unexpected token');
 
           if (attempt === retries) {
+            throw fetchError;
+          }
+          
+          // JSON解析错误不重试
+          if (isJsonError) {
+            logger.warn(`JSON解析错误，不再重试`);
             throw fetchError;
           }
 
@@ -475,6 +749,15 @@ export class BinanceExchangeClient implements IExchangeClient {
         return cached.data;
       }
 
+      // 如果熔断器打开，使用过期缓存
+      if (this.isCircuitBreakerOpen()) {
+        if (cached) {
+          logger.warn(`熔断器已打开，使用 ${symbol} 的缓存数据`);
+          return cached.data;
+        }
+        throw new Error('熔断器已打开且无可用缓存');
+      }
+
       const [ticker, markPrice] = await Promise.all([
         this.publicRequest('/fapi/v1/ticker/24hr', { symbol }, retries),
         this.publicRequest('/fapi/v1/premiumIndex', { symbol }, retries)
@@ -499,6 +782,15 @@ export class BinanceExchangeClient implements IExchangeClient {
 
       return result;
     } catch (error) {
+      // 如果出错且有缓存，使用缓存降级
+      const symbol = this.normalizeContract(contract);
+      const cached = this.tickerCache.get(symbol);
+      if (cached) {
+        const errorMsg = error instanceof Error ? error.message : String(error);
+        logger.warn(`获取 ${symbol} 行情失败，使用缓存数据: ${errorMsg}`);
+        return cached.data;
+      }
+      
       logger.error(`获取 ${contract} 行情失败:`, error as Error);
       throw error;
     }
@@ -567,6 +859,15 @@ export class BinanceExchangeClient implements IExchangeClient {
         return this.accountInfoCache.data;
       }
 
+      // 如果熔断器打开，使用过期缓存
+      if (this.isCircuitBreakerOpen()) {
+        if (this.accountInfoCache) {
+          logger.warn('熔断器已打开，使用账户信息缓存数据');
+          return this.accountInfoCache.data;
+        }
+        throw new Error('熔断器已打开且无可用缓存');
+      }
+
       const account = await this.privateRequest('/fapi/v2/account', {}, 'GET', retries);
       
       const result = {
@@ -586,6 +887,13 @@ export class BinanceExchangeClient implements IExchangeClient {
 
       return result;
     } catch (error) {
+      // 如果出错且有缓存，使用缓存降级
+      if (this.accountInfoCache) {
+        const errorMsg = error instanceof Error ? error.message : String(error);
+        logger.warn(`获取账户信息失败，使用缓存数据: ${errorMsg}`);
+        return this.accountInfoCache.data;
+      }
+      
       logger.error('获取账户信息失败:', error as Error);
       throw error;
     }
@@ -596,6 +904,15 @@ export class BinanceExchangeClient implements IExchangeClient {
       // 检查缓存
       if (this.positionsCache && this.isCacheValid(this.positionsCache.timestamp, this.POSITIONS_CACHE_TTL)) {
         return this.positionsCache.data;
+      }
+
+      // 如果熔断器打开，使用过期缓存
+      if (this.isCircuitBreakerOpen()) {
+        if (this.positionsCache) {
+          logger.warn('熔断器已打开，使用持仓信息缓存数据');
+          return this.positionsCache.data;
+        }
+        throw new Error('熔断器已打开且无可用缓存');
       }
 
       const positions = await this.privateRequest('/fapi/v2/positionRisk', {}, 'GET', retries);
@@ -645,6 +962,13 @@ export class BinanceExchangeClient implements IExchangeClient {
 
       return result;
     } catch (error) {
+      // 如果出错且有缓存，使用缓存降级
+      if (this.positionsCache) {
+        const errorMsg = error instanceof Error ? error.message : String(error);
+        logger.warn(`获取持仓失败，使用缓存数据: ${errorMsg}`);
+        return this.positionsCache.data;
+      }
+      
       logger.error('获取持仓失败:', error as Error);
       throw error;
     }
@@ -1680,40 +2004,5 @@ export class BinanceExchangeClient implements IExchangeClient {
     });
     
     return orders;
-  }
-
-  /**
-   * 检查网络连接健康状态
-   */
-  private async checkNetworkHealth(): Promise<boolean> {
-    const now = Date.now();
-    // 5分钟内检查过则直接返回缓存结果
-    if (now - this.lastNetworkCheck < 5 * 60 * 1000) {
-      return this.networkHealthy;
-    }
-
-    try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 5000);
-      
-      const response = await fetch(`${this.baseUrl}/fapi/v1/ping`, {
-        signal: controller.signal,
-      });
-      
-      clearTimeout(timeoutId);
-      this.networkHealthy = response.ok;
-      this.lastNetworkCheck = now;
-      
-      if (!this.networkHealthy) {
-        logger.warn(`网络健康检查失败: HTTP ${response.status}`);
-      }
-      
-      return this.networkHealthy;
-    } catch (error: any) {
-      logger.error('网络健康检查失败:', error);
-      this.networkHealthy = false;
-      this.lastNetworkCheck = now;
-      return false;
-    }
   }
 }

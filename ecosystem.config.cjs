@@ -38,7 +38,7 @@ module.exports = {
       },
       error_file: "./logs/pm2-error.log",
       out_file: "./logs/pm2-out.log",
-      log_date_format: "YYYY-MM-DD HH:mm:ss Z",
+      log_date_format: "YYYY-MM-DD HH:mm:ss",
       merge_logs: true,
       // 优雅退出设置
       kill_timeout: 5000,

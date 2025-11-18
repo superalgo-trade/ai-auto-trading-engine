@@ -169,10 +169,26 @@ interface HealthCheckResult {
 }
 
 /**
- * 健康检查任务 - 定期执行
+ * 缓存的健康检查结果（避免频繁执行完整检查）
  */
-export async function performHealthCheck(): Promise<HealthCheckResult> {
-  logger.debug('🏥 开始健康检查...');
+let cachedHealthResult: HealthCheckResult | null = null;
+let lastCheckTime = 0;
+const CACHE_TTL = 60 * 1000; // 缓存有效期：60秒
+
+/**
+ * 健康检查任务 - 定期执行
+ * @param forceCheck 是否强制执行检查（跳过缓存）
+ */
+export async function performHealthCheck(forceCheck = false): Promise<HealthCheckResult> {
+  // 如果有缓存且未过期，直接返回缓存结果
+  const now = Date.now();
+  if (!forceCheck && cachedHealthResult && (now - lastCheckTime) < CACHE_TTL) {
+    logger.debug(`[系统健康检查] 返回缓存结果 (缓存时间: ${Math.floor((now - lastCheckTime) / 1000)}秒)`);
+    return cachedHealthResult;
+  }
+  
+  const startTime = Date.now();
+  logger.debug('🏥 [系统健康检查] 开始执行...');
   
   const issues: string[] = [];
   const warnings: string[] = [];
@@ -220,7 +236,7 @@ export async function performHealthCheck(): Promise<HealthCheckResult> {
     logger.debug('检查3: 孤儿条件单...');
     
     // 🔧 关键修复: 增加时间容错机制，避免误判刚创建的条件单
-    // 对于60秒内创建的条件单，给予缓冲时间等待持仓记s'dsd  录同步
+    // 对于60秒内创建的条件单，给予缓冲时间等待持仓记录同步
     const graceTimeSeconds = 60;
     const graceTimeISO = new Date(Date.now() - graceTimeSeconds * 1000).toISOString();
     
@@ -406,12 +422,14 @@ export async function performHealthCheck(): Promise<HealthCheckResult> {
     details,
   };
   
+  const elapsedTime = Date.now() - startTime;
+  
   if (healthy) {
-    logger.info('✅ 健康检查通过，系统运行正常');
+    logger.info(`✅ [系统健康检查] 通过，系统运行正常 (耗时: ${elapsedTime}ms)`);
     alertTracker.resetHealthCheckFailures();
   } else if (issues.length > 0) {
     logger.error(`\n${'='.repeat(80)}`);
-    logger.error(`❌ 健康检查发现 ${issues.length} 个严重问题，${warnings.length} 个警告`);
+    logger.error(`❌ [系统健康检查] 发现 ${issues.length} 个严重问题，${warnings.length} 个警告 (耗时: ${elapsedTime}ms)`);
     logger.error(`${'='.repeat(80)}`);
     issues.forEach((issue, i) => logger.error(`   ${i + 1}. ${issue}`));
     if (warnings.length > 0) {
@@ -420,10 +438,14 @@ export async function performHealthCheck(): Promise<HealthCheckResult> {
     logger.error(`${'='.repeat(80)}\n`);
     alertTracker.recordHealthCheckFailure();
   } else {
-    logger.warn(`\n⚠️ 健康检查发现 ${warnings.length} 个警告`);
+    logger.warn(`\n⚠️ [系统健康检查] 发现 ${warnings.length} 个警告 (耗时: ${elapsedTime}ms)`);
     warnings.forEach((warning, i) => logger.warn(`   ${i + 1}. ${warning}`));
     alertTracker.resetHealthCheckFailures();
   }
+  
+  // 更新缓存
+  cachedHealthResult = result;
+  lastCheckTime = Date.now();
   
   return result;
 }
@@ -432,18 +454,25 @@ export async function performHealthCheck(): Promise<HealthCheckResult> {
  * 启动健康检查定时任务
  */
 export function startHealthCheck() {
-  // 立即执行一次
-  performHealthCheck().catch(error => {
-    logger.error('初始健康检查失败:', error);
+  const intervalMinutes = parseInt(process.env.HEALTH_CHECK_INTERVAL_MINUTES || '5');
+  
+  logger.info('='.repeat(80));
+  logger.info(`🏥 [系统健康检查] 服务启动`);
+  logger.info(`   检查间隔: ${intervalMinutes} 分钟`);
+  logger.info(`   环境变量 HEALTH_CHECK_INTERVAL_MINUTES = ${process.env.HEALTH_CHECK_INTERVAL_MINUTES || '(未设置，使用默认5分钟)'}`);
+  logger.info('='.repeat(80));
+  
+  // 立即执行一次（强制检查）
+  performHealthCheck(true).catch(error => {
+    logger.error('[系统健康检查] 初始检查失败:', error);
   });
   
-  // 每5分钟执行一次（可通过环境变量配置）
-  const intervalMinutes = parseInt(process.env.HEALTH_CHECK_INTERVAL_MINUTES || '5');
+  // 定时执行（强制检查）
   setInterval(() => {
-    performHealthCheck().catch(error => {
-      logger.error('定时健康检查失败:', error);
+    performHealthCheck(true).catch(error => {
+      logger.error('[系统健康检查] 定时检查失败:', error);
     });
   }, intervalMinutes * 60 * 1000);
   
-  logger.info(`✅ 健康检查任务已启动 (每${intervalMinutes}分钟)`);
+  logger.info(`✅ [系统健康检查] 定时任务已启动`);
 }

@@ -550,11 +550,12 @@ export function createApiRoutes() {
   });
 
   /**
-   * 获取系统健康状态
+   * 获取系统健康状态（使用缓存，避免频繁执行完整检查）
    */
   app.get("/api/health", async (c) => {
     try {
-      const healthResult = await performHealthCheck();
+      // 使用缓存结果，避免前端轮询导致频繁执行完整检查
+      const healthResult = await performHealthCheck(false);
       return c.json(healthResult);
     } catch (error: any) {
       logger.error('健康检查失败:', error);
