@@ -33,7 +33,7 @@ const dbClient = createClient({
 
 // 测试配置
 const TEST_CONFIG = {
-  symbol: 'ETH_USDT',
+  symbol: 'ETH',
   side: 'long' as const,
   leverage: 8,
   amountUsdt: 500,
@@ -1300,7 +1300,7 @@ async function phase7_DataConsistencyCheck(): Promise<boolean> {
       }
       
       // 计算名义价值（考虑合约类型）
-      const contractMultiplier = 0.01; // ETH_USDT合约乘数
+      const contractMultiplier = 0.01; // 合约乘数
       let notionalValue: number;
       let expectedFee: number;
       

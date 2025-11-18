@@ -827,7 +827,7 @@ export const partialTakeProfitTool = createTool({
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           args: [
             closeOrderResponse.id,
-            dbSymbol,  // ⭐ 使用完整符号名称（ETH_USDT）而不是短名称（ETH）
+            dbSymbol,
             side,
             'close',
             currentPrice,
@@ -1091,7 +1091,7 @@ export const partialTakeProfitTool = createTool({
                  created_at, processed)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           args: [
-            dbSymbol,  // ⭐ 使用完整符号名称（ETH_USDT）而不是短名称（ETH）
+            dbSymbol,
             side,
             entryPrice,
             currentPrice,      // 使用当前价格作为退出价格

@@ -35,7 +35,7 @@ const dbClient = createClient({
 
 // 测试配置
 const TEST_CONFIG = {
-  symbol: 'ETH_USDT',
+  symbol: 'ETH',
   side: 'long' as const,
   leverage: 8,
   amountUsdt: 10000, // 增加到10000 USDT以满足Gate.io ETH合约最小交易数量（1 ETH ≈ 3000 USDT）
