@@ -253,7 +253,7 @@ class TradingMonitor {
         }
     }
 
-    // 加载条件单数据（止盈止损）
+    // 加载条件单数据（止盈止损）- 只显示活跃的条件单
     async loadPriceOrdersData() {
         try {
             const response = await fetch('/api/price-orders');
@@ -268,7 +268,7 @@ class TradingMonitor {
             const priceOrdersTabButton = document.querySelector('.tab-button[data-tab="price-orders"]');
             if (priceOrdersTabButton) {
                 // 活跃订单数 / 2 = 活跃持仓数
-                const activePositionCount = Math.floor((data.activeCount || 0) / 2);
+                const activePositionCount = Math.floor((data.count || 0) / 2);
                 priceOrdersTabButton.textContent = `止盈止损(${activePositionCount})`;
             }
 
@@ -276,106 +276,46 @@ class TradingMonitor {
             
             if (!data.priceOrders || data.priceOrders.length === 0) {
                 if (priceOrdersBody) {
-                    priceOrdersBody.innerHTML = '<tr><td colspan="8" class="empty-state">暂无条件单</td></tr>';
+                    priceOrdersBody.innerHTML = '<tr><td colspan="8" class="empty-state">暂无活跃条件单</td></tr>';
                 }
                 return;
             }
 
-            // 显示最近的条件单（包括已触发和已取消的，最多显示最近100条）
-            const recentOrders = data.priceOrders
-                .sort((a, b) => {
-                    // 按状态优先级排序：active > triggered > cancelled
-                    const statusOrder = { 'active': 1, 'triggered': 2, 'cancelled': 3 };
-                    if (statusOrder[a.status] !== statusOrder[b.status]) {
-                        return statusOrder[a.status] - statusOrder[b.status];
-                    }
-                    // 同状态按时间倒序
-                    return new Date(b.created_at) - new Date(a.created_at);
-                })
-                .slice(0, 100); // 只显示最近60条
-            
-            if (recentOrders.length === 0) {
-                if (priceOrdersBody) {
-                    priceOrdersBody.innerHTML = '<tr><td colspan="8" class="empty-state">暂无条件单</td></tr>';
-                }
-                return;
-            }
-            
             // 按币种、方向和开仓订单ID分组，合并止损和止盈
-            // 使用 position_order_id 作为分组键，确保同一个持仓的止损止盈被正确分组
-            // 对于没有 position_order_id 的历史数据，使用时间戳作为后备方案
             const groupedOrders = {};
             
-            recentOrders.forEach(order => {
-                let key;
-                
-                if (order.position_order_id) {
-                    // 优先使用 position_order_id (开仓订单ID) 作为分组键
-                    key = `${order.symbol}_${order.side}_${order.position_order_id}`;
-                } else {
-                    // 对于没有 position_order_id 的历史数据，使用时间戳分组（向后兼容）
-                    const createdTimestamp = new Date(order.created_at).getTime();
-                    key = `${order.symbol}_${order.side}_${Math.floor(createdTimestamp / 1000)}`;
-                }
+            data.priceOrders.forEach(order => {
+                // 使用 position_order_id 作为分组键（如果没有则使用时间戳兼容旧数据）
+                const key = order.position_order_id 
+                    ? `${order.symbol}_${order.side}_${order.position_order_id}`
+                    : `${order.symbol}_${order.side}_${Math.floor(new Date(order.created_at).getTime() / 1000)}`;
                 
                 if (!groupedOrders[key]) {
                     groupedOrders[key] = {
                         symbol: order.symbol,
                         side: order.side,
-                        status: order.status,  // 使用第一个订单的状态
                         quantity: order.quantity,
                         created_at: order.created_at,
-                        position_order_id: order.position_order_id,  // 记录开仓订单ID
                         stopLoss: null,
-                        takeProfit: null,
-                        stopLossStatus: null,
-                        takeProfitStatus: null
+                        takeProfit: null
                     };
                 }
                 
                 if (order.type === 'stop_loss') {
                     groupedOrders[key].stopLoss = order.trigger_price;
-                    groupedOrders[key].stopLossStatus = order.status;
                 } else if (order.type === 'take_profit') {
                     groupedOrders[key].takeProfit = order.trigger_price;
-                    groupedOrders[key].takeProfitStatus = order.status;
-                }
-                
-                // 更新组的整体状态:如果有任何一个是triggered,则显示triggered;否则如果有active显示active
-                if (order.status === 'triggered') {
-                    groupedOrders[key].status = 'triggered';
-                } else if (order.status === 'active' && groupedOrders[key].status !== 'triggered') {
-                    groupedOrders[key].status = 'active';
-                } else if (groupedOrders[key].status === order.status) {
-                    // 保持当前状态
-                } else if (!groupedOrders[key].status || groupedOrders[key].status === 'cancelled') {
-                    groupedOrders[key].status = order.status;
                 }
             });
 
-            // 更新条件单表格（合并显示）
+            // 渲染条件单表格
             if (priceOrdersBody) {
                 const rows = Object.values(groupedOrders)
-                    // 过滤掉已取消的订单组
-                    .filter(group => group.status !== 'cancelled')
-                    // 按状态和创建时间排序
-                    .sort((a, b) => {
-                        const statusOrder = { 'active': 1, 'triggered': 2 };
-                        if (statusOrder[a.status] !== statusOrder[b.status]) {
-                            return statusOrder[a.status] - statusOrder[b.status];
-                        }
-                        return new Date(b.created_at) - new Date(a.created_at);
-                    })
+                    .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
                     .map(group => {
                         // 方向显示
                         const sideText = group.side === 'long' ? 'LONG' : 'SHORT';
                         const sideClass = group.side === 'long' ? 'long' : 'short';
-                        
-                        // 状态显示
-                        const statusText = group.status === 'active' ? '活跃' : 
-                                          group.status === 'triggered' ? '已触发' : '已取消';
-                        const statusClass = group.status === 'active' ? 'status-active' : 
-                                           group.status === 'triggered' ? 'status-triggered' : 'status-cancelled';
                         
                         // 时间格式化
                         const createdTime = new Date(group.created_at).toLocaleString('zh-CN', {
@@ -390,32 +330,28 @@ class TradingMonitor {
                         const currentPriceText = currentPrice ? 
                             `$${formatPriceBySymbol(group.symbol, currentPrice)}` : '--';
                         
-                        // 止损价格显示（带偏差百分比和状态标识）
+                        // 止损价格显示（带偏差百分比）
                         let stopLossText = '--';
-                        if (group.stopLoss && currentPrice) {
-                            const deviation = ((group.stopLoss - currentPrice) / currentPrice * 100);
-                            const deviationText = deviation >= 0 ? `+${deviation.toFixed(2)}` : deviation.toFixed(2);
-                            const statusBadge = group.stopLossStatus === 'triggered' ? ' <span class="status-badge triggered">✓</span>' :
-                                               group.stopLossStatus === 'cancelled' ? ' <span class="status-badge cancelled">✕</span>' : '';
-                            stopLossText = `$${formatPriceBySymbol(group.symbol, group.stopLoss)} <span class="deviation">(${deviationText}%)</span>${statusBadge}`;
-                        } else if (group.stopLoss) {
-                            const statusBadge = group.stopLossStatus === 'triggered' ? ' <span class="status-badge triggered">✓</span>' :
-                                               group.stopLossStatus === 'cancelled' ? ' <span class="status-badge cancelled">✕</span>' : '';
-                            stopLossText = `$${formatPriceBySymbol(group.symbol, group.stopLoss)}${statusBadge}`;
+                        if (group.stopLoss) {
+                            if (currentPrice) {
+                                const deviation = ((group.stopLoss - currentPrice) / currentPrice * 100);
+                                const deviationText = deviation >= 0 ? `+${deviation.toFixed(2)}` : deviation.toFixed(2);
+                                stopLossText = `$${formatPriceBySymbol(group.symbol, group.stopLoss)} <span class="deviation">(${deviationText}%)</span>`;
+                            } else {
+                                stopLossText = `$${formatPriceBySymbol(group.symbol, group.stopLoss)}`;
+                            }
                         }
                         
-                        // 止盈价格显示（带偏差百分比和状态标识）
+                        // 止盈价格显示（带偏差百分比）
                         let takeProfitText = '--';
-                        if (group.takeProfit && currentPrice) {
-                            const deviation = ((group.takeProfit - currentPrice) / currentPrice * 100);
-                            const deviationText = deviation >= 0 ? `+${deviation.toFixed(2)}` : deviation.toFixed(2);
-                            const statusBadge = group.takeProfitStatus === 'triggered' ? ' <span class="status-badge triggered">✓</span>' :
-                                               group.takeProfitStatus === 'cancelled' ? ' <span class="status-badge cancelled">✕</span>' : '';
-                            takeProfitText = `$${formatPriceBySymbol(group.symbol, group.takeProfit)} <span class="deviation">(${deviationText}%)</span>${statusBadge}`;
-                        } else if (group.takeProfit) {
-                            const statusBadge = group.takeProfitStatus === 'triggered' ? ' <span class="status-badge triggered">✓</span>' :
-                                               group.takeProfitStatus === 'cancelled' ? ' <span class="status-badge cancelled">✕</span>' : '';
-                            takeProfitText = `$${formatPriceBySymbol(group.symbol, group.takeProfit)}${statusBadge}`;
+                        if (group.takeProfit) {
+                            if (currentPrice) {
+                                const deviation = ((group.takeProfit - currentPrice) / currentPrice * 100);
+                                const deviationText = deviation >= 0 ? `+${deviation.toFixed(2)}` : deviation.toFixed(2);
+                                takeProfitText = `$${formatPriceBySymbol(group.symbol, group.takeProfit)} <span class="deviation">(${deviationText}%)</span>`;
+                            } else {
+                                takeProfitText = `$${formatPriceBySymbol(group.symbol, group.takeProfit)}`;
+                            }
                         }
                         
                         return `
@@ -426,7 +362,7 @@ class TradingMonitor {
                                 <td><span class="current-price">${currentPriceText}</span></td>
                                 <td><span class="take-profit">${takeProfitText}</span></td>
                                 <td>${group.quantity}</td>
-                                <td><span class="order-status ${statusClass}">${statusText}</span></td>
+                                <td><span class="order-status status-active">活跃</span></td>
                                 <td>${createdTime}</td>
                             </tr>
                         `;
@@ -456,7 +392,7 @@ class TradingMonitor {
             
             if (!data.trades || data.trades.length === 0) {
                 if (tradesBody) {
-                    tradesBody.innerHTML = '<tr><td colspan="10" class="empty-state">暂无交易记录</td></tr>';
+                    tradesBody.innerHTML = '<tr><td colspan="11" class="empty-state">暂无交易记录</td></tr>';
                 }
                 if (countEl) {
                     countEl.textContent = '';
@@ -486,6 +422,32 @@ class TradingMonitor {
                     const pnlClass = pnl >= 0 ? 'profit' : 'loss';
                     const pnlText = pnl >= 0 ? `+$${formatUSDT(pnl)}` : `-$${formatUSDT(Math.abs(pnl))}`;
                     
+                    // 平仓原因显示 - 与后端 accountManagement.ts 保持一致的映射
+                    let closeReasonText = '-';
+                    let closeReasonClass = '';
+                    if (trade.closeReason) {
+                        const reasonMap = {
+                            'stop_loss_triggered': { text: '止损触发', class: 'close-reason-sl' },
+                            'take_profit_triggered': { text: '止盈触发', class: 'close-reason-tp' },
+                            'manual_close': { text: 'AI手动', class: 'close-reason-manual' },
+                            'ai_decision': { text: 'AI主动', class: 'close-reason-ai' },
+                            'trend_reversal': { text: '趋势反转', class: 'close-reason-reversal' },
+                            'forced_close': { text: '系统强制', class: 'close-reason-forced' },
+                            'partial_close': { text: '分批止盈', class: 'close-reason-partial' },
+                            'peak_drawdown': { text: '峰值回撤', class: 'close-reason-peak' },
+                            'time_limit': { text: '持仓到期', class: 'close-reason-time' },
+                        };
+                        
+                        const mapping = reasonMap[trade.closeReason];
+                        if (mapping) {
+                            closeReasonText = mapping.text;
+                            closeReasonClass = mapping.class;
+                        } else {
+                            closeReasonText = trade.closeReason;
+                            closeReasonClass = 'close-reason-other';
+                        }
+                    }
+                    
                     return `
                         <tr>
                             <td>${timeStr}</td>
@@ -498,6 +460,7 @@ class TradingMonitor {
                             <td>${trade.holdingTime}</td>
                             <td>$${formatUSDT(trade.totalFee)}</td>
                             <td><span class="${pnlClass}">${pnlText}</span></td>
+                            <td><span class="close-reason ${closeReasonClass}">${closeReasonText}</span></td>
                         </tr>
                     `;
                 }).join('');

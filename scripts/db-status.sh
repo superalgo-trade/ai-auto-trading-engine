@@ -258,10 +258,13 @@ async function showStatus() {
         const reasonMap: Record<string, string> = {
           'stop_loss_triggered': '止损触发',
           'take_profit_triggered': '止盈触发',
-          'manual': '手动平仓',
-          'manual_close': '手动平仓',
-          'liquidation': '强制平仓',
-          'partial_take_profit': '分批止盈'
+          'manual_close': 'AI手动',
+          'ai_decision': 'AI主动',
+          'trend_reversal': '趋势反转',
+          'forced_close': '系统强制',
+          'partial_close': '分批止盈',
+          'peak_drawdown': '峰值回撤',
+          'time_limit': '持仓到期'
         };
         const reasonLabel = reasonMap[event.close_reason] || event.close_reason || '-';
         const triggerLabel = event.trigger_type === 'ai_decision' ? 'AI决策' 

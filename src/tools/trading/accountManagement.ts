@@ -428,13 +428,13 @@ export const getCloseEventsTool = createTool({
       const reasonMap: Record<string, string> = {
         'stop_loss_triggered': '止损触发',
         'take_profit_triggered': '止盈触发',
-        'manual_close': 'AI手动平仓',
-        'ai_decision': 'AI主动平仓',
-        'trend_reversal': '趋势反转平仓',
-        'forced_close': '系统强制平仓',
-        'partial_close': '分批平仓',
-        'peak_drawdown': '峰值回撤平仓',
-        'time_limit': '持仓时间到期',
+        'manual_close': 'AI手动',
+        'ai_decision': 'AI主动',
+        'trend_reversal': '趋势反转',
+        'forced_close': '系统强制',
+        'partial_close': '分批止盈',
+        'peak_drawdown': '峰值回撤',
+        'time_limit': '持仓到期',
       };
       
       const triggerTypeMap: Record<string, string> = {

@@ -1360,6 +1360,85 @@ body {
     opacity: 0.5;
 }
 
+/* 平仓原因样式 */
+.trades-table .close-reason {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 0.85em;
+    font-weight: 500;
+}
+
+/* 止损触发 - 红色 */
+.trades-table .close-reason-sl {
+    background-color: rgba(255, 82, 82, 0.15);
+    color: #ff5252;
+    border: 1px solid rgba(255, 82, 82, 0.3);
+}
+
+/* 止盈触发 - 绿色 */
+.trades-table .close-reason-tp {
+    background-color: rgba(0, 255, 170, 0.15);
+    color: #00ffaa;
+    border: 1px solid rgba(0, 255, 170, 0.3);
+}
+
+/* AI手动平仓 - 蓝色 */
+.trades-table .close-reason-manual {
+    background-color: rgba(100, 181, 246, 0.15);
+    color: #64b5f6;
+    border: 1px solid rgba(100, 181, 246, 0.3);
+}
+
+/* AI主动平仓 - 青色 */
+.trades-table .close-reason-ai {
+    background-color: rgba(0, 229, 255, 0.15);
+    color: #00e5ff;
+    border: 1px solid rgba(0, 229, 255, 0.3);
+}
+
+/* 趋势反转平仓 - 粉色 */
+.trades-table .close-reason-reversal {
+    background-color: rgba(233, 30, 99, 0.15);
+    color: #f48fb1;
+    border: 1px solid rgba(233, 30, 99, 0.3);
+}
+
+/* 系统强制平仓 - 深红色 */
+.trades-table .close-reason-forced {
+    background-color: rgba(198, 40, 40, 0.15);
+    color: #ef5350;
+    border: 1px solid rgba(198, 40, 40, 0.3);
+}
+
+/* 分批止盈 - 紫色 */
+.trades-table .close-reason-partial {
+    background-color: rgba(156, 39, 176, 0.15);
+    color: #ce93d8;
+    border: 1px solid rgba(156, 39, 176, 0.3);
+}
+
+/* 峰值回撤平仓 - 橙色 */
+.trades-table .close-reason-peak {
+    background-color: rgba(255, 152, 0, 0.15);
+    color: #ff9800;
+    border: 1px solid rgba(255, 152, 0, 0.3);
+}
+
+/* 持仓时间到期 - 黄色 */
+.trades-table .close-reason-time {
+    background-color: rgba(255, 193, 7, 0.15);
+    color: #ffc107;
+    border: 1px solid rgba(255, 193, 7, 0.3);
+}
+
+/* 其他原因 - 灰色 */
+.trades-table .close-reason-other {
+    background-color: rgba(158, 158, 158, 0.15);
+    color: #9e9e9e;
+    border: 1px solid rgba(158, 158, 158, 0.3);
+}
+
 .loading,
 .no-data {
     text-align: center;

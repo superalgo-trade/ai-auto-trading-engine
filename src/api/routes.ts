@@ -269,15 +269,20 @@ export function createApiRoutes() {
   });
 
   /**
-   * 获取完整交易记录 - 合并开仓和平仓记录
+   * 获取完整交易记录 - 合并开仓和平仓记录，并关联平仓原因
    */
   app.get("/api/completed-trades", async (c) => {
     try {
       const limit = Number.parseInt(c.req.query("limit") || "50");
       
-      // 获取所有平仓记录
+      // 获取所有平仓记录，并关联平仓事件表获取平仓原因
       const result = await dbClient.execute({
-        sql: `SELECT * FROM trades WHERE type = 'close' ORDER BY timestamp DESC LIMIT ?`,
+        sql: `SELECT t.*, pce.close_reason
+              FROM trades t
+              LEFT JOIN position_close_events pce ON t.order_id = pce.order_id
+              WHERE t.type = 'close' 
+              ORDER BY t.timestamp DESC 
+              LIMIT ?`,
         args: [limit],
       });
       
@@ -340,6 +345,7 @@ export function createApiRoutes() {
             holdingTimeMs,
             totalFee,
             pnl,
+            closeReason: closeRow.close_reason || null, // 平仓原因
           });
         }
       }
@@ -509,15 +515,11 @@ export function createApiRoutes() {
    */
   app.get("/api/price-orders", async (c) => {
     try {
+      // 只返回活跃状态的条件单（已触发和已取消的不显示，因为平仓原因已在交易历史中显示）
       const result = await dbClient.execute(
         `SELECT * FROM price_orders 
-         ORDER BY 
-           CASE status 
-             WHEN 'active' THEN 1 
-             WHEN 'triggered' THEN 2 
-             WHEN 'cancelled' THEN 3 
-           END,
-           created_at DESC`
+         WHERE status = 'active'
+         ORDER BY created_at DESC`
       );
       
       const priceOrders = result.rows.map((row: any) => ({
@@ -535,13 +537,10 @@ export function createApiRoutes() {
         triggered_at: row.triggered_at
       }));
       
-      // 统计活跃的条件单数量
-      const activeCount = priceOrders.filter((order: any) => order.status === 'active').length;
-      
       return c.json({ 
         priceOrders,
         count: priceOrders.length,
-        activeCount 
+        activeCount: priceOrders.length // 全部都是活跃的
       });
     } catch (error: any) {
       logger.error('获取条件单失败:', error);
