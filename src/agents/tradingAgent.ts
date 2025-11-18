@@ -786,8 +786,8 @@ ${params.scientificStopLoss?.enabled ? `
    
    步骤B：基于评分结果做决策（必须基于工具返回的评分）
    ├─ 评分 ≥ ${minOpportunityScore}分：高质量机会，可以考虑开仓
-   ├─ 评分 ${Math.floor(minOpportunityScore * 0.75)}-${minOpportunityScore - 1}分：中等机会，需谨慎评估当前情况
-   ├─ 评分 < ${Math.floor(minOpportunityScore * 0.75)}分：低质量机会，强烈建议观望
+   ├─ 评分 ${Math.floor(minOpportunityScore * 0.75)}-${minOpportunityScore - 1}分：中等机会，强烈建议观望
+   ├─ 评分 < ${Math.floor(minOpportunityScore * 0.75)}分：低质量机会，原则上不应开仓
    └─ ⚠️ 如果所有机会评分都 < ${minOpportunityScore}分，原则上不应开仓
    
    步骤C：开仓前二次验证（必须执行）
@@ -1966,8 +1966,8 @@ function generateInstructions(strategy: TradingStrategy, intervalMinutes: number
       
       第2步：评估工具返回的机会质量
       - 评分 ≥ ${minOpportunityScore}分：高质量机会，可以考虑开仓
-      - 评分 ${Math.floor(minOpportunityScore * 0.75)}-${minOpportunityScore - 1}分：中等机会，需谨慎评估
-      - 评分 < ${Math.floor(minOpportunityScore * 0.75)}分：低质量机会，强烈建议观望
+      - 评分 ${Math.floor(minOpportunityScore * 0.75)}-${minOpportunityScore - 1}分：中等机会，强烈建议观望
+      - 评分 < ${Math.floor(minOpportunityScore * 0.75)}分：低质量机会，原则上不应开仓
       - ⚠️ 如果所有机会评分都 < ${minOpportunityScore}分，原则上不应开仓
       
       第3步：满足以下所有技术条件
