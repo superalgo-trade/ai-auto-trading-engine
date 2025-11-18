@@ -54,6 +54,9 @@ async function syncPriceOrders() {
     for (const pos of positions.rows) {
       const position = pos as any;
       const now = new Date().toISOString();
+      
+      // 🔧 获取持仓的开仓订单ID，用于关联条件单
+      const positionOrderId = position.entry_order_id || null;
 
       // 检查止损订单
       if (position.sl_order_id && position.stop_loss) {
@@ -72,8 +75,8 @@ async function syncPriceOrders() {
 
             await dbClient.execute({
               sql: `INSERT INTO price_orders 
-                    (order_id, symbol, side, type, trigger_price, order_price, quantity, status, created_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                    (order_id, symbol, side, type, trigger_price, order_price, quantity, status, created_at, position_order_id)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
               args: [
                 position.sl_order_id,
                 position.symbol,
@@ -83,16 +86,26 @@ async function syncPriceOrders() {
                 0,
                 position.quantity,
                 status,
-                now
+                now,
+                positionOrderId  // 🔧 关联到持仓的开仓订单
               ]
             });
-            logger.info(`✅ 同步止损单: ${position.symbol} ${position.sl_order_id} (${status})`);
+            logger.info(`✅ 同步止损单: ${position.symbol} ${position.sl_order_id} (${status}) → 关联持仓: ${positionOrderId}`);
             syncCount++;
           } catch (err: any) {
             logger.warn(`⚠️  止损单 ${position.sl_order_id} 不存在于交易所，可能已被触发或取消`);
             skipCount++;
           }
         } else {
+          // 🔧 如果条件单已存在但没有position_order_id，更新它
+          const existingOrder = existing.rows[0] as any;
+          if (!existingOrder.position_order_id && positionOrderId) {
+            await dbClient.execute({
+              sql: "UPDATE price_orders SET position_order_id = ? WHERE order_id = ?",
+              args: [positionOrderId, position.sl_order_id]
+            });
+            logger.info(`✅ 更新止损单关联: ${position.symbol} ${position.sl_order_id} → ${positionOrderId}`);
+          }
           logger.debug(`止损单 ${position.sl_order_id} 已在数据库中`);
           skipCount++;
         }
@@ -115,8 +128,8 @@ async function syncPriceOrders() {
 
             await dbClient.execute({
               sql: `INSERT INTO price_orders 
-                    (order_id, symbol, side, type, trigger_price, order_price, quantity, status, created_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                    (order_id, symbol, side, type, trigger_price, order_price, quantity, status, created_at, position_order_id)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
               args: [
                 position.tp_order_id,
                 position.symbol,
@@ -126,16 +139,26 @@ async function syncPriceOrders() {
                 0,
                 position.quantity,
                 status,
-                now
+                now,
+                positionOrderId  // 🔧 关联到持仓的开仓订单
               ]
             });
-            logger.info(`✅ 同步止盈单: ${position.symbol} ${position.tp_order_id} (${status})`);
+            logger.info(`✅ 同步止盈单: ${position.symbol} ${position.tp_order_id} (${status}) → 关联持仓: ${positionOrderId}`);
             syncCount++;
           } catch (err: any) {
             logger.warn(`⚠️  止盈单 ${position.tp_order_id} 不存在于交易所，可能已被触发或取消`);
             skipCount++;
           }
         } else {
+          // 🔧 如果条件单已存在但没有position_order_id，更新它
+          const existingOrder = existing.rows[0] as any;
+          if (!existingOrder.position_order_id && positionOrderId) {
+            await dbClient.execute({
+              sql: "UPDATE price_orders SET position_order_id = ? WHERE order_id = ?",
+              args: [positionOrderId, position.tp_order_id]
+            });
+            logger.info(`✅ 更新止盈单关联: ${position.symbol} ${position.tp_order_id} → ${positionOrderId}`);
+          }
           logger.debug(`止盈单 ${position.tp_order_id} 已在数据库中`);
           skipCount++;
         }
