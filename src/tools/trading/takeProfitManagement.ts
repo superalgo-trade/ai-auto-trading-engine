@@ -307,6 +307,18 @@ async function recordPartialTakeProfit(data: {
   status: "completed" | "failed";
   notes?: string;
 }): Promise<void> {
+  // 🔧 修复：先删除pending占位记录，再插入completed记录
+  // 这样可以防止pending记录残留在数据库中
+  try {
+    await dbClient.execute({
+      sql: `DELETE FROM partial_take_profit_history 
+            WHERE symbol LIKE ? AND stage = ? AND status = 'pending'`,
+      args: [`%${data.symbol}%`, data.stage]
+    });
+  } catch (cleanupError: any) {
+    logger.warn(`清理pending记录失败: ${cleanupError.message}`);
+  }
+  
   await dbClient.execute({
     sql: `
       INSERT INTO partial_take_profit_history (
@@ -376,7 +388,7 @@ export const partialTakeProfitTool = createTool({
       
       logger.info(`🔍 开始执行分批止盈: symbol=${symbol}, contract=${contract}, dbSymbol=${dbSymbol}, stage=${stage}`);
       
-      // ⚡ 30秒内去重保护：防止健康检查和AI Agent并发冲突
+      // ⚡ 阶段1: 30秒内去重保护（快速检查）
       const requestedStage = Number.parseInt(stage, 10);
       const cutoffTime = new Date(Date.now() - 30000).toISOString();
       const recentCheck = await dbClient.execute({
@@ -392,6 +404,56 @@ export const partialTakeProfitTool = createTool({
           success: false,
           message: `${symbol} Stage${stage} 最近30秒内已执行，跳过以避免重复`,
           reason: 'recently_executed'
+        };
+      }
+      
+      // ⚡ 阶段2: 数据库事务级别的原子性检查（强制幂等性）
+      // 在事务中检查并插入占位记录，防止并发执行
+      try {
+        await dbClient.execute('BEGIN IMMEDIATE TRANSACTION');
+        
+        // 再次检查是否已有记录（在事务保护下）
+        const doubleCheck = await dbClient.execute({
+          sql: `SELECT COUNT(*) as count FROM partial_take_profit_history 
+                WHERE symbol LIKE ? AND stage = ? AND status = 'completed'`,
+          args: [`%${symbol}%`, requestedStage]
+        });
+        
+        const existingCount = Number(doubleCheck.rows[0]?.count || 0);
+        if (existingCount > 0) {
+          await dbClient.execute('ROLLBACK');
+          logger.info(`⏭️ ${symbol} Stage${stage} 已有完成记录，跳过（事务检查）`);
+          return {
+            success: false,
+            message: `${symbol} Stage${stage} 已执行过，不能重复执行`,
+            reason: 'already_executed'
+          };
+        }
+        
+        // 插入占位记录，标记为pending状态
+        const placeholderId = `pending_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        await dbClient.execute({
+          sql: `INSERT INTO partial_take_profit_history 
+                (symbol, side, stage, r_multiple, trigger_price, close_percent, 
+                 closed_quantity, remaining_quantity, pnl, order_id, status, timestamp)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          args: [
+            symbol, 'pending', requestedStage, 0, 0, 0, 0, 0, 0, 
+            placeholderId, 'pending', new Date().toISOString()
+          ]
+        });
+        
+        await dbClient.execute('COMMIT');
+        logger.debug(`✅ 已插入pending占位记录: ${placeholderId}`);
+        
+        // 后续正常执行完成后，会将pending记录更新为completed或删除
+      } catch (txError: any) {
+        await dbClient.execute('ROLLBACK').catch(() => {});
+        logger.error(`事务检查失败: ${txError.message}`);
+        return {
+          success: false,
+          message: `并发冲突，请稍后重试`,
+          reason: 'transaction_conflict'
         };
       }
       
@@ -1084,12 +1146,16 @@ export const partialTakeProfitTool = createTool({
           ? ((currentPrice - entryPrice) / entryPrice * 100 * (side === 'long' ? 1 : -1) * leverage)
           : 0;
         
+        // 🔧 核心修复：使用实际的交易订单ID作为trigger_order_id，确保唯一性
+        // closeOrderResponse.id 是交易所返回的实际订单ID，保证全局唯一
+        const uniqueTriggerId = closeOrderResponse.id || `partial_tp_${dbSymbol}_${side}_stage${stageNum}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        
         await dbClient.execute({
           sql: `INSERT INTO position_close_events 
                 (symbol, side, entry_price, close_price, quantity, leverage, 
-                 pnl, pnl_percent, fee, close_reason, trigger_type, order_id, 
+                 pnl, pnl_percent, fee, close_reason, trigger_type, trigger_order_id, order_id, 
                  created_at, processed)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           args: [
             dbSymbol,
             side,
@@ -1102,6 +1168,7 @@ export const partialTakeProfitTool = createTool({
             estimatedFee,
             'partial_close',   // ⭐ 平仓原因：分批平仓
             'ai_decision',     // 触发类型：AI决策
+            uniqueTriggerId,   // ⭐ 唯一标识符，防止重复插入
             closeOrderResponse.id, // ⭐ 使用真实的交易订单ID
             getChinaTimeISO(),
             1,  // 已处理

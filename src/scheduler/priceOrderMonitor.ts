@@ -791,21 +791,38 @@ export class PriceOrderMonitor {
           const priceTolerancePercent = 0.05; // 0.05% 价格容差
           const priceTolerance = triggerPrice * (priceTolerancePercent / 100);
 
+          let priceMatches = false;
           if (order.type === 'stop_loss') {
             // 止损：多单向下突破，空单向上突破
             if (order.side === 'long') {
-              return tradePrice <= triggerPrice + priceTolerance;
+              priceMatches = tradePrice <= triggerPrice + priceTolerance;
             } else {
-              return tradePrice >= triggerPrice - priceTolerance;
+              priceMatches = tradePrice >= triggerPrice - priceTolerance;
             }
           } else {
             // 止盈：多单向上突破，空单向下突破
             if (order.side === 'long') {
-              return tradePrice >= triggerPrice - priceTolerance;
+              priceMatches = tradePrice >= triggerPrice - priceTolerance;
             } else {
-              return tradePrice <= triggerPrice + priceTolerance;
+              priceMatches = tradePrice <= triggerPrice + priceTolerance;
             }
           }
+          
+          if (!priceMatches) return false;
+
+          // 🔧 关键修复：数量验证 - 平仓数量不应超过条件单数量的110%
+          // 允许10%的容差以应对部分成交和精度问题
+          const absTradeSize = Math.abs(tradeSize);
+          const expectedQuantity = parseFloat(order.quantity);
+          const quantityTolerancePercent = 10; // 10% 数量容差
+          const maxAllowedQuantity = expectedQuantity * (1 + quantityTolerancePercent / 100);
+          
+          if (absTradeSize > maxAllowedQuantity) {
+            logger.debug(`⏭️ 跳过交易记录（数量异常）: 成交量=${absTradeSize}, 预期=${expectedQuantity}, 最大允许=${maxAllowedQuantity.toFixed(2)}`);
+            return false;
+          }
+          
+          return true;
         });
 
         if (closeTrades.length > 0) {
