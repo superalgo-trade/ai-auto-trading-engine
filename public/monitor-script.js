@@ -356,9 +356,11 @@ class TradingMonitor {
             // 更新条件单表格（合并显示）
             if (priceOrdersBody) {
                 const rows = Object.values(groupedOrders)
+                    // 过滤掉已取消的订单组
+                    .filter(group => group.status !== 'cancelled')
                     // 按状态和创建时间排序
                     .sort((a, b) => {
-                        const statusOrder = { 'active': 1, 'triggered': 2, 'cancelled': 3 };
+                        const statusOrder = { 'active': 1, 'triggered': 2 };
                         if (statusOrder[a.status] !== statusOrder[b.status]) {
                             return statusOrder[a.status] - statusOrder[b.status];
                         }
