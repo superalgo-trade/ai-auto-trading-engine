@@ -373,27 +373,26 @@ export async function calculateScientificStopLoss(
     }
   }
   
-  // ===== 4. 应用最小/最大止损限制 =====
+  // ===== 4. 验证止损距离（不自动调整，保留原始计算结果供后续检查）=====
+  // ⚠️ 重要：这里不再强制调整止损距离
+  // 如果止损距离超出合理范围，应该在 shouldOpenPosition 中拒绝开仓
+  // 而不是强制调整止损距离后允许开仓
   const minStopDistance = entryPrice * (config.minStopLossPercent / 100);
   const maxStopDistance = entryPrice * (config.maxStopLossPercent / 100);
   
   if (side === "long") {
     const currentDistance = entryPrice - finalStopPrice;
     if (currentDistance < minStopDistance) {
-      finalStopPrice = entryPrice - minStopDistance;
-      logger.warn(`止损距离过小，调整为最小值 ${config.minStopLossPercent}%`);
+      logger.warn(`⚠️ 止损距离过小 (${(currentDistance / entryPrice * 100).toFixed(2)}% < ${config.minStopLossPercent}%)，建议放弃此次交易`);
     } else if (currentDistance > maxStopDistance) {
-      finalStopPrice = entryPrice - maxStopDistance;
-      logger.warn(`止损距离过大，调整为最大值 ${config.maxStopLossPercent}%`);
+      logger.warn(`⚠️ 止损距离过大 (${(currentDistance / entryPrice * 100).toFixed(2)}% > ${config.maxStopLossPercent}%)，建议放弃此次交易`);
     }
   } else {
     const currentDistance = finalStopPrice - entryPrice;
     if (currentDistance < minStopDistance) {
-      finalStopPrice = entryPrice + minStopDistance;
-      logger.warn(`止损距离过小，调整为最小值 ${config.minStopLossPercent}%`);
+      logger.warn(`⚠️ 止损距离过小 (${(currentDistance / entryPrice * 100).toFixed(2)}% < ${config.minStopLossPercent}%)，建议放弃此次交易`);
     } else if (currentDistance > maxStopDistance) {
-      finalStopPrice = entryPrice + maxStopDistance;
-      logger.warn(`止损距离过大，调整为最大值 ${config.maxStopLossPercent}%`);
+      logger.warn(`⚠️ 止损距离过大 (${(currentDistance / entryPrice * 100).toFixed(2)}% > ${config.maxStopLossPercent}%)，建议放弃此次交易`);
     }
   }
   
@@ -503,7 +502,15 @@ export async function shouldOpenPosition(
       config
     );
     
-    // 检查1：止损距离是否过大
+    // 检查1：止损距离是否在合理范围内（严格检查）
+    if (stopLossResult.stopLossDistancePercent < config.minStopLossPercent) {
+      return {
+        shouldOpen: false,
+        reason: `止损距离过小 (${stopLossResult.stopLossDistancePercent.toFixed(2)}% < ${config.minStopLossPercent}%)，市场噪音可能导致频繁止损`,
+        stopLossResult,
+      };
+    }
+    
     if (stopLossResult.stopLossDistancePercent > config.maxStopLossPercent) {
       return {
         shouldOpen: false,

@@ -49,8 +49,8 @@ const MAX_OPPORTUNITIES_TO_SHOW = Number.parseInt(process.env.MAX_OPPORTUNITIES_
 
 const analyzeOpeningOpportunitiesSchema = z.object({
   symbols: z.array(z.string()).optional().describe("要分析的交易品种列表，如果不提供则使用环境变量中配置的交易品种"),
-  minScore: z.number().optional().describe("最低机会评分阈值（0-100），默认60分"),
-  maxResults: z.number().optional().describe("返回的最大机会数量，默认5个"),
+  minScore: z.number().optional().describe("最低机会评分阈值（0-100），默认使用环境变量配置"),
+  maxResults: z.number().optional().describe("⚠️ 此参数已废弃，系统将强制使用环境变量 MAX_OPPORTUNITIES_TO_SHOW 的配置值"),
   includeOpenPositions: z.boolean().optional().describe("是否包含已有持仓的币种，默认false（自动过滤）"),
 });
 
@@ -66,7 +66,7 @@ export const analyzeOpeningOpportunitiesTool = createTool({
 2. 根据市场状态选择最优策略（趋势跟踪、均值回归、突破）
 3. 对所有机会进行量化评分（0-100分）
 4. 自动过滤已有持仓的币种
-5. 返回评分最高的前N个开仓机会
+5. 返回评分最高的前N个开仓机会（N由环境变量 MAX_OPPORTUNITIES_TO_SHOW 控制）
 
 返回的每个机会包含：
 - 机会评分（0-100）
@@ -78,6 +78,11 @@ export const analyzeOpeningOpportunitiesTool = createTool({
 - 详细理由
 - 关键指标
 
+⚠️ 重要提示：
+- 返回数量由系统配置决定，不要传入 maxResults 参数
+- 最低评分阈值由环境变量 MIN_OPPORTUNITY_SCORE 控制
+- 工具会自动过滤已有持仓的币种
+
 建议使用场景：
 - 当需要评估新的开仓机会时
 - 当账户有可用余额但没有持仓时
@@ -85,10 +90,16 @@ export const analyzeOpeningOpportunitiesTool = createTool({
 
 注意：此工具只提供开仓建议，实际开仓决策由AI根据全局情况判断。`,
   parameters: analyzeOpeningOpportunitiesSchema,
-  execute: async ({ symbols: inputSymbols, minScore = MIN_OPPORTUNITY_SCORE, maxResults = MAX_OPPORTUNITIES_TO_SHOW, includeOpenPositions = false }) => {
+  execute: async ({ symbols: inputSymbols, minScore = MIN_OPPORTUNITY_SCORE, maxResults, includeOpenPositions = false }) => {
 
     try {
       logger.info("🔍 开始分析开仓机会...");
+      
+      // 强制使用配置的最大显示数量，忽略 AI 传入的参数
+      const effectiveMaxResults = MAX_OPPORTUNITIES_TO_SHOW;
+      if (maxResults !== undefined && maxResults !== effectiveMaxResults) {
+        logger.warn(`⚠️ AI 传入 maxResults=${maxResults}，已强制使用配置值 ${effectiveMaxResults}`);
+      }
 
       // 1. 确定要分析的交易品种列表
       let symbolsToAnalyze: string[];
@@ -154,8 +165,8 @@ export const analyzeOpeningOpportunitiesTool = createTool({
       const resultArray = Array.from(strategyResults.values());
       const rankedOpportunities = scoreAndRankOpportunities(resultArray, marketStates, minScore);
       
-      // 限制返回数量
-      const topOpportunities = rankedOpportunities.slice(0, maxResults);
+      // 限制返回数量（使用强制的配置值）
+      const topOpportunities = rankedOpportunities.slice(0, effectiveMaxResults);
       
       logger.info(`  ✓ 发现 ${rankedOpportunities.length} 个评分达标的机会`);
       logger.info(`  ✓ 返回前 ${topOpportunities.length} 个最佳机会`);
@@ -211,7 +222,7 @@ export const analyzeOpeningOpportunitiesTool = createTool({
         topOpportunities: formattedOpportunities,
         filterInfo: {
           minScore,
-          maxResults,
+          maxResults: effectiveMaxResults,
           openPositionsFiltered: openPositionSymbols,
         },
         marketSummary: generateMarketSummary(marketStates),
