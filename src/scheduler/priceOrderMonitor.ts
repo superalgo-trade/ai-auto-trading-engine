@@ -339,52 +339,41 @@ export class PriceOrderMonitor {
   private async handleTriggeredOrder(order: DBPriceOrder) {
     logger.debug(`🔍 检查条件单: ${order.symbol} ${order.type} ${order.order_id}`);
     
-    // 🔧 关键修复1：检查此条件单是否已经被记录到平仓事件表
+    // 🔧 关键修复1：严格的幂等性检查 - 只检查trigger_order_id
     try {
       const existingEvent = await this.dbClient.execute({
-        sql: `SELECT COUNT(*) as count FROM position_close_events 
-              WHERE trigger_order_id = ? OR (symbol = ? AND side = ? AND close_reason LIKE ? AND ABS(CAST(trigger_price AS REAL) - ?) < 0.01)
-              LIMIT 1`,
-        args: [
-          order.order_id,
-          order.symbol,
-          order.side,
-          order.type === 'stop_loss' ? '%stop_loss%' : '%take_profit%',
-          parseFloat(order.trigger_price)
-        ]
+        sql: `SELECT id FROM position_close_events WHERE trigger_order_id = ? LIMIT 1`,
+        args: [order.order_id]
       });
       
-      const eventCount = existingEvent.rows[0]?.count as number || 0;
-      if (eventCount > 0) {
-        logger.info(`⏭️ 跳过: 条件单 ${order.order_id} 已被处理过 (平仓事件表中已有记录)`);
-        // 更新状态为triggered，避免下次再检测
+      if (existingEvent.rows.length > 0) {
+        logger.info(`⏭️ [幂等性] 条件单 ${order.order_id} 已被处理，跳过`);
         await this.updateOrderStatus(order.order_id, 'triggered');
-        await this.cancelOppositeOrderInDB(order);
         return;
       }
     } catch (checkError: any) {
-      logger.warn(`检查重复处理失败: ${checkError.message}，继续执行`);
+      logger.warn(`幂等性检查失败: ${checkError.message}`);
     }
     
-    // 🔧 关键修复2：检查是否已经处理过相同持仓的平仓（基于时间窗口）
+    // 🔧 关键修复2：检查近期平仓记录（扩大时间窗口到2分钟）
     try {
-      const recentCloseTime = new Date(Date.now() - 60 * 1000).toISOString(); // 1分钟内
+      const recentCloseTime = new Date(Date.now() - 120 * 1000).toISOString(); // 2分钟
       const recentClose = await this.dbClient.execute({
-        sql: `SELECT COUNT(*) as count FROM position_close_events 
+        sql: `SELECT id, close_reason, created_at FROM position_close_events 
               WHERE symbol = ? AND side = ? AND created_at > ?
-              LIMIT 1`,
+              ORDER BY created_at DESC LIMIT 1`,
         args: [order.symbol, order.side, recentCloseTime]
       });
       
-      const recentCount = recentClose.rows[0]?.count as number || 0;
-      if (recentCount > 0) {
-        logger.info(`⏭️ 跳过: ${order.symbol} ${order.side} 持仓在1分钟内已有平仓记录，可能是重复检测`);
+      if (recentClose.rows.length > 0) {
+        const lastClose = recentClose.rows[0];
+        logger.info(`⏭️ [去重] ${order.symbol} ${order.side} 在2分钟内已有平仓 (${lastClose.close_reason})，跳过`);
         await this.updateOrderStatus(order.order_id, 'triggered');
         await this.cancelOppositeOrderInDB(order);
         return;
       }
     } catch (checkError: any) {
-      logger.warn(`检查近期平仓失败: ${checkError.message}，继续执行`);
+      logger.warn(`近期平仓检查失败: ${checkError.message}`);
     }
 
     // 🔧 关键优化：先快速查找平仓交易，判断价格是否匹配此条件单
