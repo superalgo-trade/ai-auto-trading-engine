@@ -361,10 +361,11 @@ export class PriceOrderMonitor {
     }
     
     // 🔧 关键修复2：检查近期平仓记录（扩大时间窗口到2分钟）
+    // 注意：只有完全平仓才需要去重，分批平仓不应该跳过
     try {
       const recentCloseTime = new Date(Date.now() - 120 * 1000).toISOString(); // 2分钟
       const recentClose = await this.dbClient.execute({
-        sql: `SELECT id, close_reason, created_at FROM position_close_events 
+        sql: `SELECT id, close_reason, created_at, trigger_order_id FROM position_close_events 
               WHERE symbol = ? AND side = ? AND created_at > ?
               ORDER BY created_at DESC LIMIT 1`,
         args: [order.symbol, order.side, recentCloseTime]
@@ -372,10 +373,28 @@ export class PriceOrderMonitor {
       
       if (recentClose.rows.length > 0) {
         const lastClose = recentClose.rows[0];
-        logger.info(`⏭️ [去重] ${order.symbol} ${order.side} 在2分钟内已有平仓 (${lastClose.close_reason})，跳过`);
-        await this.updateOrderStatus(order.order_id, 'triggered');
-        await this.cancelOppositeOrderInDB(order);
-        return;
+        const closeReason = lastClose.close_reason as string;
+        
+        // 🔧 核心修复：区分完全平仓和部分平仓
+        // - partial_close: 部分平仓，持仓仍存在，应继续处理后续条件单触发
+        // - stop_loss_triggered/take_profit_triggered/manual_close等: 完全平仓，需要去重
+        if (closeReason === 'partial_close') {
+          logger.debug(`检测到近期分批平仓 (${closeReason})，但持仓可能仍存在，继续处理条件单触发`);
+        } else {
+          // 完全平仓类型：检查是否是同一个条件单触发
+          const lastTriggerOrderId = lastClose.trigger_order_id as string;
+          if (lastTriggerOrderId === order.order_id) {
+            logger.info(`⏭️ [去重-幂等性] 条件单 ${order.order_id} 已被处理 (${closeReason})，跳过`);
+            await this.updateOrderStatus(order.order_id, 'triggered');
+            await this.cancelOppositeOrderInDB(order);
+            return;
+          } else {
+            // 不同条件单但同一持仓的完全平仓，也应该跳过（可能是手动平仓或其他条件单）
+            logger.info(`⏭️ [去重] ${order.symbol} ${order.side} 在2分钟内已完全平仓 (${closeReason})，跳过当前条件单`);
+            await this.updateOrderStatus(order.order_id, 'cancelled');
+            return;
+          }
+        }
       }
     } catch (checkError: any) {
       logger.warn(`近期平仓检查失败: ${checkError.message}`);
