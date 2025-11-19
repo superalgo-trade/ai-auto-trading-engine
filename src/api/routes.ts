@@ -214,12 +214,12 @@ export function createApiRoutes() {
       const limit = Number.parseInt(c.req.query("limit") || "10");
       const symbol = c.req.query("symbol"); // 可选，筛选特定币种
       
-      // 从数据库获取历史交易记录
-      let sql = `SELECT * FROM trades ORDER BY id DESC LIMIT ?`;
+      // 从数据库获取历史交易记录，按时间戳倒序（最新平仓的在最前面）
+      let sql = `SELECT * FROM trades ORDER BY timestamp DESC LIMIT ?`;
       let args: any[] = [limit];
       
       if (symbol) {
-        sql = `SELECT * FROM trades WHERE symbol = ? ORDER BY id DESC LIMIT ?`;
+        sql = `SELECT * FROM trades WHERE symbol = ? ORDER BY timestamp DESC LIMIT ?`;
         args = [symbol, limit];
       }
       
