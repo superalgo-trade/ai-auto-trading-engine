@@ -230,6 +230,7 @@ body {
 #stars-count {
     min-width: 20px;
     text-align: center;
+    padding-top: 1.5px;
 }
 
 .btn-waitlist {
