@@ -277,12 +277,13 @@ export function createApiRoutes() {
       const limit = Number.parseInt(c.req.query("limit") || "50");
       
       // 获取所有平仓记录，并关联平仓事件表获取平仓原因
+      // 使用 strftime 将不同格式的时间戳统一转换为Unix时间戳进行排序
       const result = await dbClient.execute({
         sql: `SELECT t.*, pce.close_reason
               FROM trades t
               LEFT JOIN position_close_events pce ON t.order_id = pce.order_id
               WHERE t.type = 'close' 
-              ORDER BY t.timestamp DESC 
+              ORDER BY strftime('%s', t.timestamp) DESC 
               LIMIT ?`,
         args: [limit],
       });
