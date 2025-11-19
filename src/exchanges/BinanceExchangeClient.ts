@@ -1478,7 +1478,7 @@ export class BinanceExchangeClient implements IExchangeClient {
     }
   }
 
-  getContractType(): 'inverse' | 'linear' {
+  getContractType(contract?: string): 'inverse' | 'linear' {
     return 'linear'; // Binance USDT 永续合约是正向合约（USDT 本位）
   }
 

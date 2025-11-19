@@ -573,18 +573,42 @@ IMPORTANT:
       //  使用实际成交数量和价格记录到数据库
       const finalQuantity = actualFillSize > 0 ? actualFillSize : Math.abs(size);
       
-      // 🔧 计算手续费（taker费率 0.05%）
-      // 根据合约类型计算名义价值
-      let positionValue: number;
-      if (contractType === 'inverse') {
-        // Gate.io: 名义价值 = 张数 * quantoMultiplier * 价格
-        const quantoMultiplier = await getQuantoMultiplier(contract);
-        positionValue = finalQuantity * quantoMultiplier * actualFillPrice;
-      } else {
-        // Binance: 名义价值 = 数量 * 价格
-        positionValue = finalQuantity * actualFillPrice;
+      // 🔧 获取真实手续费
+      let fee: number;
+      try {
+        // 尝试从交易所成交记录获取真实手续费
+        const trades = await exchangeClient.getMyTrades(contract, 10);
+        const matchedTrade = trades.find(t => 
+          t.order_id === order.id?.toString() || t.id === order.id?.toString()
+        );
+        
+        if (matchedTrade && matchedTrade.fee) {
+          fee = parseFloat(matchedTrade.fee);
+          logger.debug(`✅ 使用真实手续费: ${fee.toFixed(8)} USDT`);
+        } else {
+          // 后备方案：估算手续费
+          let positionValue: number;
+          if (contractType === 'inverse') {
+            const quantoMultiplier = await getQuantoMultiplier(contract);
+            positionValue = finalQuantity * quantoMultiplier * actualFillPrice;
+          } else {
+            positionValue = finalQuantity * actualFillPrice;
+          }
+          fee = positionValue * 0.0005;
+          logger.debug(`⚠️ 未找到成交记录，估算手续费: ${fee.toFixed(8)} USDT`);
+        }
+      } catch (error: any) {
+        // 后备方案：估算手续费
+        logger.warn(`⚠️ 获取真实手续费失败: ${error.message}，使用估算值`);
+        let positionValue: number;
+        if (contractType === 'inverse') {
+          const quantoMultiplier = await getQuantoMultiplier(contract);
+          positionValue = finalQuantity * quantoMultiplier * actualFillPrice;
+        } else {
+          positionValue = finalQuantity * actualFillPrice;
+        }
+        fee = positionValue * 0.0005;
       }
-      const fee = positionValue * 0.0005; // 0.05%
       
       // 记录开仓交易
       // side: 持仓方向（long=做多, short=做空）

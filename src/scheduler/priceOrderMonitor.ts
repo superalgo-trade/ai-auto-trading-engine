@@ -27,6 +27,7 @@
 import { createLogger } from "../utils/logger";
 import { getChinaTimeISO } from "../utils/timeUtils";
 import { getQuantoMultiplier } from "../utils/contractUtils";
+import { FeeService } from "../services/feeService";
 import type { Client } from "@libsql/client";
 import type { IExchangeClient } from "../exchanges/IExchangeClient";
 
@@ -68,11 +69,14 @@ interface DBPriceOrder {
 export class PriceOrderMonitor {
   private checkInterval: NodeJS.Timeout | null = null;
   private isRunning = false;
+  private feeService: FeeService;
   
   constructor(
     private dbClient: Client,
     private exchangeClient: IExchangeClient
-  ) {}
+  ) {
+    this.feeService = new FeeService(exchangeClient);
+  }
 
   /**
    * 启动监控服务
@@ -542,7 +546,9 @@ export class PriceOrderMonitor {
     // 计算盈亏
     const entryPrice = parseFloat(position.entry_price as string);
     const exitPrice = parseFloat(trade.price);
-    const quantity = Math.abs(parseFloat(trade.size));
+    // 🔧 关键修复：使用持仓记录中的原始数量，而非成交数量
+    // Gate.io 成交记录的 size 字段可能不准确，应使用开仓时的数量
+    const quantity = Math.abs(parseFloat(position.quantity as string));
     const leverage = parseInt(position.leverage as string) || 1;
     const contract = this.exchangeClient.normalizeContract(order.symbol);
 
@@ -554,33 +560,79 @@ export class PriceOrderMonitor {
       contract
     );
     
-    // 计算手续费
-    const contractType = this.exchangeClient.getContractType();
-    let openFee: number;
-    let closeFee: number;
+    // 🔧 核心优化：使用 FeeService 获取真实手续费
+    const contractType = this.exchangeClient.getContractType(contract);
     
+    // 计算名义价值（用于手续费估算）
+    let notionalValue: number;
     if (contractType === 'inverse') {
-      // 反向合约手续费计算：基于USDT名义价值
-      // 名义价值 = 张数 * 合约乘数 * 价格
-      // 手续费 = 名义价值 * 手续费率 (0.05%)
       const quantoMultiplier = await getQuantoMultiplier(contract);
-      openFee = quantity * quantoMultiplier * entryPrice * 0.0005;
-      closeFee = quantity * quantoMultiplier * exitPrice * 0.0005;
+      notionalValue = quantity * quantoMultiplier * entryPrice;
     } else {
-      // 正向合约手续费计算：基于USDT价值
-      openFee = quantity * entryPrice * 0.0005;
-      closeFee = quantity * exitPrice * 0.0005;
+      const quantoMultiplier = await getQuantoMultiplier(contract);
+      const actualQuantity = quantoMultiplier > 1 ? quantity * quantoMultiplier : quantity;
+      notionalValue = actualQuantity * entryPrice;
+    }
+    
+    // 获取平仓手续费（优先使用成交记录中的真实手续费）
+    let closeNotionalValue: number;
+    if (contractType === 'inverse') {
+      const quantoMultiplier = await getQuantoMultiplier(contract);
+      closeNotionalValue = quantity * quantoMultiplier * exitPrice;
+    } else {
+      const quantoMultiplier = await getQuantoMultiplier(contract);
+      const actualQuantity = quantoMultiplier > 1 ? quantity * quantoMultiplier : quantity;
+      closeNotionalValue = actualQuantity * exitPrice;
+    }
+    
+    const closeFeeResult = await this.feeService.getFee(trade.id, contract, closeNotionalValue);
+    const closeFee = closeFeeResult.fee;
+    
+    // 获取开仓手续费（尝试从数据库中的开仓交易记录获取）
+    let openFee: number;
+    try {
+      const openTradeResult = await this.dbClient.execute({
+        sql: `SELECT fee FROM trades WHERE symbol = ? AND side = ? AND type = 'open' 
+              ORDER BY timestamp DESC LIMIT 1`,
+        args: [order.symbol, order.side]
+      });
+      
+      if (openTradeResult.rows.length > 0 && openTradeResult.rows[0].fee) {
+        openFee = parseFloat(openTradeResult.rows[0].fee as string);
+        logger.debug(`使用数据库中的真实开仓手续费: ${openFee.toFixed(4)} USDT`);
+      } else {
+        // 后备方案：估算
+        const openFeeResult = await this.feeService.estimateFee(notionalValue);
+        openFee = openFeeResult.fee;
+      }
+    } catch (error: any) {
+      logger.warn(`获取开仓手续费失败，使用估算: ${error.message}`);
+      const openFeeResult = await this.feeService.estimateFee(notionalValue);
+      openFee = openFeeResult.fee;
     }
     
     const totalFee = openFee + closeFee;
     const netPnl = grossPnl - totalFee;
 
+    // 🔧 核心修复：盈亏百分比计算
+    // 盈亏百分比 = (净盈亏 / 保证金) * 100
+    // 保证金 = 持仓价值 / 杠杆
+    let pnlPercent: number;
     
-    // 计算盈亏百分比
-    const priceChangePercent = order.side === "long"
-      ? ((exitPrice - entryPrice) / entryPrice) * 100
-      : ((entryPrice - exitPrice) / entryPrice) * 100;
-    const pnlPercent = priceChangePercent * leverage;
+    if (contractType === 'inverse') {
+      // Gate.io 币本位合约：持仓价值 = 张数 * 合约乘数 * 开仓价
+      const quantoMultiplier = await getQuantoMultiplier(contract);
+      const positionValue = quantity * quantoMultiplier * entryPrice;
+      const margin = positionValue / leverage;
+      pnlPercent = (netPnl / margin) * 100;
+    } else {
+      // USDT 本位合约：需要考虑 quantoMultiplier
+      const quantoMultiplier = await getQuantoMultiplier(contract);
+      const actualQuantity = quantoMultiplier > 1 ? quantity * quantoMultiplier : quantity;
+      const positionValue = actualQuantity * entryPrice;
+      const margin = positionValue / leverage;
+      pnlPercent = (netPnl / margin) * 100;
+    }
     
     logger.info(`💰 盈亏: 毛利=${grossPnl.toFixed(2)} USDT, 手续费=${totalFee.toFixed(2)} USDT, 净利=${netPnl.toFixed(2)} USDT (${pnlPercent.toFixed(2)}%)`);
 
@@ -1006,7 +1058,7 @@ export class PriceOrderMonitor {
         logger.warn(`⚠️ 取消交易所条件单失败: ${error.message}`);
       }
 
-      // 3. 更新数据库状态（无论交易所是否取消成功，都要更新本地状态）
+      // 3. 更新数据库状态（无论交易所取消是否成功，都要更新本地状态）
       await this.updateOrderStatus(oppositeOrderId, 'cancelled');
       
       logger.info(`✅ 已更新本地反向条件单状态为cancelled: ${oppositeOrderId}`);

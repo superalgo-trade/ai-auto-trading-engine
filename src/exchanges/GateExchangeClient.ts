@@ -936,10 +936,19 @@ export class GateExchangeClient implements IExchangeClient {
 
   /**
    * 获取合约计价类型
-   * Gate.io 使用反向合约（币本位）
+   * Gate.io 支持两种合约：
+   * 1. USDT本位（正向/linear）：BTC_USDT, ETH_USDT, DOGE_USDT 等
+   * 2. 币本位（反向/inverse）：BTC_USD, ETH_USD 等
    */
-  getContractType(): 'inverse' | 'linear' {
-    return 'inverse';
+  getContractType(contract?: string): 'inverse' | 'linear' {
+    // 如果没有提供合约名称，返回默认值（USDT本位）
+    // 因为Gate.io测试网主要使用USDT本位合约
+    if (!contract) {
+      return 'linear';
+    }
+    
+    // 根据合约后缀判断类型
+    return contract.endsWith('_USD') ? 'inverse' : 'linear';
   }
 
   /**
@@ -995,15 +1004,31 @@ export class GateExchangeClient implements IExchangeClient {
     const { getQuantoMultiplier } = await import('../utils/contractUtils.js');
     const quantoMultiplier = await getQuantoMultiplier(contract);
     
-    // Gate.io 反向合约盈亏计算
-    // 多头：PNL (USDT) = 张数 * 合约乘数 * (1/开仓价 - 1/平仓价)
-    // 空头：PNL (USDT) = 张数 * 合约乘数 * (1/平仓价 - 1/开仓价)
-    // 
-    // 原理：反向合约以币计价，但盈亏以USDT结算
-    // 每张合约价值固定的币数量，但USDT价值随价格变化
-    const pnl = side === 'long'
-      ? quantity * quantoMultiplier * (1 / entryPrice - 1 / exitPrice)
-      : quantity * quantoMultiplier * (1 / exitPrice - 1 / entryPrice);
+    // 🔧 关键修复：根据合约名称判断合约类型
+    // Gate.io 有两种合约：
+    // 1. USDT本位（正向）：BTC_USDT, ETH_USDT, DOGE_USDT 等（以 _USDT 结尾）
+    // 2. 币本位（反向）：BTC_USD, ETH_USD 等（以 _USD 结尾）
+    const isInverse = contract.endsWith('_USD');
+    
+    let pnl: number;
+    
+    if (isInverse) {
+      // 币本位（反向）合约盈亏计算
+      // 多头：PNL (USDT) = 张数 * 合约乘数 * (1/开仓价 - 1/平仓价)
+      // 空头：PNL (USDT) = 张数 * 合约乘数 * (1/平仓价 - 1/开仓价)
+      pnl = side === 'long'
+        ? quantity * quantoMultiplier * (1 / entryPrice - 1 / exitPrice)
+        : quantity * quantoMultiplier * (1 / exitPrice - 1 / entryPrice);
+    } else {
+      // USDT本位（正向）合约盈亏计算
+      // 实际数量 = 张数 * 合约乘数
+      // 多头：PNL (USDT) = 实际数量 * (平仓价 - 开仓价)
+      // 空头：PNL (USDT) = 实际数量 * (开仓价 - 平仓价)
+      const actualQuantity = quantity * quantoMultiplier;
+      pnl = side === 'long'
+        ? actualQuantity * (exitPrice - entryPrice)
+        : actualQuantity * (entryPrice - exitPrice);
+    }
     
     return pnl;
   }

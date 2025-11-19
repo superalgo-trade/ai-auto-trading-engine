@@ -1457,9 +1457,23 @@ async function executeTradingDecision() {
             
             // 📝 记录平仓事件到 position_close_events 表
             try {
-              const pnlPercent = pos.entry_price > 0 
-                ? ((finalPrice - pos.entry_price) / pos.entry_price * 100 * (side === 'long' ? 1 : -1) * (pos.leverage || 1))
-                : 0;
+              // 🔧 核心修复：盈亏百分比计算
+              // 盈亏百分比 = (净盈亏 / 保证金) * 100
+              // 保证金 = 持仓价值 / 杠杆
+              let pnlPercent: number;
+              
+              if (contractType === 'inverse') {
+                // Gate.io 币本位合约：持仓价值 = 张数 * 合约乘数 * 开仓价
+                const quantoMultiplier = await getQuantoMultiplier(contract);
+                const positionValue = actualQuantity * quantoMultiplier * pos.entry_price;
+                const margin = positionValue / (pos.leverage || 1);
+                pnlPercent = (pnl / margin) * 100;
+              } else {
+                // Binance USDT 正向合约：持仓价值 = 数量 * 开仓价
+                const positionValue = actualQuantity * pos.entry_price;
+                const margin = positionValue / (pos.leverage || 1);
+                pnlPercent = (pnl / margin) * 100;
+              }
               
               // 根据平仓原因判断触发类型
               // 36小时强制平仓和科学止损失效保护都是系统风控触发

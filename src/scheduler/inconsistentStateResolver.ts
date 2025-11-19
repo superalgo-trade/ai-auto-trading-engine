@@ -283,10 +283,23 @@ export class InconsistentStateResolver {
       const totalFee = positionValue * 0.001; // 0.1%
       const netPnl = grossPnl - totalFee;
       
-      const priceChangePercent = side === "long"
-        ? ((exitPrice - entryPrice) / entryPrice) * 100
-        : ((entryPrice - exitPrice) / entryPrice) * 100;
-      const pnlPercent = priceChangePercent * leverage;
+      // 🔧 核心修复：盈亏百分比计算
+      // 盈亏百分比 = (净盈亏 / 保证金) * 100
+      // 保证金 = 持仓价值 / 杠杆
+      let pnlPercent: number;
+      
+      if (contractType === 'inverse') {
+        // Gate.io 币本位合约：持仓价值 = 张数 * 合约乘数 * 开仓价
+        const quantoMultiplier = await getQuantoMultiplier(contract);
+        const openPositionValue = quantity * quantoMultiplier * entryPrice;
+        const margin = openPositionValue / leverage;
+        pnlPercent = (netPnl / margin) * 100;
+      } else {
+        // Binance USDT 正向合约：持仓价值 = 数量 * 开仓价
+        const openPositionValue = quantity * entryPrice;
+        const margin = openPositionValue / leverage;
+        pnlPercent = (netPnl / margin) * 100;
+      }
 
       // 5. 开启事务补充数据库记录
       const timestamp = new Date().toISOString();

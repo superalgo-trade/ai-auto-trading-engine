@@ -81,5 +81,30 @@ export const RISK_PARAMS = {
   // 移动止损配置
   ENABLE_TRAILING_STOP_LOSS: process.env.ENABLE_TRAILING_STOP_LOSS === 'true', // 启用移动止损（默认关闭）
   TRAILING_STOP_CHECK_INTERVAL: Number.parseInt(process.env.TRAILING_STOP_CHECK_INTERVAL || '6', 10), // 检查间隔（周期数）
+  
+  // ===== 手续费配置 =====
+  // 不同交易所、不同网络的手续费费率
+  FEE_RATES: {
+    binance: {
+      testnet: {
+        maker: 0.0002,  // 0.02% - Binance 测试网 maker
+        taker: 0.0005,  // 0.05% - Binance 测试网 taker
+      },
+      mainnet: {
+        maker: 0.0002,  // 0.02% - Binance 正式网 maker（VIP0）
+        taker: 0.0004,  // 0.04% - Binance 正式网 taker（VIP0）
+      }
+    },
+    gate: {
+      testnet: {
+        maker: -0.00025, // -0.025% - Gate.io 测试网 maker（返佣）
+        taker: 0.0005,   // 0.05% - Gate.io 测试网 taker
+      },
+      mainnet: {
+        maker: -0.00025, // -0.025% - Gate.io 正式网 maker（返佣）
+        taker: 0.0005,   // 0.05% - Gate.io 正式网 taker
+      }
+    }
+  }
 } as const;
 

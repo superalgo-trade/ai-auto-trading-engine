@@ -532,6 +532,7 @@ export function createApiRoutes() {
         order_price: Number.parseFloat(row.order_price),
         quantity: Number.parseFloat(row.quantity),
         status: row.status,
+        position_order_id: row.position_order_id, // 🔧 添加关联持仓ID，用于前端分组
         created_at: row.created_at,
         updated_at: row.updated_at,
         triggered_at: row.triggered_at

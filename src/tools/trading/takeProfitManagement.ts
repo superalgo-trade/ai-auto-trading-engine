@@ -864,22 +864,63 @@ export const partialTakeProfitTool = createTool({
         contract
       );
       
-      // 估算手续费（市价单taker费率约0.05%）
-      // 对于Gate.io的币本位合约，需要考虑quanto multiplier
+      // 🔧 核心优化：尝试从订单响应中获取真实手续费
+      let actualFee: number = 0;
+      
+      // 检查订单响应中是否有手续费信息
+      if (closeOrderResponse.fee || closeOrderResponse.fill_fee) {
+        actualFee = parseFloat(closeOrderResponse.fee || closeOrderResponse.fill_fee || '0');
+        logger.debug(`使用订单返回的真实手续费: ${actualFee.toFixed(4)} USDT`);
+      }
+      
+      // 如果订单响应中没有手续费，尝试等待成交记录
+      if (actualFee === 0 && !isTestMode) {
+        try {
+          logger.debug(`等待2秒后查询成交记录获取真实手续费...`);
+          await new Promise(resolve => setTimeout(resolve, 2000));
+          
+          const recentTrades = await exchangeClient.getMyTrades(contract, 10, Date.now() - 60000);
+          const matchingTrade = recentTrades.find((t: any) => 
+            t.id === closeOrderResponse.id || 
+            t.order_id === closeOrderResponse.id ||
+            Math.abs(parseFloat(t.amount || t.size || '0') - closeQuantityInCoin) < 0.0001
+          );
+          
+          if (matchingTrade) {
+            actualFee = parseFloat(matchingTrade.fee || matchingTrade.commission || matchingTrade.fee_amount || '0');
+            if (actualFee > 0) {
+              logger.debug(`从成交记录获取真实手续费: ${actualFee.toFixed(4)} USDT`);
+            }
+          }
+        } catch (error: any) {
+          logger.debug(`查询成交记录失败: ${error.message}，将使用估算值`);
+        }
+      }
+      
+      // 后备方案：估算手续费
       let estimatedFee: number;
       if (contract.includes('_USD')) {
         // Gate.io币本位合约
         const { getQuantoMultiplier } = await import('../../utils/contractUtils.js');
         const quantoMultiplier = await getQuantoMultiplier(contract);
-        // 手续费 = 名义价值 * 费率
         estimatedFee = currentPrice * closeQuantityInCoin * quantoMultiplier * 0.0005;
       } else {
-        // Binance USDT合约
-        estimatedFee = Math.abs(closeQuantityInCoin * currentPrice * 0.0005);
+        // USDT合约（需要考虑 quantoMultiplier）
+        const { getQuantoMultiplier } = await import('../../utils/contractUtils.js');
+        const quantoMultiplier = await getQuantoMultiplier(contract);
+        const actualQuantity = quantoMultiplier > 1 ? closeQuantityInCoin * quantoMultiplier : closeQuantityInCoin;
+        estimatedFee = actualQuantity * currentPrice * 0.0005;
+      }
+      
+      // 使用真实手续费，如果没有则使用估算值
+      const finalFee = actualFee > 0 ? actualFee : estimatedFee;
+      
+      if (actualFee === 0) {
+        logger.debug(`未获取到真实手续费，使用估算值: ${estimatedFee.toFixed(4)} USDT`);
       }
       
       // 净盈亏 = 毛盈亏 - 手续费
-      const netPnl = pnl - estimatedFee;
+      const netPnl = pnl - finalFee;
       
       // 8. 记录平仓交易到 trades 表（⭐ 关键修复）
       try {
@@ -896,13 +937,13 @@ export const partialTakeProfitTool = createTool({
             closeQuantityInCoin,
             leverage,
             netPnl,
-            estimatedFee,
+            finalFee,
             getChinaTimeISO(),
             'filled'
           ]
         });
         
-        logger.info(`✅ 分批平仓交易已记录到 trades 表: ${symbol} ${closeQuantityInCoin.toFixed(decimalPlaces)} @ ${currentPrice}, PnL=${netPnl.toFixed(2)} USDT`);
+        logger.info(`✅ 分批平仓交易已记录到 trades 表: ${symbol} ${closeQuantityInCoin.toFixed(decimalPlaces)} @ ${currentPrice}, PnL=${netPnl.toFixed(2)} USDT, Fee=${finalFee.toFixed(4)} USDT`);
       } catch (error: any) {
         logger.error(`记录分批平仓交易到 trades 表失败: ${error.message}`);
         // 不影响主流程，继续执行
@@ -1141,10 +1182,25 @@ export const partialTakeProfitTool = createTool({
       
       // 11. 同时记录到通用平仓事件表（供 getCloseEvents 查询）
       try {
-        // 计算盈亏百分比（含杠杆）
-        const pnlPercent = entryPrice > 0 
-          ? ((currentPrice - entryPrice) / entryPrice * 100 * (side === 'long' ? 1 : -1) * leverage)
-          : 0;
+        // 🔧 核心修复：盈亏百分比计算
+        // 盈亏百分比 = (净盈亏 / 保证金) * 100
+        // 保证金 = 持仓价值 / 杠杆
+        let pnlPercent: number;
+        const contractType = exchangeClient.getContractType();
+        
+        if (contractType === 'inverse') {
+          // Gate.io 币本位合约：持仓价值 = 张数 * 合约乘数 * 开仓价
+          const { getQuantoMultiplier } = await import('../../utils/contractUtils.js');
+          const quantoMultiplier = await getQuantoMultiplier(contract);
+          const positionValue = closeQuantityInCoin * quantoMultiplier * entryPrice;
+          const margin = positionValue / leverage;
+          pnlPercent = (netPnl / margin) * 100;
+        } else {
+          // Binance USDT 正向合约：持仓价值 = 数量 * 开仓价
+          const positionValue = closeQuantityInCoin * entryPrice;
+          const margin = positionValue / leverage;
+          pnlPercent = (netPnl / margin) * 100;
+        }
         
         // 🔧 核心修复：使用实际的交易订单ID作为trigger_order_id，确保唯一性
         // closeOrderResponse.id 是交易所返回的实际订单ID，保证全局唯一

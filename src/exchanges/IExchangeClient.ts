@@ -294,9 +294,10 @@ export interface IExchangeClient {
 
   /**
    * 获取合约计价类型
+   * @param contract 合约名称（可选，用于支持多种合约类型的交易所）
    * @returns 'inverse' = 反向合约(币本位), 'linear' = 正向合约(USDT本位)
    */
-  getContractType(): 'inverse' | 'linear';
+  getContractType(contract?: string): 'inverse' | 'linear';
 
   /**
    * 计算开仓所需数量
