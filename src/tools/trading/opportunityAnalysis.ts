@@ -125,14 +125,14 @@ export const analyzeOpeningOpportunitiesTool = createTool({
         
         // positions表没有status字段，通过quantity != 0判断是否有持仓
         const openPositions = await dbClient.execute(
-          "SELECT symbol, direction FROM positions WHERE quantity != 0"
+          "SELECT symbol, side FROM positions WHERE quantity != 0"
         );
         
         openPositionSymbols = openPositions.rows.map((p: any) => p.symbol as string);
         
-        // 记录持仓方向
+        // 记录持仓方向（side字段）
         for (const row of openPositions.rows) {
-          positionDirections.set(row.symbol as string, row.direction as 'long' | 'short');
+          positionDirections.set(row.symbol as string, row.side as 'long' | 'short');
         }
         
         if (openPositionSymbols.length > 0) {

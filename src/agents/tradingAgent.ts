@@ -709,10 +709,18 @@ ${params.scientificStopLoss?.enabled ? `│ 移动止损优化（可选，低优
 └────────────────────────────────────────────────────────────────┘
 
 【决策流程 - 按优先级执行】
-${params.scientificStopLoss?.enabled ? `
 (1) 持仓管理（最优先）：
 
-   步骤1：检查分批止盈机会（首要任务，每个持仓必查）
+   步骤1：趋势反转紧急检查（最高优先级，每个持仓必查）⭐⭐⭐⭐⭐
+   ├─ 检查 reversalAnalysis.reversalScore ≥ 70
+   │  → 立即全部平仓 closePosition({ symbol, reason: 'trend_reversal' })
+   │  ⚠️ 说明：多个时间框架强烈确认反转，必须立即退出，不考虑分批止盈
+   │  ⚠️ 这是最高级别警报，优先于一切其他操作！
+   │
+   └─ 如果 reversalScore ≥ 70 → 跳过后续所有步骤，立即平仓
+
+   步骤2：检查分批止盈机会（首要利润保护，每个持仓必查）⭐⭐⭐⭐
+   ├─ 前置条件：reversalScore < 70（无强烈反转信号）
    ├─ 调用 checkPartialTakeProfitOpportunity() 查看所有持仓
    ├─ 工具返回 canExecute=true → 立即调用 executePartialTakeProfit(symbol, stage)
    ├─ 工具自动完成：
@@ -720,55 +728,70 @@ ${params.scientificStopLoss?.enabled ? `
    │   • 分析 ATR 波动率动态调整阈值（0.8x-1.5x）
    │   • 执行分批平仓（stage1/2/3）
    │   • 自动移动止损到保本或更高
-   └─ ⚠️ 执行后：该持仓本周期跳过步骤2
+   └─ ⚠️ 执行后：该持仓本周期跳过步骤3和步骤4
 
-   步骤2：优化移动止损（仅对未执行分批止盈的盈利持仓，可选）
-   ├─ 条件：盈利 ≥ +${formatPercent(params.trailingStop.level1.trigger)}% 但未达到分批止盈阈值
+   步骤3：趋势反转风险评估（对未执行分批止盈的持仓）⭐⭐⭐
+   │
+   级别A：中等反转风险（AI综合判断）
+   ├─ 检查 reversalAnalysis.reversalScore ≥ 50 且 earlyWarning=true
+   │  → 建议平仓，结合盈亏情况决策：
+   │  • 若已盈利：立即平仓锁定利润
+   │  • 若小幅亏损（<5%）：平仓止损
+   │  • 若接近止损线：等待止损单触发
+   │
+   ├─ 检查 reversalAnalysis.reversalScore ≥ 50 且 trendScores.primary 绝对值 < 20
+   │  → 双重确认反转信号（反转得分 + 趋势震荡）
+   │  → 强烈建议平仓，风险显著增加
+   │
+   级别B：早期预警（调整策略）
+   ├─ 检查 reversalAnalysis.earlyWarning=true
+   │  → 停止移动止损，准备退出
+   │  → 说明：趋势开始减弱或出现背离，不要追求更高利润
+   │
+   ├─ 检查 trendScores.primary 绝对值 < 20（单独出现）
+   │  → 考虑平仓（趋势进入震荡区）
+   │  → 说明：继续持有风险增加，但非强制
+   │
+   级别C：传统风控（兜底保护）
+   ├─ 峰值回撤 ≥ ${formatPercent(params.peakDrawdownProtection)}% 
+   │  → closePosition({ symbol, reason: 'peak_drawdown' })
+   ├─ 持仓时间 ≥ 36小时 
+   │  → closePosition({ symbol, reason: 'time_limit' })
+   └─ 止损条件单自动触发（交易所执行，AI无需干预）
+
+   步骤4：优化移动止损（可选，仅对符合条件的持仓）⭐
+   ├─ 适用持仓：
+   │  • 本周期未执行分批止盈（分批止盈已自动移动止损）
+   │  • 且步骤3判断为继续持有（无平仓信号）
+   │  • 且达到参考触发点（检查时机，不是目标止损位）：
+   │   - 盈利 ≥ +${formatPercent(params.trailingStop.level1.trigger)}% → 调用 updateTrailingStop() 检查是否上移
+   │   - 盈利 ≥ +${formatPercent(params.trailingStop.level2.trigger)}% → 再次调用 updateTrailingStop() 检查
+   │   - 盈利 ≥ +${formatPercent(params.trailingStop.level3.trigger)}% → 继续调用 updateTrailingStop() 检查
    ├─ 调用 updateTrailingStop() 检查是否应该上移止损
    ├─ 返回 shouldUpdate=true → 调用 updatePositionStopLoss() 更新交易所订单
    └─ 说明：这是可选优化，不是必须操作
-
-   步骤3：综合评估平仓时机（辅助决策，非强制）
    
-   ⚠️ 注意：步骤3是辅助性决策，不会与步骤1-2冲突
-   - 步骤1（分批止盈）和步骤2（移动止损）是程序化执行，优先级最高
-   - 步骤3提供AI主动平仓的判断依据，是"锦上添花"而非"必须执行"
+   【决策流程总结】
+   优先级排序（从高到低）：
+   1. reversalScore ≥ 70（强烈反转）→ 立即全部平仓，跳过所有后续步骤
+   2. 分批止盈检查 → 执行后跳过步骤3和4
+   3. reversalScore 50-70（中等风险）→ 建议平仓
+   4. earlyWarning/震荡区（早期预警）→ 调整策略
+   5. 传统风控（兜底保护）→ 强制平仓
+   6. 移动止损优化（可选）→ 锦上添花
    
-   ├─ 【硬性规则】持仓时间 ≥ 36小时 → 强制全部平仓（无例外）
-   │   
-   ├─ 【危险信号】以下情况考虑主动平仓（AI判断）：
-   │   
-   │   (a) 峰值回撤保护
-   │   ├─ 触发条件：峰值回撤 ≥ ${formatPercent(params.peakDrawdownProtection)}%
-   │   ├─ 含义：利润严重回吐，说明趋势已经走弱
-   │   └─ 建议：立即全部平仓，保护剩余利润
-   │   
-   │   (b) 趋势反转识别（基于市场状态分析）
-   │   ├─ 信息来源：持仓信息中的"📊 市场趋势分析"部分
-   │   ├─ 触发条件：
-   │   │   • 持仓方向 = long，但市场状态 = downtrend_* (trending_down)
-   │   │   • 或：持仓方向 = short，但市场状态 = uptrend_* (trending_up)
-   │   │   • 且：反转信号 = 是，多时间框架一致性 ≥ 70%
-   │   ├─ 决策原则：
-   │   │   • 如果持仓盈利 < 0%：趋势反转 + 亏损 = 高风险，建议平仓
-   │   │   • 如果持仓盈利 0-15%：根据反转强度和置信度判断
-   │   │   • 如果持仓盈利 > 15%：可能是正常回调，可暂时观望
-   │   └─ 注意事项：
-   │       • 不要因为"小幅亏损+趋势反转"就恐慌平仓（止损单会保护）
-   │       • 但如果"趋势明确反转+亏损加深"，应主动离场
-   │       • 盈利持仓遇到反转：优先考虑分批止盈，而非全部平仓
-   │   
-   │   (c) 其他危险信号
-   │   ├─ 波动率突然放大（ATR比率 > 2.0）
-   │   ├─ 流动性枯竭（成交量异常下降）
-   │   └─ 技术形态破坏（关键支撑/阻力位失守）
-   │
-   └─ 【决策冲突处理】
-       • 如果步骤1已执行分批止盈 → 本周期不再考虑步骤3的全部平仓
-       • 如果步骤1提示可执行但未执行 → 优先执行分批止盈，推迟全部平仓判断
-       • 只有在"明确的危险信号 + 无分批止盈机会"时，才考虑全部平仓
+   【决策冲突处理】
+   • reversalScore ≥ 70：无条件立即平仓，忽略分批止盈机会
+   • reversalScore < 70 且执行分批止盈：跳过步骤3和4，下周期重新评估
+   • reversalScore < 70 且无分批止盈机会：执行步骤3风险评估
+   • 只有"无反转风险 + 无分批止盈"时，才执行步骤4移动止损
    
-   ⚠️ "接近止损线"不是主动平仓理由（交易所条件单会自动触发）
+   ⚠️ 核心原则：
+   • 趋势强烈反转（≥70）> 一切其他考虑，必须立即退出
+   • 分批止盈优先于移动止损（已包含止损移动）
+   • "接近止损线"不是主动平仓理由（交易所条件单自动触发）
+   • 中等反转风险（50-70）结合盈亏情况综合判断
+   • 早期预警不强制平仓，但要停止追求更高利润
 
 (2) 新开仓评估（⚠️ 强制流程，必须严格遵守）：
    
@@ -822,51 +845,7 @@ ${params.scientificStopLoss?.enabled ? `
    ❌ 错误案例：
    1. 直接调用 openPosition('XRP', ...) → 跳过了评估流程 ❌
    2. 调用 analyze_opening_opportunities() → 全部 < 60分 → 强行开仓 ❌
-   3. 调用 analyze_opening_opportunities() → XRP 67分 → 自主选择开 BTC ❌` : `
-(1) 持仓管理（最优先）：
-
-   步骤1：检查分批止盈机会（首要任务）
-   ├─ 调用 checkPartialTakeProfitOpportunity() 查看所有持仓
-   ├─ 工具返回 canExecute=true → 立即调用 executePartialTakeProfit()
-   └─ 工具会自动执行分批平仓并移动止损
-
-   步骤2：检查平仓触发（按优先级）
-   
-   级别1：趋势反转确认（立即执行）⭐⭐⭐
-   ├─ 检查 reversalAnalysis.reversalScore ≥ 70 
-   │  → 立即平仓 closePosition({ symbol, reason: 'trend_reversal' })
-   │  说明：多个时间框架强烈确认反转，不要犹豫
-   │
-   ├─ 检查 reversalAnalysis.reversalScore ≥ 50 且 earlyWarning=true
-   │  → 建议平仓（AI综合判断）
-   │  说明：反转风险较高，结合盈亏情况决策
-   │  • 若已盈利：立即平仓锁定利润
-   │  • 若小幅亏损（<5%）：平仓止损
-   │  • 若接近止损线：等待止损单触发
-   
-   级别2：趋势减弱预警（调整策略）⭐⭐
-   ├─ 检查 reversalAnalysis.earlyWarning=true
-   │  → 停止移动止损，准备退出
-   │  说明：趋势开始减弱，不要追求更高利润
-   │
-   ├─ 检查 trendScores.primary 绝对值 < 20
-   │  → 考虑平仓（趋势进入震荡区）
-   │  说明：继续持有风险增加
-   
-   级别3：传统风控（兜底保护）⭐
-   ├─ 峰值回撤 ≥ ${formatPercent(params.peakDrawdownProtection)}% 
-   │  → closePosition({ symbol, reason: 'peak_drawdown' })
-   ├─ 持仓时间 ≥ 36小时 
-   │  → closePosition({ symbol, reason: 'time_limit' })
-   └─ 止损条件单自动触发（交易所执行，AI无需干预）
-   
-(2) 新开仓评估（强制流程）：
-   - 第1步：必须先调用 analyze_opening_opportunities() 获取系统评估
-   - 第2步：基于评分结果决策（≥${minOpportunityScore}分才考虑，<${Math.floor(minOpportunityScore * 0.75)}分强烈建议观望）
-   - 第3步：调用 checkOpenPosition() 验证止损合理性
-   - 第4步：调用 openPosition 执行开仓
-   - ❌ 禁止跳过 analyze_opening_opportunities() 直接开仓
-   - ❌ 禁止在所有评分 < ${minOpportunityScore}分时强行开仓`}
+   3. 调用 analyze_opening_opportunities() → XRP 67分 → 自主选择开 BTC ❌}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -1211,43 +1190,116 @@ ${params.scientificStopLoss?.enabled ? `
         const pnlPercent = pos.unrealized_pnl_percent || (pos.entry_price > 0 
           ? ((pos.current_price - pos.entry_price) / pos.entry_price * 100 * (pos.side === 'long' ? 1 : -1) * pos.leverage)
           : 0);
-          
-        // 尝试从metadata获取入场时的市场状态
-        let entryState: string | undefined;
-        try {
-          if (pos.metadata && typeof pos.metadata === 'string') {
-            const metadata = JSON.parse(pos.metadata);
-            entryState = metadata.marketState;
-          } else if (pos.metadata && typeof pos.metadata === 'object') {
-            entryState = pos.metadata.marketState;
-          }
-        } catch (e) {
-          // 忽略解析错误
-        }
-        
-        // 检测趋势反转
-        const reversalSignal = detectReversalSignal(pos.side, state, entryState);
         
         prompt += `  ├─ 📊 市场趋势分析（供决策参考）：\n`;
         prompt += `  │   • 当前状态: ${state.state} (${getStateDescription(state.state)})\n`;
         prompt += `  │   • 趋势强度: ${state.trendStrength}\n`;
         prompt += `  │   • 动量状态: ${state.momentumState}\n`;
-        prompt += `  │   • 反转信号: ${reversalSignal.detected ? '⚠️ 是' : '否'}`;
-        if (reversalSignal.detected) {
-          prompt += ` (${reversalSignal.confidence}%置信度, ${reversalSignal.timeframes}个时间框架确认)\n`;
-          if (entryState) {
-            prompt += `  │   • 趋势变化: ${entryState} → ${state.state}\n`;
-          }
-        } else {
-          prompt += `\n`;
-        }
         prompt += `  │   • 多时间框架一致性: ${Math.round(state.timeframeAlignment.alignmentScore * 100)}%\n`;
         prompt += `  │   • 分析置信度: ${Math.round(state.confidence * 100)}%\n`;
         
-        // 根据反转信号提供建议
-        if (reversalSignal.detected) {
-          const recommendation = getReversalRecommendation({ ...pos, unrealized_pnl_percent: pnlPercent }, state, reversalSignal);
-          prompt += `  └─ 💡 趋势建议: ${recommendation}\n`;
+        // 显示趋势强度得分（阶段1新增功能）
+        if (state.trendScores) {
+          const getTrendStrength = (score: number) => {
+            const abs = Math.abs(score);
+            if (abs >= 70) return '极强';
+            if (abs >= 50) return '强';
+            if (abs >= 30) return '中等';
+            if (abs >= 10) return '弱';
+            return '震荡';
+          };
+          
+          const getTrendDirection = (score: number) => {
+            if (score > 10) return '看涨';
+            if (score < -10) return '看跌';
+            return '中性';
+          };
+          
+          prompt += `  │   • 趋势强度得分（-100到+100）：\n`;
+          prompt += `  │     - 主框架: ${state.trendScores.primary} (${getTrendStrength(state.trendScores.primary)}, ${getTrendDirection(state.trendScores.primary)})\n`;
+          prompt += `  │     - 确认框架: ${state.trendScores.confirm} (${getTrendStrength(state.trendScores.confirm)}, ${getTrendDirection(state.trendScores.confirm)})\n`;
+          prompt += `  │     - 过滤框架: ${state.trendScores.filter} (${getTrendStrength(state.trendScores.filter)}, ${getTrendDirection(state.trendScores.filter)})\n`;
+        }
+        
+        // 显示趋势变化情况（阶段1新增功能）
+        if (state.trendChanges) {
+          const hasWeakening = state.trendChanges.primary.isWeakening || 
+                               state.trendChanges.confirm.isWeakening || 
+                               state.trendChanges.filter.isWeakening;
+          if (hasWeakening) {
+            prompt += `  │   • ⚠️ 趋势减弱警告：\n`;
+            if (state.trendChanges.primary.isWeakening) {
+              prompt += `  │     - 主框架: 减弱${state.trendChanges.primary.weakeningSeverity}% (${state.trendChanges.primary.previousScore}→${state.trendChanges.primary.currentScore})\n`;
+            }
+            if (state.trendChanges.confirm.isWeakening) {
+              prompt += `  │     - 确认框架: 减弱${state.trendChanges.confirm.weakeningSeverity}% (${state.trendChanges.confirm.previousScore}→${state.trendChanges.confirm.currentScore})\n`;
+            }
+            if (state.trendChanges.filter.isWeakening) {
+              prompt += `  │     - 过滤框架: 减弱${state.trendChanges.filter.weakeningSeverity}% (${state.trendChanges.filter.previousScore}→${state.trendChanges.filter.currentScore})\n`;
+            }
+          }
+        }
+        
+        // ⭐ 显示趋势反转分析（阶段1+阶段2核心功能）
+        if (state.reversalAnalysis) {
+          const rev = state.reversalAnalysis;
+          prompt += `  │\n`;
+          prompt += `  ├─ 🔄 趋势反转分析（阶段1+2增强）：\n`;
+          prompt += `  │   • reversalScore: ${rev.reversalScore}/100`;
+          
+          // 根据得分显示警示级别
+          if (rev.reversalScore >= 70) {
+            prompt += ` ⚠️⚠️⚠️ 【强烈反转信号！立即平仓】\n`;
+          } else if (rev.reversalScore >= 50) {
+            prompt += ` ⚠️⚠️ 【反转风险较高！建议平仓】\n`;
+          } else if (rev.reversalScore >= 30) {
+            prompt += ` ⚠️ 【早期预警】\n`;
+          } else {
+            prompt += ` ✅ 【趋势正常】\n`;
+          }
+          
+          prompt += `  │   • earlyWarning: ${rev.earlyWarning ? '⚠️ 是（趋势减弱或背离）' : '否'}\n`;
+          prompt += `  │   • recommendation: ${rev.recommendation}\n`;
+          
+          if (rev.timeframesReversed && rev.timeframesReversed.length > 0) {
+            prompt += `  │   • 已反转框架: ${rev.timeframesReversed.join(', ')}\n`;
+          }
+          
+          if (rev.details && rev.details.length > 0) {
+            prompt += `  │   • 详细信息:\n`;
+            for (const detail of rev.details) {
+              prompt += `  │     - ${detail}\n`;
+            }
+          }
+          
+          // 根据reversalScore和盈亏情况给出具体建议
+          prompt += `  │\n`;
+          prompt += `  └─ 💡 AI决策指引:\n`;
+          
+          if (rev.reversalScore >= 70) {
+            prompt += `       ⚠️⚠️⚠️ 多个时间框架强烈确认反转！\n`;
+            prompt += `       → 立即调用 closePosition({ symbol: '${pos.symbol}', reason: 'trend_reversal' })\n`;
+            prompt += `       → 不要犹豫，这是系统最高级别的反转警告！\n`;
+          } else if (rev.reversalScore >= 50 && rev.earlyWarning) {
+            prompt += `       ⚠️⚠️ 反转风险较高，建议平仓（结合盈亏情况）：\n`;
+            if (pnlPercent > 0) {
+              prompt += `       → 当前盈利${pnlPercent.toFixed(1)}%，立即平仓锁定利润\n`;
+              prompt += `       → 调用 closePosition({ symbol: '${pos.symbol}', reason: 'trend_reversal' })\n`;
+            } else if (pnlPercent > -5) {
+              prompt += `       → 当前亏损${Math.abs(pnlPercent).toFixed(1)}%，平仓止损\n`;
+              prompt += `       → 调用 closePosition({ symbol: '${pos.symbol}', reason: 'trend_reversal' })\n`;
+            } else {
+              prompt += `       → 当前亏损${Math.abs(pnlPercent).toFixed(1)}%，接近止损线\n`;
+              prompt += `       → 可等待止损单触发，或主动平仓\n`;
+            }
+          } else if (rev.earlyWarning) {
+            prompt += `       ⚠️ 趋势开始减弱或出现背离，密切关注：\n`;
+            prompt += `       → 停止移动止损，不要追求更高利润\n`;
+            prompt += `       → 准备退出，但暂不强制平仓\n`;
+          } else {
+            prompt += `       ✅ 趋势正常，继续持有\n`;
+            prompt += `       → reversalScore < 30，无明显反转迹象\n`;
+          }
         }
       }
       
