@@ -1009,7 +1009,7 @@ body {
     font-family: 'Courier New', monospace;
     font-size: 1rem;
     font-weight: 700;
-    padding: 0.8rem 1.5rem;
+    padding: 0.5rem 1rem;
     cursor: pointer;
     transition: all 0.3s ease;
     position: relative;
@@ -1246,7 +1246,6 @@ body {
 }
 
 .trades-container {
-    max-height: 600px;
     overflow-y: auto;
     overflow-x: auto;
     max-width: 100%;
