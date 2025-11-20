@@ -111,9 +111,13 @@ function getTimeframesForStrategy(strategy: TradingStrategy): StrategyTimeframes
  * 分析市场状态
  * 
  * @param symbol 交易品种
+ * @param currentPosition 当前持仓信息（可选）
  * @returns 市场状态分析结果
  */
-export async function analyzeMarketState(symbol: string): Promise<MarketStateAnalysis> {
+export async function analyzeMarketState(
+  symbol: string,
+  currentPosition?: { direction: 'long' | 'short' }
+): Promise<MarketStateAnalysis> {
   logger.info(`开始分析 ${symbol} 的市场状态...`);
   
   // 获取当前策略
@@ -171,6 +175,38 @@ export async function analyzeMarketState(symbol: string): Promise<MarketStateAna
   const priceVsUpperBB = calculatePriceVsBB(tfConfirm.currentPrice, tfConfirm.bollingerUpper, tfConfirm.bollingerMiddle);
   const priceVsLowerBB = calculatePriceVsBB(tfConfirm.currentPrice, tfConfirm.bollingerLower, tfConfirm.bollingerMiddle);
   
+  // 7. 计算趋势强度得分（新增）
+  const trendScores = {
+    primary: calculateTrendScore(tfPrimary),
+    confirm: calculateTrendScore(tfConfirm),
+    filter: calculateTrendScore(tfFilter)
+  };
+  
+  // 8. 更新趋势得分历史
+  updateTrendScoreHistory(symbol, trendScores);
+  
+  // 9. 获取历史数据并计算趋势变化
+  const scoreHistory = getTrendScoreHistory(symbol);
+  const trendChanges = scoreHistory.primary.length > 0 ? {
+    primary: detectTrendWeakening(trendScores.primary, scoreHistory.primary),
+    confirm: detectTrendWeakening(trendScores.confirm, scoreHistory.confirm),
+    filter: detectTrendWeakening(trendScores.filter, scoreHistory.filter)
+  } : undefined;
+  
+  // 10. 如果有持仓，计算反转得分
+  let reversalAnalysis: import("../types/marketState").ReversalAnalysis | undefined;
+  if (currentPosition && scoreHistory.primary.length > 0) {
+    reversalAnalysis = calculateReversalScore(
+      tfPrimary,
+      tfConfirm,
+      tfFilter,
+      currentPosition.direction,
+      scoreHistory
+    );
+    
+    logger.info(`${symbol} 反转分析: 得分=${reversalAnalysis.reversalScore}, 预警=${reversalAnalysis.earlyWarning}, 建议=${reversalAnalysis.recommendation}`);
+  }
+  
   const analysis: MarketStateAnalysis = {
     symbol,
     state,
@@ -178,6 +214,9 @@ export async function analyzeMarketState(symbol: string): Promise<MarketStateAna
     momentumState,
     volatilityState,
     confidence,
+    trendScores,        // 新增
+    trendChanges,       // 新增
+    reversalAnalysis,   // 新增
     keyMetrics: {
       rsi7_15m: tfConfirm.rsi7,
       rsi14_15m: tfConfirm.rsi14,
@@ -198,7 +237,7 @@ export async function analyzeMarketState(symbol: string): Promise<MarketStateAna
     timestamp: new Date().toISOString(),
   };
   
-  logger.info(`${symbol} 市场状态: ${state} (置信度: ${(confidence * 100).toFixed(1)}%, 策略: ${strategy})`);
+  logger.info(`${symbol} 市场状态: ${state} (置信度: ${(confidence * 100).toFixed(1)}%, 策略: ${strategy}, 趋势得分: P=${trendScores.primary} C=${trendScores.confirm} F=${trendScores.filter})`);
   
   return analysis;
 }
@@ -424,4 +463,462 @@ export async function analyzeMultipleMarketStates(
   logger.info(`完成市场状态分析，成功: ${results.size}/${symbols.length}`);
   
   return results;
+}
+
+/**
+ * 计算趋势强度得分（-100到+100）
+ * +100 = 极强上涨趋势
+ * 0 = 震荡
+ * -100 = 极强下跌趋势
+ */
+function calculateTrendScore(tf: TimeframeIndicators): number {
+  let score = 0;
+  
+  // 1. EMA关系（权重40%）- 主要趋势方向
+  const emaGap = (tf.ema20 - tf.ema50) / tf.ema50;
+  score += Math.max(-40, Math.min(40, emaGap * 1000));
+  
+  // 2. MACD强度（权重30%）- 趋势动能
+  const macdNormalized = tf.macd / tf.currentPrice;
+  score += Math.max(-30, Math.min(30, macdNormalized * 10000));
+  
+  // 3. 价格偏离度（权重20%）- 超买超卖
+  score += Math.max(-20, Math.min(20, tf.deviationFromEMA20 * 2));
+  
+  // 4. RSI趋势（权重10%）- 动量方向
+  const rsiTrend = (tf.rsi7 - 50) / 5;
+  score += Math.max(-10, Math.min(10, rsiTrend));
+  
+  return Math.round(score);
+}
+
+/**
+ * 检测趋势减弱（用于反转预警）
+ */
+function detectTrendWeakening(
+  currentScore: number,
+  scoreHistory: number[] // 最近5个周期
+): import("../types/marketState").TrendChange {
+  const previousScore = scoreHistory[scoreHistory.length - 1] || currentScore;
+  const change = currentScore - previousScore;
+  const changePercent = previousScore !== 0 
+    ? (change / Math.abs(previousScore)) * 100 
+    : 0;
+  
+  // 趋势减弱：得分绝对值下降超过20%
+  const isWeakening = Math.abs(currentScore) < Math.abs(previousScore) * 0.8;
+  
+  // 趋势反转：得分跨越零线或反向超过20点
+  const isReversing = 
+    (previousScore > 20 && currentScore < -20) ||
+    (previousScore < -20 && currentScore > 20);
+  
+  // 减弱严重程度
+  const weakeningSeverity = isWeakening 
+    ? Math.round((1 - Math.abs(currentScore) / Math.abs(previousScore)) * 100)
+    : 0;
+  
+  return {
+    currentScore,
+    previousScore,
+    change,
+    changePercent,
+    isWeakening,
+    isReversing,
+    weakeningSeverity
+  };
+}
+
+/**
+ * 背离信号接口
+ */
+interface DivergenceSignal {
+  type: 'bullish' | 'bearish' | 'none'; // 看涨背离、看跌背离、无背离
+  strength: number; // 0-100，背离强度
+  description: string;
+}
+
+/**
+ * 检测MACD背离
+ * @param candles K线数据（最近20-30根）
+ * @param macdValues MACD值数组（与K线对应）
+ * @returns 背离信号
+ */
+function detectMACDDivergence(
+  candles: any[],
+  macdValues: number[]
+): DivergenceSignal {
+  // 至少需要20根K线才能检测背离
+  if (!candles || candles.length < 20 || !macdValues || macdValues.length < 20) {
+    return { type: 'none', strength: 0, description: '数据不足' };
+  }
+  
+  // 提取价格数据（兼容不同交易所格式）
+  const prices = candles.map((c: any) => {
+    const closeVal = c.close || c.c || c.Close;
+    return Number.parseFloat(closeVal || "0");
+  }).filter((n: number) => Number.isFinite(n));
+  
+  if (prices.length < 20) {
+    return { type: 'none', strength: 0, description: '价格数据不足' };
+  }
+  
+  const halfLen = Math.floor(prices.length / 2);
+  
+  // 找到前半段和后半段的极值点
+  const firstHalfPrices = prices.slice(0, halfLen);
+  const secondHalfPrices = prices.slice(halfLen);
+  const firstHalfMACD = macdValues.slice(0, halfLen);
+  const secondHalfMACD = macdValues.slice(halfLen);
+  
+  const priceHigh1 = Math.max(...firstHalfPrices);
+  const priceHigh2 = Math.max(...secondHalfPrices);
+  const priceLow1 = Math.min(...firstHalfPrices);
+  const priceLow2 = Math.min(...secondHalfPrices);
+  
+  const macdHigh1 = Math.max(...firstHalfMACD);
+  const macdHigh2 = Math.max(...secondHalfMACD);
+  const macdLow1 = Math.min(...firstHalfMACD);
+  const macdLow2 = Math.min(...secondHalfMACD);
+  
+  // 顶背离检测：价格创新高，MACD未创新高（看跌信号）
+  const isPriceHigherHigh = priceHigh2 > priceHigh1 * 1.001; // 价格新高（至少0.1%）
+  const isMACDLowerHigh = macdHigh2 < macdHigh1 * 0.95; // MACD未新高（至少低5%）
+  
+  if (isPriceHigherHigh && isMACDLowerHigh) {
+    const priceIncrease = ((priceHigh2 - priceHigh1) / priceHigh1) * 100;
+    const macdDecrease = ((macdHigh1 - macdHigh2) / Math.abs(macdHigh1)) * 100;
+    const strength = Math.min(100, Math.round((priceIncrease + macdDecrease) * 10));
+    
+    return {
+      type: 'bearish',
+      strength: Math.max(60, strength), // 至少60强度才算有效背离
+      description: `顶背离：价格新高(${priceHigh2.toFixed(2)})但MACD未新高(${macdHigh2.toFixed(4)})`
+    };
+  }
+  
+  // 底背离检测：价格创新低，MACD未创新低（看涨信号）
+  const isPriceLowerLow = priceLow2 < priceLow1 * 0.999; // 价格新低（至少0.1%）
+  const isMACDHigherLow = macdLow2 > macdLow1 * 1.05; // MACD未新低（至少高5%）
+  
+  if (isPriceLowerLow && isMACDHigherLow) {
+    const priceDecrease = ((priceLow1 - priceLow2) / priceLow1) * 100;
+    const macdIncrease = ((macdLow2 - macdLow1) / Math.abs(macdLow1)) * 100;
+    const strength = Math.min(100, Math.round((priceDecrease + macdIncrease) * 10));
+    
+    return {
+      type: 'bullish',
+      strength: Math.max(60, strength), // 至少60强度才算有效背离
+      description: `底背离：价格新低(${priceLow2.toFixed(2)})但MACD未新低(${macdLow2.toFixed(4)})`
+    };
+  }
+  
+  return { type: 'none', strength: 0, description: '无明显背离' };
+}
+
+/**
+ * 检测RSI背离
+ * @param candles K线数据（最近20-30根）
+ * @param rsiValues RSI值数组（与K线对应）
+ * @returns 背离信号
+ */
+function detectRSIDivergence(
+  candles: any[],
+  rsiValues: number[]
+): DivergenceSignal {
+  // 至少需要20根K线才能检测背离
+  if (!candles || candles.length < 20 || !rsiValues || rsiValues.length < 20) {
+    return { type: 'none', strength: 0, description: '数据不足' };
+  }
+  
+  // 提取价格数据（兼容不同交易所格式）
+  const prices = candles.map((c: any) => {
+    const closeVal = c.close || c.c || c.Close;
+    return Number.parseFloat(closeVal || "0");
+  }).filter((n: number) => Number.isFinite(n));
+  
+  if (prices.length < 20) {
+    return { type: 'none', strength: 0, description: '价格数据不足' };
+  }
+  
+  const halfLen = Math.floor(prices.length / 2);
+  
+  // 找到前半段和后半段的极值点
+  const firstHalfPrices = prices.slice(0, halfLen);
+  const secondHalfPrices = prices.slice(halfLen);
+  const firstHalfRSI = rsiValues.slice(0, halfLen);
+  const secondHalfRSI = rsiValues.slice(halfLen);
+  
+  const priceHigh1 = Math.max(...firstHalfPrices);
+  const priceHigh2 = Math.max(...secondHalfPrices);
+  const priceLow1 = Math.min(...firstHalfPrices);
+  const priceLow2 = Math.min(...secondHalfPrices);
+  
+  const rsiHigh1 = Math.max(...firstHalfRSI);
+  const rsiHigh2 = Math.max(...secondHalfRSI);
+  const rsiLow1 = Math.min(...firstHalfRSI);
+  const rsiLow2 = Math.min(...secondHalfRSI);
+  
+  // 顶背离检测：价格创新高，RSI未创新高（看跌信号）
+  const isPriceHigherHigh = priceHigh2 > priceHigh1 * 1.001;
+  const isRSILowerHigh = rsiHigh2 < rsiHigh1 - 3; // RSI至少低3个点
+  
+  if (isPriceHigherHigh && isRSILowerHigh) {
+    const priceIncrease = ((priceHigh2 - priceHigh1) / priceHigh1) * 100;
+    const rsiDecrease = rsiHigh1 - rsiHigh2;
+    const strength = Math.min(100, Math.round((priceIncrease * 5 + rsiDecrease) * 2));
+    
+    return {
+      type: 'bearish',
+      strength: Math.max(60, strength),
+      description: `RSI顶背离：价格新高(${priceHigh2.toFixed(2)})但RSI未新高(${rsiHigh2.toFixed(1)})`
+    };
+  }
+  
+  // 底背离检测：价格创新低，RSI未创新低（看涨信号）
+  const isPriceLowerLow = priceLow2 < priceLow1 * 0.999;
+  const isRSIHigherLow = rsiLow2 > rsiLow1 + 3; // RSI至少高3个点
+  
+  if (isPriceLowerLow && isRSIHigherLow) {
+    const priceDecrease = ((priceLow1 - priceLow2) / priceLow1) * 100;
+    const rsiIncrease = rsiLow2 - rsiLow1;
+    const strength = Math.min(100, Math.round((priceDecrease * 5 + rsiIncrease) * 2));
+    
+    return {
+      type: 'bullish',
+      strength: Math.max(60, strength),
+      description: `RSI底背离：价格新低(${priceLow2.toFixed(2)})但RSI未新低(${rsiLow2.toFixed(1)})`
+    };
+  }
+  
+  return { type: 'none', strength: 0, description: '无明显背离' };
+}
+
+/**
+ * 计算多时间框架趋势反转得分（0-100）
+ * 集成背离检测，提供更准确的反转信号
+ */
+function calculateReversalScore(
+  tfPrimary: TimeframeIndicators,
+  tfConfirm: TimeframeIndicators,
+  tfFilter: TimeframeIndicators,
+  positionDirection: 'long' | 'short',
+  trendScoreHistory: {
+    primary: number[];
+    confirm: number[];
+    filter: number[];
+  }
+): import("../types/marketState").ReversalAnalysis {
+  let score = 0;
+  const details: string[] = [];
+  const reversedFrames: string[] = [];
+  
+  // 计算各框架当前趋势得分
+  const scorePrimary = calculateTrendScore(tfPrimary);
+  const scoreConfirm = calculateTrendScore(tfConfirm);
+  const scoreFilter = calculateTrendScore(tfFilter);
+  
+  // 判断反转方向（做多持仓→看跌反转，做空持仓→看涨反转）
+  const targetSign = positionDirection === 'long' ? -1 : 1;
+  const targetDivergence = positionDirection === 'long' ? 'bearish' : 'bullish';
+  
+  // 1. 主框架反转检测（权重40%，为背离检测腾出空间）
+  const primaryChange = detectTrendWeakening(scorePrimary, trendScoreHistory.primary);
+  if (Math.sign(scorePrimary) === targetSign && Math.abs(scorePrimary) > 30) {
+    score += 40;
+    details.push(`主框架已强势反转（得分=${scorePrimary}）`);
+    reversedFrames.push('primary');
+  } else if (primaryChange.isWeakening && primaryChange.weakeningSeverity > 40) {
+    score += 20;
+    details.push(`主框架趋势显著减弱（${primaryChange.weakeningSeverity}%）`);
+  } else if (Math.abs(scorePrimary) < 20) {
+    score += 12;
+    details.push(`主框架进入震荡区（得分=${scorePrimary}）`);
+  }
+  
+  // 2. 确认框架反转检测（权重25%）
+  const confirmChange = detectTrendWeakening(scoreConfirm, trendScoreHistory.confirm);
+  if (Math.sign(scoreConfirm) === targetSign && Math.abs(scoreConfirm) > 30) {
+    score += 25;
+    details.push(`确认框架已强势反转（得分=${scoreConfirm}）`);
+    reversedFrames.push('confirm');
+  } else if (confirmChange.isWeakening && confirmChange.weakeningSeverity > 40) {
+    score += 12;
+    details.push(`确认框架趋势显著减弱（${confirmChange.weakeningSeverity}%）`);
+  }
+  
+  // 3. 过滤框架反转检测（权重15%）
+  const filterChange = detectTrendWeakening(scoreFilter, trendScoreHistory.filter);
+  if (Math.sign(scoreFilter) === targetSign && Math.abs(scoreFilter) > 30) {
+    score += 15;
+    details.push(`过滤框架已反转（得分=${scoreFilter}）`);
+    reversedFrames.push('filter');
+  }
+  
+  // 4. MACD背离检测（权重10%）- 使用主框架数据
+  if (tfPrimary.candles && tfPrimary.candles.length >= 20) {
+    try {
+      // 提取MACD历史值（从K线数据中重新计算或使用已有数据）
+      const macdValues: number[] = [];
+      const closes = tfPrimary.candles.map((c: any) => {
+        const closeVal = c.close || c.c || c.Close;
+        return Number.parseFloat(closeVal || "0");
+      }).filter((n: number) => Number.isFinite(n));
+      
+      // 简化：使用当前MACD值填充数组（实际应该从历史K线计算）
+      // 为了准确性，这里使用当前MACD作为基准，通过价格变化推算历史MACD趋势
+      for (let i = 0; i < Math.min(closes.length, 30); i++) {
+        const priceRatio = closes[i] / tfPrimary.currentPrice;
+        const estimatedMACD = tfPrimary.macd * priceRatio;
+        macdValues.push(estimatedMACD);
+      }
+      
+      const macdDivergence = detectMACDDivergence(
+        tfPrimary.candles.slice(-30),
+        macdValues.slice(-30)
+      );
+      
+      if (macdDivergence.type === targetDivergence && macdDivergence.strength >= 60) {
+        score += 10;
+        details.push(`⚠️ ${macdDivergence.description}（强度${macdDivergence.strength}）`);
+      }
+    } catch (error) {
+      logger.debug(`MACD背离检测失败:`, error);
+    }
+  }
+  
+  // 5. RSI背离检测（权重10%）- 使用确认框架数据
+  if (tfConfirm.candles && tfConfirm.candles.length >= 20) {
+    try {
+      // 提取RSI历史值（简化：使用当前RSI作为基准推算）
+      const rsiValues: number[] = [];
+      const closes = tfConfirm.candles.map((c: any) => {
+        const closeVal = c.close || c.c || c.Close;
+        return Number.parseFloat(closeVal || "0");
+      }).filter((n: number) => Number.isFinite(n));
+      
+      // 使用RSI7的值，通过价格变化推算历史RSI趋势
+      for (let i = 0; i < Math.min(closes.length, 30); i++) {
+        const idx = closes.length - 1 - i;
+        if (idx >= 0 && idx < closes.length - 1) {
+          const priceChange = ((closes[idx + 1] - closes[idx]) / closes[idx]) * 100;
+          // RSI会跟随价格变化，但幅度更小
+          const rsiAdjust = priceChange * 0.5;
+          rsiValues.unshift(Math.max(0, Math.min(100, tfConfirm.rsi7 - rsiAdjust)));
+        } else {
+          rsiValues.unshift(tfConfirm.rsi7);
+        }
+      }
+      
+      const rsiDivergence = detectRSIDivergence(
+        tfConfirm.candles.slice(-30),
+        rsiValues.slice(-30)
+      );
+      
+      if (rsiDivergence.type === targetDivergence && rsiDivergence.strength >= 60) {
+        score += 10;
+        details.push(`⚠️ ${rsiDivergence.description}（强度${rsiDivergence.strength}）`);
+      }
+    } catch (error) {
+      logger.debug(`RSI背离检测失败:`, error);
+    }
+  }
+  
+  // 早期预警：任意两个框架趋势减弱>40% 或 检测到背离
+  const weakenedFrames = [
+    primaryChange.weakeningSeverity > 40,
+    confirmChange.weakeningSeverity > 40,
+    filterChange.weakeningSeverity > 40
+  ].filter(Boolean).length;
+  
+  const hasDivergence = details.some(d => d.includes('背离'));
+  const earlyWarning = weakenedFrames >= 2 || reversedFrames.length >= 2 || hasDivergence;
+  
+  // 生成建议
+  let recommendation = '';
+  if (score >= 70) {
+    recommendation = '立即平仓！多个时间框架确认反转';
+  } else if (score >= 50 && earlyWarning) {
+    recommendation = '建议平仓，反转风险较高';
+  } else if (earlyWarning) {
+    recommendation = '密切关注，趋势开始减弱或出现背离';
+  } else {
+    recommendation = '趋势正常，继续持有';
+  }
+  
+  return {
+    reversalScore: score,
+    earlyWarning,
+    timeframesReversed: reversedFrames,
+    recommendation,
+    details
+  };
+}
+
+// 存储历史趋势得分（内存缓存）
+const trendScoreCache = new Map<string, {
+  primary: number[];
+  confirm: number[];
+  filter: number[];
+  lastUpdate: number;
+}>();
+
+const SCORE_HISTORY_SIZE = 5; // 保留最近5个周期
+const CACHE_EXPIRE_MS = 3600000; // 1小时过期
+
+/**
+ * 更新趋势得分历史
+ */
+function updateTrendScoreHistory(
+  symbol: string,
+  scores: { primary: number; confirm: number; filter: number }
+): void {
+  const cached = trendScoreCache.get(symbol);
+  const now = Date.now();
+  
+  if (!cached || now - cached.lastUpdate > CACHE_EXPIRE_MS) {
+    // 初始化或重置
+    trendScoreCache.set(symbol, {
+      primary: [scores.primary],
+      confirm: [scores.confirm],
+      filter: [scores.filter],
+      lastUpdate: now
+    });
+  } else {
+    // 追加新得分
+    cached.primary.push(scores.primary);
+    cached.confirm.push(scores.confirm);
+    cached.filter.push(scores.filter);
+    
+    // 保持固定大小
+    if (cached.primary.length > SCORE_HISTORY_SIZE) {
+      cached.primary.shift();
+      cached.confirm.shift();
+      cached.filter.shift();
+    }
+    
+    cached.lastUpdate = now;
+  }
+}
+
+/**
+ * 获取趋势得分历史
+ */
+function getTrendScoreHistory(symbol: string): {
+  primary: number[];
+  confirm: number[];
+  filter: number[];
+} {
+  const cached = trendScoreCache.get(symbol);
+  const now = Date.now();
+  
+  if (!cached || now - cached.lastUpdate > CACHE_EXPIRE_MS) {
+    return { primary: [], confirm: [], filter: [] };
+  }
+  
+  return {
+    primary: cached.primary.slice(),
+    confirm: cached.confirm.slice(),
+    filter: cached.filter.slice()
+  };
 }

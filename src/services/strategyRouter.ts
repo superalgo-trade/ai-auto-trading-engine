@@ -40,13 +40,17 @@ const logger = createLogger({
  * 策略路由器 - 根据市场状态选择最优策略
  * 
  * @param symbol 交易品种
+ * @param currentPosition 当前持仓信息（可选）
  * @returns 策略结果
  */
-export async function routeStrategy(symbol: string): Promise<StrategyResult> {
+export async function routeStrategy(
+  symbol: string,
+  currentPosition?: { direction: 'long' | 'short' }
+): Promise<StrategyResult> {
   logger.info(`为 ${symbol} 路由策略...`);
   
-  // 1. 分析市场状态
-  const marketState = await analyzeMarketState(symbol);
+  // 1. 分析市场状态（传入持仓信息以计算反转得分）
+  const marketState = await analyzeMarketState(symbol, currentPosition);
   
   // 2. 获取多时间框架数据（供策略使用）
   const mtfData = await performMultiTimeframeAnalysis(symbol, ["SHORT_CONFIRM", "MEDIUM"]);
@@ -190,7 +194,8 @@ export async function routeStrategy(symbol: string): Promise<StrategyResult> {
  * @returns 策略结果映射
  */
 export async function routeMultipleStrategies(
-  symbols: string[]
+  symbols: string[],
+  positionDirections?: Map<string, 'long' | 'short'>
 ): Promise<Map<string, StrategyResult>> {
   logger.info(`为 ${symbols.length} 个品种批量路由策略...`);
   
@@ -199,7 +204,10 @@ export async function routeMultipleStrategies(
   // 并发路由所有品种
   const promises = symbols.map(async (symbol) => {
     try {
-      const result = await routeStrategy(symbol);
+      const currentPosition = positionDirections?.has(symbol)
+        ? { direction: positionDirections.get(symbol)! }
+        : undefined;
+      const result = await routeStrategy(symbol, currentPosition);
       results.set(symbol, result);
     } catch (error) {
       logger.error(`路由 ${symbol} 策略失败:`, error);

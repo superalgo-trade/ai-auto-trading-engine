@@ -830,10 +830,35 @@ ${params.scientificStopLoss?.enabled ? `
    ├─ 工具返回 canExecute=true → 立即调用 executePartialTakeProfit()
    └─ 工具会自动执行分批平仓并移动止损
 
-   步骤2：检查平仓触发
-   ├─ 峰值回撤 ≥ ${formatPercent(params.peakDrawdownProtection)}% → 危险信号，调用 closePosition({ symbol, reason: 'peak_drawdown' })
-   ├─ 趋势反转（3+时间框架信号一致）→ 调用 closePosition({ symbol, reason: 'trend_reversal' })
-   └─ 持仓时间 ≥ 36小时 → 调用 closePosition({ symbol, reason: 'time_limit' })
+   步骤2：检查平仓触发（按优先级）
+   
+   级别1：趋势反转确认（立即执行）⭐⭐⭐
+   ├─ 检查 reversalAnalysis.reversalScore ≥ 70 
+   │  → 立即平仓 closePosition({ symbol, reason: 'trend_reversal' })
+   │  说明：多个时间框架强烈确认反转，不要犹豫
+   │
+   ├─ 检查 reversalAnalysis.reversalScore ≥ 50 且 earlyWarning=true
+   │  → 建议平仓（AI综合判断）
+   │  说明：反转风险较高，结合盈亏情况决策
+   │  • 若已盈利：立即平仓锁定利润
+   │  • 若小幅亏损（<5%）：平仓止损
+   │  • 若接近止损线：等待止损单触发
+   
+   级别2：趋势减弱预警（调整策略）⭐⭐
+   ├─ 检查 reversalAnalysis.earlyWarning=true
+   │  → 停止移动止损，准备退出
+   │  说明：趋势开始减弱，不要追求更高利润
+   │
+   ├─ 检查 trendScores.primary 绝对值 < 20
+   │  → 考虑平仓（趋势进入震荡区）
+   │  说明：继续持有风险增加
+   
+   级别3：传统风控（兜底保护）⭐
+   ├─ 峰值回撤 ≥ ${formatPercent(params.peakDrawdownProtection)}% 
+   │  → closePosition({ symbol, reason: 'peak_drawdown' })
+   ├─ 持仓时间 ≥ 36小时 
+   │  → closePosition({ symbol, reason: 'time_limit' })
+   └─ 止损条件单自动触发（交易所执行，AI无需干预）
    
 (2) 新开仓评估（强制流程）：
    - 第1步：必须先调用 analyze_opening_opportunities() 获取系统评估

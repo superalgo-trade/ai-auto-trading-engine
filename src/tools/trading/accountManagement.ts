@@ -77,7 +77,19 @@ export const getAccountBalanceTool = createTool({
  */
 export const getPositionsTool = createTool({
   name: "getPositions",
-  description: "获取当前所有持仓信息",
+  description: `获取当前所有持仓信息，包括市场状态和趋势反转分析。
+
+返回信息包含：
+- 基础持仓信息（合约、数量、杠杆、价格、盈亏等）
+- 市场状态分析（趋势强度、动量状态、波动率等）
+- 趋势强度得分（-100到+100，量化趋势强弱）
+- 反转分析（仅在有持仓时）：
+  * reversalScore: 0-100，反转确认程度
+  * earlyWarning: 是否发出趋势减弱预警
+  * recommendation: 具体建议（如"立即平仓"、"密切关注"等）
+  * details: 详细原因说明
+
+⚠️ 重要：如果 reversalScore ≥ 70 或 earlyWarning=true，请特别关注！`,
   parameters: z.object({}),
   execute: async () => {
     const client = getExchangeClient();
@@ -85,20 +97,48 @@ export const getPositionsTool = createTool({
     try {
       const positions = await client.getPositions();
       
-      const formattedPositions = positions
-        .filter((p: any) => Number.parseFloat(p.size || "0") !== 0)
-        .map((p: any) => ({
-          contract: p.contract,
-          size: Number.parseFloat(p.size || "0"),
-          leverage: Number.parseInt(p.leverage || "1"),
-          entryPrice: Number.parseFloat(p.entryPrice || "0"),
-          markPrice: Number.parseFloat(p.markPrice || "0"),
-          liquidationPrice: Number.parseFloat(p.liqPrice || "0"),
-          unrealisedPnl: Number.parseFloat(p.unrealisedPnl || "0"),
-          realisedPnl: Number.parseFloat(p.realisedPnl || "0"),
-          margin: Number.parseFloat(p.margin || "0"),
-          side: Number.parseFloat(p.size || "0") > 0 ? "long" : "short",
-        }));
+      const activePositions = positions.filter((p: any) => Number.parseFloat(p.size || "0") !== 0);
+      
+      // 获取每个持仓的市场状态和反转分析
+      const formattedPositions = await Promise.all(
+        activePositions.map(async (p: any) => {
+          const symbol = client.extractSymbol(p.contract);
+          const direction = Number.parseFloat(p.size || "0") > 0 ? "long" : "short";
+          
+          // 分析市场状态（传入持仓信息以计算反转得分）
+          let marketState;
+          try {
+            const { analyzeMarketState } = await import("../../services/marketStateAnalyzer");
+            marketState = await analyzeMarketState(symbol, { direction });
+          } catch (error) {
+            // 如果分析失败，不影响基础信息返回
+            marketState = null;
+          }
+          
+          return {
+            contract: p.contract,
+            symbol,
+            size: Number.parseFloat(p.size || "0"),
+            leverage: Number.parseInt(p.leverage || "1"),
+            entryPrice: Number.parseFloat(p.entryPrice || "0"),
+            markPrice: Number.parseFloat(p.markPrice || "0"),
+            liquidationPrice: Number.parseFloat(p.liqPrice || "0"),
+            unrealisedPnl: Number.parseFloat(p.unrealisedPnl || "0"),
+            realisedPnl: Number.parseFloat(p.realisedPnl || "0"),
+            margin: Number.parseFloat(p.margin || "0"),
+            side: direction,
+            // 新增：市场状态和反转分析
+            marketState: marketState ? {
+              state: marketState.state,
+              trendStrength: marketState.trendStrength,
+              momentumState: marketState.momentumState,
+              confidence: Math.round(marketState.confidence * 100),
+            } : undefined,
+            trendScores: marketState?.trendScores,
+            reversalAnalysis: marketState?.reversalAnalysis,
+          };
+        })
+      );
       
       return {
         positions: formattedPositions,

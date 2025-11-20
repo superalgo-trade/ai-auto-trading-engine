@@ -56,6 +56,30 @@ export type MomentumState =
 export type VolatilityState = "high_vol" | "normal_vol" | "low_vol";
 
 /**
+ * 趋势变化检测
+ */
+export interface TrendChange {
+  currentScore: number;
+  previousScore: number;
+  change: number;
+  changePercent: number;
+  isWeakening: boolean;      // 趋势减弱
+  isReversing: boolean;      // 趋势反转
+  weakeningSeverity: number; // 减弱严重程度（0-100）
+}
+
+/**
+ * 反转分析结果
+ */
+export interface ReversalAnalysis {
+  reversalScore: number;        // 0-100，反转确认程度
+  earlyWarning: boolean;        // 早期预警标志
+  timeframesReversed: string[]; // 已反转的时间框架
+  recommendation: string;        // 文字建议
+  details: string[];            // 详细原因
+}
+
+/**
  * 市场状态分析结果
  */
 export interface MarketStateAnalysis {
@@ -65,6 +89,23 @@ export interface MarketStateAnalysis {
   momentumState: MomentumState;
   volatilityState: VolatilityState;
   confidence: number; // 0-1，置信度评分
+  
+  // 新增：趋势强度得分（-100到+100）
+  trendScores?: {
+    primary: number;    // 主框架得分
+    confirm: number;    // 确认框架得分
+    filter: number;     // 过滤框架得分
+  };
+  
+  // 新增：趋势变化检测
+  trendChanges?: {
+    primary: TrendChange;
+    confirm: TrendChange;
+    filter: TrendChange;
+  };
+  
+  // 新增：反转分析（仅在有持仓时）
+  reversalAnalysis?: ReversalAnalysis;
   
   // 关键指标
   keyMetrics: {

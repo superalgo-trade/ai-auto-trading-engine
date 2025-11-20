@@ -115,8 +115,9 @@ export const analyzeOpeningOpportunitiesTool = createTool({
       logger.info(`  分析品种数量: ${symbolsToAnalyze.length}`);
       logger.info(`  品种列表: ${symbolsToAnalyze.join(", ")}`);
 
-      // 2. 获取当前持仓（用于过滤）
+      // 2. 获取当前持仓（用于过滤和传递给市场分析）
       let openPositionSymbols: string[] = [];
+      const positionDirections = new Map<string, 'long' | 'short'>();
       
       if (!includeOpenPositions) {
         const dbUrl = process.env.DATABASE_URL || "file:./.voltagent/trading.db";
@@ -124,10 +125,15 @@ export const analyzeOpeningOpportunitiesTool = createTool({
         
         // positions表没有status字段，通过quantity != 0判断是否有持仓
         const openPositions = await dbClient.execute(
-          "SELECT symbol FROM positions WHERE quantity != 0"
+          "SELECT symbol, direction FROM positions WHERE quantity != 0"
         );
         
         openPositionSymbols = openPositions.rows.map((p: any) => p.symbol as string);
+        
+        // 记录持仓方向
+        for (const row of openPositions.rows) {
+          positionDirections.set(row.symbol as string, row.direction as 'long' | 'short');
+        }
         
         if (openPositionSymbols.length > 0) {
           logger.info(`  当前持仓: ${openPositionSymbols.join(", ")}`);
@@ -155,9 +161,9 @@ export const analyzeOpeningOpportunitiesTool = createTool({
       const marketStates = await analyzeMultipleMarketStates(symbolsToAnalyze);
       logger.info(`  ✓ 完成: ${marketStates.size}/${symbolsToAnalyze.length} 个品种`);
 
-      // 4. 并发路由策略
+      // 4. 并发路由策略（传入持仓信息用于反转分析）
       logger.info("🎯 步骤2/3: 路由策略...");
-      const strategyResults = await routeMultipleStrategies(symbolsToAnalyze);
+      const strategyResults = await routeMultipleStrategies(symbolsToAnalyze, positionDirections);
       logger.info(`  ✓ 完成: ${strategyResults.size}/${symbolsToAnalyze.length} 个品种`);
 
       // 5. 评分和排序
