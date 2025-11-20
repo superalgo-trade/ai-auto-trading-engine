@@ -316,22 +316,45 @@ async function showStatus() {
       recentPartialTP.rows.forEach((tp: any) => {
         const time = new Date(tp.timestamp).toLocaleString('zh-CN', { hour12: false });
         const rMultiple = 'R=' + parseFloat(tp.r_multiple).toFixed(2);
-        const closePercent = parseFloat(tp.close_percent).toFixed(0) + '%';
-        const pnlValue = parseFloat(tp.pnl);
-        const pnl = pnlValue >= 0 ? '+' + pnlValue.toFixed(2) : pnlValue.toFixed(2);
-        const closedQty = tp.closed_quantity ? parseFloat(tp.closed_quantity).toFixed(2) : '-';
-        tpTable.push([
-          tp.symbol,
-          tp.side,
-          'Stage' + tp.stage,
-          rMultiple,
-          tp.trigger_price,
-          closePercent,
-          closedQty,
-          pnl,
-          String(tp.order_id || '-').substring(0, 16),  // 增加到16位
-          time
-        ]);
+        const stage = tp.stage;
+        
+        // Stage3 特殊处理：不执行平仓，只启用移动止损
+        if (stage === 3) {
+          const closePercent = '移动止损';
+          const closedQty = '-';
+          const pnl = '-';
+          const orderId = '(无订单)';
+          tpTable.push([
+            tp.symbol,
+            tp.side,
+            'Stage' + stage,
+            rMultiple,
+            tp.trigger_price,
+            closePercent,
+            closedQty,
+            pnl,
+            orderId,
+            time
+          ]);
+        } else {
+          // Stage1 和 Stage2：正常显示平仓数据
+          const closePercent = parseFloat(tp.close_percent).toFixed(0) + '%';
+          const pnlValue = parseFloat(tp.pnl);
+          const pnl = pnlValue >= 0 ? '+' + pnlValue.toFixed(2) : pnlValue.toFixed(2);
+          const closedQty = tp.closed_quantity ? parseFloat(tp.closed_quantity).toFixed(2) : '-';
+          tpTable.push([
+            tp.symbol,
+            tp.side,
+            'Stage' + stage,
+            rMultiple,
+            tp.trigger_price,
+            closePercent,
+            closedQty,
+            pnl,
+            String(tp.order_id || '-').substring(0, 16),
+            time
+          ]);
+        }
       });
       
       console.log(tpTable.toString());
