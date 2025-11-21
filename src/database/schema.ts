@@ -297,6 +297,7 @@ CREATE TABLE IF NOT EXISTS position_close_events (
   trigger_order_id TEXT,
   close_trade_id TEXT,
   order_id TEXT,
+  position_order_id TEXT,
   created_at TEXT NOT NULL,
   processed INTEGER DEFAULT 0
 );
@@ -350,6 +351,7 @@ CREATE INDEX IF NOT EXISTS idx_price_orders_status ON price_orders(status);
 CREATE INDEX IF NOT EXISTS idx_price_orders_order_id ON price_orders(order_id);
 CREATE INDEX IF NOT EXISTS idx_close_events_processed ON position_close_events(processed, created_at);
 CREATE INDEX IF NOT EXISTS idx_close_events_symbol ON position_close_events(symbol);
+CREATE INDEX IF NOT EXISTS idx_close_events_position_order_id ON position_close_events(position_order_id);
 CREATE INDEX IF NOT EXISTS idx_partial_taking_profit_symbol ON partial_take_profit_history(symbol);
 CREATE INDEX IF NOT EXISTS idx_partial_taking_profit_position_order_id ON partial_take_profit_history(position_order_id);
 CREATE INDEX IF NOT EXISTS idx_partial_taking_profit_status ON partial_take_profit_history(status);

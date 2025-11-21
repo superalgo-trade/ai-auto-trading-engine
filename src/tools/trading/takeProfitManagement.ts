@@ -1446,9 +1446,12 @@ export const checkPartialTakeProfitOpportunityTool = createTool({
         
         // 🔧 如果已执行过分批止盈，恢复原始止损价来计算R倍数
         let originalStopLoss = stopLossPrice;
+        logger.info(`🔍 查询 ${symbol} 的分批止盈历史: actualDbSymbol=${actualDbSymbol}, positionOrderId=${positionOrderId || 'NULL'}`);
         const takeProfitHistory = await getPartialTakeProfitHistory(actualDbSymbol, positionOrderId);
+        logger.info(`📊 ${symbol} 找到 ${takeProfitHistory.length} 条分批止盈历史记录`);
         if (takeProfitHistory.length > 0) {
           const firstStage = takeProfitHistory.sort((a, b) => a.stage - b.stage)[0];
+          logger.info(`📋 ${symbol} 历史记录详情: stage=${firstStage.stage}, position_order_id=${firstStage.position_order_id}, trigger_price=${firstStage.trigger_price}`);
           if (firstStage.stage === 1 && firstStage.trigger_price) {
             originalStopLoss = 2 * entryPrice - firstStage.trigger_price;
           }
@@ -1466,8 +1469,10 @@ export const checkPartialTakeProfitOpportunityTool = createTool({
         const adjustedR3 = adjustRMultipleForVolatility(3, volatility);
         
         // 获取历史（使用实际的数据库符号和开仓订单ID）
+        logger.info(`🔍 查询 ${symbol} 的已执行阶段: actualDbSymbol=${actualDbSymbol}, positionOrderId=${positionOrderId || 'NULL'}`);
         const history = await getPartialTakeProfitHistory(actualDbSymbol, positionOrderId);
         const executedStages = history.map((h) => h.stage);
+        logger.info(`📊 ${symbol} 已执行阶段: [${executedStages.join(', ')}]，共 ${history.length} 条记录`);
         
         // 判断可执行阶段（使用动态调整后的R倍数）
         const canExecuteStages: number[] = [];
