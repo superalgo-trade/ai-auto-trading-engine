@@ -900,10 +900,13 @@ async function getPositions(cachedExchangePositions?: any[]) {
     // 如果提供了缓存数据，使用缓存；否则重新获取
     const exchangePositions = cachedExchangePositions || await exchangeClient.getPositions();
     
-    // 从数据库获取持仓的开仓时间（数据库中保存了正确的开仓时间）
-    const dbResult = await dbClient.execute("SELECT symbol, opened_at FROM positions");
-      const dbOpenedAtMap = new Map(
-      dbResult.rows.map((row: any) => [row.symbol, row.opened_at])
+    // 从数据库获取持仓的开仓时间和 entry_order_id（数据库中保存了正确的数据）
+    const dbResult = await dbClient.execute("SELECT symbol, opened_at, entry_order_id FROM positions");
+    const dbDataMap = new Map(
+      dbResult.rows.map((row: any) => [row.symbol, { 
+        opened_at: row.opened_at, 
+        entry_order_id: row.entry_order_id 
+      }])
     );
     
     // 过滤并格式化持仓
@@ -913,8 +916,11 @@ async function getPositions(cachedExchangePositions?: any[]) {
         const size = parsePositionSize(p.size);
         const symbol = exchangeClient.extractSymbol(p.contract);
         
+        // 从数据库获取持仓数据
+        const dbData = dbDataMap.get(symbol);
+        
         // 优先从数据库读取开仓时间，确保时间准确
-        let openedAt = dbOpenedAtMap.get(symbol);
+        let openedAt = dbData?.opened_at;
         
         // 如果数据库中没有，尝试从交易所的create_time获取
         if (!openedAt && p.create_time) {
@@ -944,6 +950,7 @@ async function getPositions(cachedExchangePositions?: any[]) {
           leverage: Number.parseInt(p.leverage || "1"),
           margin: Number.parseFloat(p.margin || "0"),
           opened_at: openedAt,
+          entry_order_id: dbData?.entry_order_id, // 包含开仓订单ID用于识别当前活跃持仓
         };
       });
     
