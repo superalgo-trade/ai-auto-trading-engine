@@ -931,7 +931,7 @@ export const partialTakeProfitTool = createTool({
             leverage,
             netPnl,
             finalFee,
-            getChinaTimeISO(),
+            new Date().toISOString(), // 统一使用UTC ISO格式，兼容币安和Gate.io
             'filled'
           ]
         });

@@ -311,10 +311,23 @@ export function createApiRoutes() {
         if (openResult.rows && openResult.rows.length > 0) {
           const openRow = openResult.rows[0];
           
-          // 计算持仓时间
+          // 计算持仓时间 - 统一处理时间戳格式，兼容币安和Gate.io
           const openTime = new Date(openRow.timestamp as string);
           const closeTime = new Date(closeRow.timestamp as string);
+          
+          // 验证时间戳是否有效
+          if (isNaN(openTime.getTime()) || isNaN(closeTime.getTime())) {
+            logger.warn(`无效的时间戳: open=${openRow.timestamp}, close=${closeRow.timestamp}`);
+            continue;
+          }
+          
           const holdingTimeMs = closeTime.getTime() - openTime.getTime();
+          
+          // 如果持仓时间为负值，说明数据异常，跳过该记录
+          if (holdingTimeMs < 0) {
+            logger.warn(`持仓时间为负值: symbol=${closeRow.symbol}, open=${openRow.timestamp}, close=${closeRow.timestamp}, diff=${holdingTimeMs}ms`);
+            continue;
+          }
           
           // 转换为友好的时间格式
           const hours = Math.floor(holdingTimeMs / (1000 * 60 * 60));

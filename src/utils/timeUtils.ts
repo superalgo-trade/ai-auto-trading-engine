@@ -21,28 +21,15 @@
  */
 
 /**
- * 获取当前中国时间的 ISO 字符串
- * @returns 中国时间的 ISO 格式字符串
+ * 获取当前时间的 ISO 字符串（UTC 格式）
+ * ⚠️ 重要修复：统一使用 UTC 格式，避免时区混乱导致的持仓时间计算错误
+ * 数据库中所有 timestamp 字段必须使用统一的 UTC ISO 格式
+ * @returns UTC 时间的 ISO 格式字符串 (如: 2025-11-21T00:11:18.685Z)
  */
 export function getChinaTimeISO(): string {
-  const now = new Date();
-  
-  // 使用 toLocaleString 获取中国时间，然后转换为 ISO 格式
-  const chinaTimeString = now.toLocaleString('zh-CN', { 
-    timeZone: 'Asia/Shanghai',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hour12: false
-  });
-  
-  // 转换格式：从 "2025/10/23 08:30:45" 到 "2025-10-23T08:30:45+08:00"
-  const [datePart, timePart] = chinaTimeString.split(' ');
-  const isoDate = datePart.replace(/\//g, '-');
-  return `${isoDate}T${timePart}+08:00`;
+  // 🔧 核心修复：统一返回 UTC 格式，兼容币安和 Gate.io
+  // 之前返回 +08:00 格式导致数据库中存在两种时间格式，造成持仓时间计算错误
+  return new Date().toISOString();
 }
 
 /**
