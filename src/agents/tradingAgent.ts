@@ -1381,11 +1381,22 @@ ${params.scientificStopLoss?.enabled ? `│ 移动止损优化（可选，低优
   // 近期平仓事件（24小时内）
   if (closeEvents && closeEvents.length > 0) {
     prompt += `\n📊 近期平仓事件（24小时内）\n`;
-    prompt += `以下是最近被止损/止盈触发的平仓记录，用于评估策略效果和优化未来决策：\n\n`;
+    prompt += `以下是最近被止损/止盈触发的平仓记录，用于评估策略效果和优化未来决策：\n`;
+    prompt += `⚠️ 注意：同一币种可能有多个不同的持仓（通过 position_order_id 区分），请确保将平仓历史关联到正确的持仓！\n\n`;
+    
+    // 获取当前活跃持仓的 entry_order_id 列表，用于标识哪些平仓事件属于已完全平仓的旧仓位
+    const activePositionOrderIds = new Set(
+      positions
+        .filter((p: any) => p.quantity && Math.abs(Number.parseFloat(p.quantity)) > 0)
+        .map((p: any) => p.entry_order_id)
+        .filter(Boolean)
+    );
     
     for (const event of closeEvents) {
       const e = event as any;
       const eventTime = formatChinaTime(e.created_at);
+      const positionOrderId = e.position_order_id;
+      const isOldPosition = positionOrderId && !activePositionOrderIds.has(positionOrderId);
       
       // 根据 close_reason 映射显示文本
       let reasonText = '⚠️ 未知原因';
@@ -1423,7 +1434,15 @@ ${params.scientificStopLoss?.enabled ? `│ 移动止损优化（可选，低优
           break;
       }
       
-      prompt += `${e.symbol} ${e.side === 'long' ? '多单' : '空单'} (${eventTime})\n`;
+      // 显示持仓状态标识
+      const positionStatusTag = isOldPosition 
+        ? ' [已完全平仓的旧仓位]' 
+        : positionOrderId && activePositionOrderIds.has(positionOrderId)
+          ? ' [当前活跃持仓]'
+          : '';
+      
+      prompt += `${e.symbol} ${e.side === 'long' ? '多单' : '空单'}${positionStatusTag} (${eventTime})\n`;
+      prompt += `  持仓ID: ${positionOrderId || '未知'}\n`;
       prompt += `  触发原因: ${reasonText}\n`;
       prompt += `  开仓价: ${formatPrice(e.entry_price)}`;
       
@@ -1450,7 +1469,11 @@ ${params.scientificStopLoss?.enabled ? `│ 移动止损优化（可选，低优
           break;
         case 'partial_close':
           if (e.pnl > 0) {
-            prompt += `  💡 分析：分批止盈执行成功，部分锁定利润，剩余仓位继续持有\n`;
+            if (isOldPosition) {
+              prompt += `  💡 分析：这是已完全平仓的旧仓位的分批止盈记录，不影响当前持仓\n`;
+            } else {
+              prompt += `  💡 分析：当前持仓的分批止盈执行成功，部分锁定利润，剩余仓位继续持有\n`;
+            }
           }
           break;
         case 'peak_drawdown':

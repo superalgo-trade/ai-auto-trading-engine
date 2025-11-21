@@ -1328,6 +1328,16 @@ export const closePositionTool = createTool({
       await dbClient.execute('BEGIN TRANSACTION');
       
       try {
+        // ⭐️ 2.0 查询 entry_order_id，用于关联平仓事件和具体持仓
+        let entryOrderId: string | null = null;
+        const positionInfoResult = await dbClient.execute({
+          sql: 'SELECT entry_order_id FROM positions WHERE symbol = ? LIMIT 1',
+          args: [symbol]
+        });
+        if (positionInfoResult.rows.length > 0) {
+          entryOrderId = positionInfoResult.rows[0].entry_order_id as string | null;
+        }
+        
         // ⭐️ 2.1 最关键: 先删除/更新持仓记录
         // 即使后续步骤失败，也不会误认为持仓存在
         if (percentage === 100) {
@@ -1383,8 +1393,8 @@ export const closePositionTool = createTool({
           sql: `INSERT INTO position_close_events 
                 (symbol, side, entry_price, close_price, quantity, leverage, 
                  pnl, pnl_percent, fee, close_reason, trigger_type, order_id, 
-                 created_at, processed)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                 position_order_id, created_at, processed)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           args: [
             symbol,
             side,
@@ -1398,6 +1408,7 @@ export const closePositionTool = createTool({
             reason,
             'ai_decision',
             order.id?.toString() || "",
+            entryOrderId || null, // ⭐ 关联到具体持仓，用于区分同symbol的不同仓位
             timestamp,
             1,
           ],

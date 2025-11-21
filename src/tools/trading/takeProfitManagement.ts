@@ -1241,8 +1241,8 @@ export const partialTakeProfitTool = createTool({
           sql: `INSERT INTO position_close_events 
                 (symbol, side, entry_price, close_price, quantity, leverage, 
                  pnl, pnl_percent, fee, close_reason, trigger_type, trigger_order_id, order_id, 
-                 created_at, processed)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                 position_order_id, created_at, processed)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           args: [
             dbSymbol,
             side,
@@ -1257,6 +1257,7 @@ export const partialTakeProfitTool = createTool({
             'ai_decision',     // 触发类型：AI决策
             uniqueTriggerId,   // ⭐ 唯一标识符，防止重复插入
             closeOrderResponse.id, // ⭐ 使用真实的交易订单ID
+            entryOrderId || null, // ⭐ 关联到具体持仓，用于区分同symbol的不同仓位
             getChinaTimeISO(),
             1,  // 已处理
           ],

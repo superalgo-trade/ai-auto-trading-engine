@@ -424,6 +424,12 @@ export class PriceOrderMonitor {
     // 阶段2: 查询持仓信息（用于计算PnL）
     // ========================================
     let position = await this.getPositionInfo(order.symbol, order.side);
+    let entryOrderId: string | null = null;
+    
+    // 如果数据库中有持仓记录，同时获取 entry_order_id
+    if (position) {
+      entryOrderId = position.entry_order_id as string | null;
+    }
     
     // 如果数据库中没有持仓记录，尝试从开仓交易记录中查找
     if (!position) {
@@ -667,13 +673,13 @@ export class PriceOrderMonitor {
         sql: `INSERT INTO position_close_events 
               (symbol, side, close_reason, trigger_type, trigger_price, close_price, 
                entry_price, quantity, leverage, pnl, pnl_percent, fee, 
-               trigger_order_id, close_trade_id, order_id, created_at, processed)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+               trigger_order_id, close_trade_id, order_id, position_order_id, created_at, processed)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         args: [
           order.symbol, order.side, closeReason, 'exchange_order',
           parseFloat(order.trigger_price), exitPrice, entryPrice,
           quantity, leverage, netPnl, pnlPercent, totalFee,
-          order.order_id, trade.id, closeOrderId, timestamp, 1  // 已处理
+          order.order_id, trade.id, closeOrderId, entryOrderId || null, timestamp, 1  // 已处理
         ]
       });
       logger.debug('✅ [事务] 步骤5: 平仓事件已记录');
@@ -1163,11 +1169,15 @@ export class PriceOrderMonitor {
       // 🔧 修复: order_id 统一存储实际平仓成交的订单ID，与 trades 表保持一致
       const closeOrderId = trade.id || order.order_id; // 优先使用成交ID，与trades表保持一致
       
+      // 获取 entry_order_id
+      const positionEntryOrderId = position.entry_order_id as string | null || null;
+      
       await this.dbClient.execute({
         sql: `INSERT INTO position_close_events 
               (symbol, side, close_reason, trigger_type, trigger_price, close_price, entry_price, 
-               quantity, leverage, pnl, pnl_percent, fee, trigger_order_id, close_trade_id, order_id, created_at, processed)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+               quantity, leverage, pnl, pnl_percent, fee, trigger_order_id, close_trade_id, order_id, 
+               position_order_id, created_at, processed)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         args: [
           order.symbol,
           order.side,
@@ -1184,6 +1194,7 @@ export class PriceOrderMonitor {
           order.order_id,
           trade.id,
           closeOrderId,
+          positionEntryOrderId,
           new Date().toISOString(),
           0 // 未处理
         ]

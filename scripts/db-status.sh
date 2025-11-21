@@ -250,7 +250,7 @@ async function showStatus() {
     const recentCloseEvents = await client.execute('SELECT * FROM position_close_events ORDER BY created_at DESC');
     if (recentCloseEvents.rows.length > 0) {
       const closeTable = new Table({
-        head: ['币种', '方向', '入场价', '平仓价', '数量', '杠杆', '盈亏', '盈亏%', '手续费', '平仓原因', '触发类型', '订单ID', '创建时间', '已处理'],
+        head: ['币种', '方向', '持仓ID', '入场价', '平仓价', '数量', '杠杆', '盈亏', '盈亏%', '手续费', '平仓原因', '触发类型', '订单ID', '创建时间', '已处理'],
         style: { head: ['cyan'] }
       });
       
@@ -277,9 +277,11 @@ async function showStatus() {
         const fee = event.fee ? parseFloat(event.fee).toFixed(4) : '-';
         const processed = event.processed ? '是' : '否';
         const time = new Date(event.created_at).toLocaleString('zh-CN', { hour12: false });
+        const positionId = event.position_order_id ? event.position_order_id.substring(0, 8) + '...' : '-';
         closeTable.push([
           event.symbol,
           event.side,
+          positionId,
           event.entry_price,
           event.close_price,
           event.quantity,
