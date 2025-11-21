@@ -1394,7 +1394,9 @@ ${params.scientificStopLoss?.enabled ? `│ 移动止损优化（可选，低优
     
     // 调试日志：显示当前活跃持仓的 entry_order_id
     if (activePositionOrderIds.size > 0) {
-      logger.debug(`[tradingAgent] 当前活跃持仓的 entry_order_id: ${Array.from(activePositionOrderIds).join(', ')}`);
+      logger.info(`[tradingAgent] 当前活跃持仓的 entry_order_id: ${Array.from(activePositionOrderIds).join(', ')}`);
+    } else {
+      logger.info(`[tradingAgent] 没有当前活跃持仓`);
     }
     
     for (const event of closeEvents) {
@@ -1402,6 +1404,9 @@ ${params.scientificStopLoss?.enabled ? `│ 移动止损优化（可选，低优
       const eventTime = formatChinaTime(e.created_at);
       const positionOrderId = e.position_order_id || '';
       const isOldPosition = positionOrderId && !activePositionOrderIds.has(positionOrderId);
+      
+      // 调试日志：显示每个平仓事件的 position_order_id 和判断结果
+      logger.info(`[tradingAgent] 平仓事件: ${e.symbol}, position_order_id=${positionOrderId}, isOldPosition=${isOldPosition}, activePositionOrderIds.has=${activePositionOrderIds.has(positionOrderId)}`);
       
       // 根据 close_reason 映射显示文本
       let reasonText = '⚠️ 未知原因';
