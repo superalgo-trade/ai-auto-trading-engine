@@ -1392,10 +1392,15 @@ ${params.scientificStopLoss?.enabled ? `│ 移动止损优化（可选，低优
         .filter(Boolean)
     );
     
+    // 调试日志：显示当前活跃持仓的 entry_order_id
+    if (activePositionOrderIds.size > 0) {
+      logger.debug(`[tradingAgent] 当前活跃持仓的 entry_order_id: ${Array.from(activePositionOrderIds).join(', ')}`);
+    }
+    
     for (const event of closeEvents) {
       const e = event as any;
       const eventTime = formatChinaTime(e.created_at);
-      const positionOrderId = e.position_order_id;
+      const positionOrderId = e.position_order_id || '';
       const isOldPosition = positionOrderId && !activePositionOrderIds.has(positionOrderId);
       
       // 根据 close_reason 映射显示文本
