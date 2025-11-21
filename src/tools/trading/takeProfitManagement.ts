@@ -521,6 +521,12 @@ export const partialTakeProfitTool = createTool({
         args: [symbol],
       });
       
+      // 如果找到了，更新 dbSymbol 为数据库中实际的格式
+      if (dbPosition.rows.length > 0) {
+        dbSymbol = dbPosition.rows[0].symbol as string;
+        logger.info(`使用符号 ${dbSymbol} 找到持仓记录`);
+      }
+      
       // 如果没找到，尝试Binance格式（ETHUSDT）
       if (dbPosition.rows.length === 0) {
         dbPosition = await dbClient.execute({
