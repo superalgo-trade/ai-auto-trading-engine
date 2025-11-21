@@ -247,10 +247,34 @@ export function calculateTargetPrice(
  * 获取持仓的分批止盈历史
  * 🔧 支持多种symbol格式查询（兼容不同交易所和历史数据）
  */
-async function getPartialTakeProfitHistory(symbol: string): Promise<any[]> {
+/**
+ * 获取分批止盈历史记录（按开仓订单ID查询）
+ * 
+ * @param symbol 交易对
+ * @param positionOrderId 开仓订单ID（可选，如果提供则精确匹配特定持仓）
+ * @returns 分批止盈历史记录数组
+ */
+async function getPartialTakeProfitHistory(symbol: string, positionOrderId?: string | null): Promise<any[]> {
   const exchangeClient = getExchangeClient();
   const contract = exchangeClient.normalizeContract(symbol);
   
+  // 如果提供了 positionOrderId，优先使用精确匹配
+  if (positionOrderId) {
+    const result = await dbClient.execute({
+      sql: `
+        SELECT * FROM partial_take_profit_history
+        WHERE position_order_id = ? AND status = 'completed'
+        ORDER BY timestamp DESC
+      `,
+      args: [positionOrderId],
+    });
+    
+    if (result.rows.length > 0) {
+      return result.rows as any[];
+    }
+  }
+  
+  // 兼容旧数据：如果没有 positionOrderId 或查询不到，回退到按 symbol 查询
   // 尝试简化符号查询（标准格式）
   let result = await dbClient.execute({
     sql: `
@@ -304,6 +328,7 @@ async function recordPartialTakeProfit(data: {
   pnl: number;
   newStopLossPrice?: number;
   orderId?: string;
+  positionOrderId?: string;
   status: "completed" | "failed";
   notes?: string;
 }): Promise<void> {
@@ -324,8 +349,8 @@ async function recordPartialTakeProfit(data: {
       INSERT INTO partial_take_profit_history (
         symbol, side, stage, r_multiple, trigger_price, close_percent,
         closed_quantity, remaining_quantity, pnl, new_stop_loss_price,
-        order_id, status, notes, timestamp
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        order_id, position_order_id, status, notes, timestamp
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `,
     args: [
       data.symbol,
@@ -339,6 +364,7 @@ async function recordPartialTakeProfit(data: {
       data.pnl,
       data.newStopLossPrice || null,
       data.orderId || null,
+      data.positionOrderId || null,
       data.status,
       data.notes || null,
       getChinaTimeISO(),
@@ -464,6 +490,7 @@ export const partialTakeProfitTool = createTool({
       let entryPrice = 0;
       let currentPrice = 0;
       let leverage = 1;
+      let entryOrderId: string | null = null;
       
       try {
         const allPositions = await exchangeClient.getPositions();
@@ -539,9 +566,9 @@ export const partialTakeProfitTool = createTool({
         position = row; // 使用数据库记录
       }
       
-      // 2. 从数据库获取止损价
+      // 2. 从数据库获取止损价和开仓订单ID
       const positionResult = await dbClient.execute({
-        sql: "SELECT stop_loss, partial_close_percentage FROM positions WHERE symbol = ? AND quantity != 0 LIMIT 1",
+        sql: "SELECT stop_loss, partial_close_percentage, entry_order_id FROM positions WHERE symbol = ? AND quantity != 0 LIMIT 1",
         args: [dbSymbol],
       });
       
@@ -554,6 +581,7 @@ export const partialTakeProfitTool = createTool({
       
       const rawStopLoss = positionResult.rows[0].stop_loss;
       const stopLossPrice = Number.parseFloat(rawStopLoss as string || "0");
+      entryOrderId = positionResult.rows[0].entry_order_id as string | null;
       
       // ⚠️ 严格验证止损价是否有效
       if (!rawStopLoss || Number.isNaN(stopLossPrice) || stopLossPrice <= 0) {
@@ -569,7 +597,7 @@ export const partialTakeProfitTool = createTool({
       // 🔧 如果已执行过分批止盈，需要从历史记录恢复原始止损价来计算R倍数
       // 因为止损价已经移动到成本价或1R位置，直接使用当前止损价会导致R倍数计算错误
       let originalStopLoss = stopLossPrice;
-      const takeProfitHistory = await getPartialTakeProfitHistory(dbSymbol);
+      const takeProfitHistory = await getPartialTakeProfitHistory(dbSymbol, entryOrderId);
       if (takeProfitHistory.length > 0) {
         // 从最早的记录推算原始止损价
         // Stage1: 止损移至成本价，newStopLoss = entryPrice
@@ -595,7 +623,7 @@ export const partialTakeProfitTool = createTool({
       logger.info(`${symbol} 当前状态: 入场=${entryPrice}, 当前=${currentPrice}, 原始止损=${originalStopLoss.toFixed(2)}, 当前止损=${stopLossPrice.toFixed(2)}, R=${currentR.toFixed(2)}`);
       
       // 5. 检查分批止盈历史
-      const history = await getPartialTakeProfitHistory(dbSymbol);
+      const history = await getPartialTakeProfitHistory(dbSymbol, entryOrderId);
       const stageHistory = history.filter((h) => h.stage === Number.parseInt(stage, 10));
       
       if (stageHistory.length > 0) {
@@ -715,6 +743,7 @@ export const partialTakeProfitTool = createTool({
           closedQuantity: 0,
           remainingQuantity: currentSize,
           pnl: 0,
+          positionOrderId: entryOrderId || undefined,
           status: "completed",
           notes: `阶段3：启用移动止损（${volatility.level}波动，要求${requiredR.toFixed(2)}R）`,
         });
@@ -842,6 +871,7 @@ export const partialTakeProfitTool = createTool({
             closedQuantity: 0,
             remainingQuantity: currentSize,
             pnl: 0,
+            positionOrderId: entryOrderId || undefined,
             status: "failed",
             notes: `平仓失败: ${error.message}`,
           });
@@ -958,9 +988,10 @@ export const partialTakeProfitTool = createTool({
       const profitTarget = posResult.rows.length > 0 
         ? Number.parseFloat(posResult.rows[0].profit_target as string || "0")
         : 0;
-      const entryOrderId = posResult.rows.length > 0 && posResult.rows[0].entry_order_id
-        ? posResult.rows[0].entry_order_id as string
-        : null;
+      // entryOrderId 在函数开头已定义，这里不需要重新声明
+      if (!entryOrderId && posResult.rows.length > 0 && posResult.rows[0].entry_order_id) {
+        entryOrderId = posResult.rows[0].entry_order_id as string;
+      }
       
       // 确定最终的止损价格（如果有新止损价则使用新的，否则使用当前的）
       const finalStopLoss = newStopLossPrice || currentStopLoss;
@@ -1169,6 +1200,7 @@ export const partialTakeProfitTool = createTool({
         pnl: netPnl,
         newStopLossPrice,
         orderId: closeOrderResponse.id,
+        positionOrderId: entryOrderId || undefined,
         status: "completed",
         notes: `阶段${stageNum}完成：R=${currentR.toFixed(2)}, 平仓${closePercent}%, PnL=${netPnl.toFixed(2)} USDT`,
       });
@@ -1351,14 +1383,14 @@ export const checkPartialTakeProfitOpportunityTool = createTool({
         
         // 优先使用简化符号查询（标准格式）
         let positionResult = await dbClient.execute({
-          sql: "SELECT stop_loss FROM positions WHERE symbol = ? AND quantity != 0 LIMIT 1",
+          sql: "SELECT stop_loss, entry_order_id FROM positions WHERE symbol = ? AND quantity != 0 LIMIT 1",
           args: [symbol],
         });
         
         // 如果没找到，尝试使用完整合约名查询（兼容旧数据）
         if (positionResult.rows.length === 0) {
           positionResult = await dbClient.execute({
-            sql: "SELECT stop_loss FROM positions WHERE symbol = ? AND quantity != 0 LIMIT 1",
+            sql: "SELECT stop_loss, entry_order_id FROM positions WHERE symbol = ? AND quantity != 0 LIMIT 1",
             args: [position.contract],
           });
           logger.info(`🔍 数据库查询结果（完整格式）: contract=${position.contract}, rows=${positionResult.rows.length}, stop_loss=${positionResult.rows[0]?.stop_loss || 'NULL'}`);
@@ -1368,15 +1400,17 @@ export const checkPartialTakeProfitOpportunityTool = createTool({
         
         let stopLossPrice = 0;
         let hasStopLoss = false;
+        let positionOrderId: string | null = null;
         
         if (positionResult.rows.length > 0 && positionResult.rows[0].stop_loss) {
           const rawStopLoss = positionResult.rows[0].stop_loss;
           stopLossPrice = Number.parseFloat(rawStopLoss as string);
+          positionOrderId = positionResult.rows[0].entry_order_id as string | null;
           
           // ⚠️ 关键修复：检查止损价是否为有效数值（不是0、NaN或空）
           if (!Number.isNaN(stopLossPrice) && stopLossPrice > 0) {
             hasStopLoss = true;
-            logger.info(`✅ ${symbol} 找到有效止损价: ${stopLossPrice}`);
+            logger.info(`✅ ${symbol} 找到有效止损价: ${stopLossPrice}, entry_order_id: ${positionOrderId || 'N/A'}`);
           } else {
             logger.warn(`❌ ${symbol} 止损价无效: rawValue=${rawStopLoss}, parsedValue=${stopLossPrice}`);
           }
@@ -1406,7 +1440,7 @@ export const checkPartialTakeProfitOpportunityTool = createTool({
         
         // 🔧 如果已执行过分批止盈，恢复原始止损价来计算R倍数
         let originalStopLoss = stopLossPrice;
-        const takeProfitHistory = await getPartialTakeProfitHistory(actualDbSymbol);
+        const takeProfitHistory = await getPartialTakeProfitHistory(actualDbSymbol, positionOrderId);
         if (takeProfitHistory.length > 0) {
           const firstStage = takeProfitHistory.sort((a, b) => a.stage - b.stage)[0];
           if (firstStage.stage === 1 && firstStage.trigger_price) {
@@ -1425,8 +1459,8 @@ export const checkPartialTakeProfitOpportunityTool = createTool({
         const adjustedR2 = adjustRMultipleForVolatility(2, volatility);
         const adjustedR3 = adjustRMultipleForVolatility(3, volatility);
         
-        // 获取历史（使用实际的数据库符号）
-        const history = await getPartialTakeProfitHistory(actualDbSymbol);
+        // 获取历史（使用实际的数据库符号和开仓订单ID）
+        const history = await getPartialTakeProfitHistory(actualDbSymbol, positionOrderId);
         const executedStages = history.map((h) => h.stage);
         
         // 判断可执行阶段（使用动态调整后的R倍数）

@@ -315,6 +315,7 @@ CREATE TABLE IF NOT EXISTS partial_take_profit_history (
   pnl REAL NOT NULL,
   new_stop_loss_price REAL,
   order_id TEXT,
+  position_order_id TEXT,
   status TEXT NOT NULL DEFAULT 'completed',
   notes TEXT,
   timestamp TEXT NOT NULL
@@ -350,6 +351,7 @@ CREATE INDEX IF NOT EXISTS idx_price_orders_order_id ON price_orders(order_id);
 CREATE INDEX IF NOT EXISTS idx_close_events_processed ON position_close_events(processed, created_at);
 CREATE INDEX IF NOT EXISTS idx_close_events_symbol ON position_close_events(symbol);
 CREATE INDEX IF NOT EXISTS idx_partial_taking_profit_symbol ON partial_take_profit_history(symbol);
+CREATE INDEX IF NOT EXISTS idx_partial_taking_profit_position_order_id ON partial_take_profit_history(position_order_id);
 CREATE INDEX IF NOT EXISTS idx_partial_taking_profit_status ON partial_take_profit_history(status);
 CREATE INDEX IF NOT EXISTS idx_inconsistent_states_resolved ON inconsistent_states(resolved, created_at);
 CREATE INDEX IF NOT EXISTS idx_inconsistent_states_symbol ON inconsistent_states(symbol);
