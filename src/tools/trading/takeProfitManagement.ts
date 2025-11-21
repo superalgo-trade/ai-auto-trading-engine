@@ -269,12 +269,12 @@ async function getPartialTakeProfitHistory(symbol: string, positionOrderId?: str
       args: [positionOrderId],
     });
     
-    if (result.rows.length > 0) {
-      return result.rows as any[];
-    }
+    // ⚠️ 关键修复：如果提供了positionOrderId但没找到记录，说明是新开仓位
+    // 直接返回空数组，不要回退到按symbol查询（会误查出旧仓位的历史）
+    return result.rows as any[];
   }
   
-  // 兼容旧数据：如果没有 positionOrderId 或查询不到，回退到按 symbol 查询
+  // 兼容旧数据：只有在没有提供 positionOrderId 时，才按 symbol 查询
   // 尝试简化符号查询（标准格式）
   let result = await dbClient.execute({
     sql: `
