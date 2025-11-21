@@ -58,12 +58,14 @@ async function migrate() {
     console.log(`找到 ${nullCountValue} 条需要回填的记录`);
     
     if (nullCountValue > 0) {
-      console.log('策略：匹配相同symbol、side、entry_price的持仓记录，优先匹配时间最接近的持仓');
+      console.log('策略1：尝试从 positions 表匹配当前活跃持仓');
+      console.log('策略2：尝试从 trades 表匹配开仓订单');
+      console.log('策略3：对于无法匹配的记录，使用 order_id 或 close_trade_id 作为标识');
       
       // 由于libsql不支持复杂的UPDATE子查询，我们分步处理
       // 1. 先获取所有需要回填的记录
       const recordsToUpdate = await dbClient.execute(`
-        SELECT id, symbol, side, entry_price, created_at
+        SELECT id, symbol, side, entry_price, created_at, order_id, close_trade_id
         FROM position_close_events 
         WHERE position_order_id IS NULL
       `);
@@ -72,30 +74,57 @@ async function migrate() {
       
       // 2. 逐条查找匹配的持仓并更新
       for (const record of recordsToUpdate.rows) {
-        const matchResult = await dbClient.execute({
+        let positionOrderId = null;
+        
+        // 策略1: 从 positions 表匹配（当前活跃持仓）
+        const matchFromPositions = await dbClient.execute({
           sql: `
             SELECT entry_order_id
-            FROM position_history
+            FROM positions
             WHERE symbol = ?
               AND side = ?
               AND ABS(entry_price - ?) < 0.0001
-              AND datetime(entry_time) <= datetime(?)
-            ORDER BY ABS(julianday(entry_time) - julianday(?)) ASC
             LIMIT 1
           `,
-          args: [
-            record.symbol, 
-            record.side, 
-            record.entry_price, 
-            record.created_at,
-            record.created_at
-          ]
+          args: [record.symbol, record.side, record.entry_price]
         });
         
-        if (matchResult.rows.length > 0 && matchResult.rows[0].entry_order_id) {
+        if (matchFromPositions.rows.length > 0 && matchFromPositions.rows[0].entry_order_id) {
+          positionOrderId = matchFromPositions.rows[0].entry_order_id;
+        }
+        
+        // 策略2: 从 trades 表匹配（开仓交易记录）
+        if (!positionOrderId) {
+          const matchFromTrades = await dbClient.execute({
+            sql: `
+              SELECT order_id
+              FROM trades
+              WHERE symbol = ?
+                AND side = ?
+                AND type = 'OPEN'
+                AND ABS(price - ?) < 0.0001
+                AND datetime(timestamp) <= datetime(?)
+              ORDER BY datetime(timestamp) DESC
+              LIMIT 1
+            `,
+            args: [record.symbol, record.side, record.entry_price, record.created_at]
+          });
+          
+          if (matchFromTrades.rows.length > 0 && matchFromTrades.rows[0].order_id) {
+            positionOrderId = matchFromTrades.rows[0].order_id;
+          }
+        }
+        
+        // 策略3: 使用 order_id 或 close_trade_id 作为兜底
+        if (!positionOrderId) {
+          positionOrderId = record.order_id || record.close_trade_id || `unknown_${record.symbol}_${record.id}`;
+        }
+        
+        // 更新记录
+        if (positionOrderId) {
           await dbClient.execute({
             sql: "UPDATE position_close_events SET position_order_id = ? WHERE id = ?",
-            args: [matchResult.rows[0].entry_order_id, record.id]
+            args: [positionOrderId, record.id]
           });
           updatedCount++;
         }
