@@ -1309,6 +1309,23 @@ export const closePositionTool = createTool({
       // ========== 阶段1: 交易所操作（不可回滚部分）已完成 ==========
       // 已执行: 市价单平仓、获取成交信息、计算盈亏
       
+      // 🔥 关键验证：确认平仓订单真正成功
+      if (finalOrderStatus !== 'finished') {
+        logger.error(`❌ 平仓失败: 订单状态为 ${finalOrderStatus}，不是 finished`);
+        
+        // 🔧 清除状态标记
+        if (side) {
+          positionStateManager.finishClosing(symbol, side);
+        }
+        
+        return {
+          success: false,
+          message: `平仓失败: 订单状态为 ${finalOrderStatus}，未完全成交`,
+          orderId: order.id?.toString(),
+          orderStatus: finalOrderStatus,
+        };
+      }
+      
       // 🔥 取消交易所的所有条件单
       let cancelSuccess = false;
       try {
