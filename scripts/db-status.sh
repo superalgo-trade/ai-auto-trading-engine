@@ -309,7 +309,7 @@ async function showStatus() {
     const recentPartialTP = await client.execute('SELECT * FROM partial_take_profit_history ORDER BY timestamp DESC');    
     if (recentPartialTP.rows.length > 0) {
       const tpTable = new Table({
-        head: ['币种', '方向', '阶段', 'R倍数', '触发价', '平仓%', '平仓数量', '盈亏', '订单ID', '时间'],
+        head: ['币种', '方向', '阶段', 'R倍数', '触发价', '平仓%', '平仓数量', '盈亏', '平仓订单ID', '持仓订单ID', '时间'],
         style: { head: ['cyan'] }
       });
       
@@ -324,6 +324,7 @@ async function showStatus() {
           const closedQty = '-';
           const pnl = '-';
           const orderId = '(无订单)';
+          const positionOrderId = String(tp.position_order_id || '-').substring(0, 12);
           tpTable.push([
             tp.symbol,
             tp.side,
@@ -334,6 +335,7 @@ async function showStatus() {
             closedQty,
             pnl,
             orderId,
+            positionOrderId,
             time
           ]);
         } else {
@@ -342,6 +344,8 @@ async function showStatus() {
           const pnlValue = parseFloat(tp.pnl);
           const pnl = pnlValue >= 0 ? '+' + pnlValue.toFixed(2) : pnlValue.toFixed(2);
           const closedQty = tp.closed_quantity ? parseFloat(tp.closed_quantity).toFixed(2) : '-';
+          const orderId = String(tp.order_id || '-').substring(0, 12);
+          const positionOrderId = String(tp.position_order_id || '-').substring(0, 12);
           tpTable.push([
             tp.symbol,
             tp.side,
@@ -351,7 +355,8 @@ async function showStatus() {
             closePercent,
             closedQty,
             pnl,
-            String(tp.order_id || '-').substring(0, 16),
+            orderId,
+            positionOrderId,
             time
           ]);
         }
