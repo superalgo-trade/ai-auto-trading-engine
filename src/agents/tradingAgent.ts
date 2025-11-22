@@ -1247,12 +1247,12 @@ ${params.scientificStopLoss?.enabled ? `│ 移动止损优化（可选，低优
           prompt += `  ├─ 🔄 趋势反转分析（阶段1+2增强）：\n`;
           prompt += `  │   • reversalScore: ${rev.reversalScore}/100`;
           
-          // 根据得分显示警示级别
-          if (rev.reversalScore >= 70) {
+          // 根据得分显示警示级别（降低阈值：70→60, 50→40, 30→25）
+          if (rev.reversalScore >= 60) {
             prompt += ` ⚠️⚠️⚠️ 【强烈反转信号！立即平仓】\n`;
-          } else if (rev.reversalScore >= 50) {
+          } else if (rev.reversalScore >= 40) {
             prompt += ` ⚠️⚠️ 【反转风险较高！建议平仓】\n`;
-          } else if (rev.reversalScore >= 30) {
+          } else if (rev.reversalScore >= 25) {
             prompt += ` ⚠️ 【早期预警】\n`;
           } else {
             prompt += ` ✅ 【趋势正常】\n`;
@@ -1272,15 +1272,15 @@ ${params.scientificStopLoss?.enabled ? `│ 移动止损优化（可选，低优
             }
           }
           
-          // 根据reversalScore和盈亏情况给出具体建议
+          // 根据reversalScore和盈亏情况给出具体建议（降低阈值）
           prompt += `  │\n`;
           prompt += `  └─ 💡 AI决策指引:\n`;
           
-          if (rev.reversalScore >= 70) {
+          if (rev.reversalScore >= 60) {
             prompt += `       ⚠️⚠️⚠️ 多个时间框架强烈确认反转！\n`;
             prompt += `       → 立即调用 closePosition({ symbol: '${pos.symbol}', reason: 'trend_reversal' })\n`;
             prompt += `       → 不要犹豫，这是系统最高级别的反转警告！\n`;
-          } else if (rev.reversalScore >= 50 && rev.earlyWarning) {
+          } else if (rev.reversalScore >= 40) {
             prompt += `       ⚠️⚠️ 反转风险较高，建议平仓（结合盈亏情况）：\n`;
             if (pnlPercent > 0) {
               prompt += `       → 当前盈利${pnlPercent.toFixed(1)}%，立即平仓锁定利润\n`;
@@ -1292,7 +1292,7 @@ ${params.scientificStopLoss?.enabled ? `│ 移动止损优化（可选，低优
               prompt += `       → 当前亏损${Math.abs(pnlPercent).toFixed(1)}%，接近止损线\n`;
               prompt += `       → 可等待止损单触发，或主动平仓\n`;
             }
-          } else if (rev.earlyWarning) {
+          } else if (rev.earlyWarning && rev.reversalScore >= 25) {
             prompt += `       ⚠️ 趋势开始减弱或出现背离，密切关注：\n`;
             prompt += `       → 停止移动止损，不要追求更高利润\n`;
             prompt += `       → 准备退出，但暂不强制平仓\n`;

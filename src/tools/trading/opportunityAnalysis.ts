@@ -169,7 +169,7 @@ export const analyzeOpeningOpportunitiesTool = createTool({
       // 5. 评分和排序
       logger.info("📈 步骤3/3: 评分和排序...");
       const resultArray = Array.from(strategyResults.values());
-      const rankedOpportunities = scoreAndRankOpportunities(resultArray, marketStates, undefined, minScore);
+      const rankedOpportunities = await scoreAndRankOpportunities(resultArray, marketStates, undefined, minScore);
       
       // 限制返回数量（使用强制的配置值）
       const topOpportunities = rankedOpportunities.slice(0, effectiveMaxResults);

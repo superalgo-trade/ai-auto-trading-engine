@@ -36,6 +36,11 @@ import type {
   StrategyResult,
   MarketStateAnalysis 
 } from "../types/marketState";
+import { 
+  getSymbolLossStats, 
+  calculateHistoricalLossPenalty,
+  isSymbolInCooldown 
+} from "./coinCooldownManager";
 
 const logger = createLogger({
   name: "opportunity-scorer",
@@ -235,18 +240,18 @@ function calculateWaitScore(
 }
 
 /**
- * 计算机会评分（策略感知版）
+ * 计算机会评分（策略感知版 + 历史失败惩罚）
  * 
  * @param strategyResult 策略结果
  * @param marketState 市场状态分析
  * @param strategy 当前交易策略（可选，默认从环境变量读取）
  * @returns 机会评分
  */
-export function scoreOpportunity(
+export async function scoreOpportunity(
   strategyResult: StrategyResult,
   marketState: MarketStateAnalysis,
   strategy?: TradingStrategy
-): OpportunityScore {
+): Promise<OpportunityScore> {
   // 获取当前策略
   const currentStrategy = strategy ?? getTradingStrategy();
   
@@ -274,8 +279,46 @@ export function scoreOpportunity(
   const volume24h = strategyResult.keyMetrics.volume24h;
   const liquidityScore = calculateLiquidityScore(strategyResult.symbol, currentStrategy, volume24h) * weights.liquidity;
   
-  // 计算总分
-  const totalScore = signalScore + trendScore + volatilityScore + rrScore + liquidityScore;
+  // 6. 历史失败惩罚（新增）
+  let historicalPenalty = 0;
+  let trendStabilityPenalty = 0;
+  let volatilityPenalty = 0;
+  
+  try {
+    const lossStats = await getSymbolLossStats(strategyResult.symbol);
+    historicalPenalty = calculateHistoricalLossPenalty(lossStats);
+    
+    // 7. 趋势稳定性惩罚（新增）
+    if (marketState.trendChanges) {
+      // 如果主框架或确认框架趋势减弱 > 40%，降低评分
+      if (marketState.trendChanges.primary.weakeningSeverity > 40) {
+        trendStabilityPenalty += 10;
+      }
+      if (marketState.trendChanges.confirm.weakeningSeverity > 40) {
+        trendStabilityPenalty += 8;
+      }
+    }
+    
+    // 8. 高波动性惩罚（针对ATR过高的币种）
+    const atrRatio = marketState.keyMetrics.atr_ratio;
+    if (atrRatio > 2.0) {
+      volatilityPenalty = 15;
+    } else if (atrRatio > 1.5) {
+      volatilityPenalty = 10;
+    }
+    
+    // 记录惩罚信息
+    if (historicalPenalty > 0 || trendStabilityPenalty > 0 || volatilityPenalty > 0) {
+      logger.info(`${strategyResult.symbol} 评分惩罚: 历史失败-${historicalPenalty}, 趋势不稳-${trendStabilityPenalty}, 高波动-${volatilityPenalty}`);
+    }
+  } catch (error) {
+    logger.error(`计算历史惩罚失败:`, error);
+    // 出错时使用基础评分，不应用惩罚
+  }
+  
+  // 计算总分并应用惩罚
+  const baseScore = signalScore + trendScore + volatilityScore + rrScore + liquidityScore;
+  const totalScore = Math.max(0, baseScore - historicalPenalty - trendStabilityPenalty - volatilityPenalty);
   
   // 记录评分明细日志
   logger.debug(`${strategyResult.symbol} 评分明细 [策略: ${currentStrategy}]:`, {
@@ -448,7 +491,7 @@ function calculateLiquidityScore(symbol: string, strategy: TradingStrategy, volu
 }
 
 /**
- * 批量评分并排序（策略感知版）
+ * 批量评分并排序（策略感知版 + 异步支持）
  * 
  * @param strategyResults 策略结果列表
  * @param marketStates 市场状态映射
@@ -456,12 +499,12 @@ function calculateLiquidityScore(symbol: string, strategy: TradingStrategy, volu
  * @param customMinScore 可选的自定义阈值
  * @returns 排序后的机会评分列表
  */
-export function scoreAndRankOpportunities(
+export async function scoreAndRankOpportunities(
   strategyResults: StrategyResult[],
   marketStates: Map<string, MarketStateAnalysis>,
   strategy?: TradingStrategy,
   customMinScore?: number
-): OpportunityScore[] {
+): Promise<OpportunityScore[]> {
   // 获取当前策略
   const currentStrategy = strategy ?? getTradingStrategy();
   
@@ -483,7 +526,14 @@ export function scoreAndRankOpportunities(
       continue;
     }
     
-    const score = scoreOpportunity(result, marketState, currentStrategy);
+    // 检查币种是否在冷静期
+    const cooldownCheck = await isSymbolInCooldown(result.symbol);
+    if (cooldownCheck.inCooldown) {
+      logger.warn(`${result.symbol} 在冷静期中，跳过评分。原因: ${cooldownCheck.reason}，剩余${cooldownCheck.remainingHours}小时`);
+      continue;
+    }
+    
+    const score = await scoreOpportunity(result, marketState, currentStrategy);
     
     // 只保留评分达标的机会
     if (score.totalScore >= minScore) {
