@@ -194,9 +194,21 @@ class TradingMonitor {
             // 更新持仓表格
             if (positionsBody) {
                 positionsBody.innerHTML = data.positions.map(pos => {
+                    // 🔧 使用实时价格（优先从cryptoPrices缓存获取，否则使用API返回的价格）
+                    const currentPrice = this.cryptoPrices.get(pos.symbol) || pos.currentPrice;
+                    
+                    // 🔧 重新计算盈亏（使用实时价格）
+                    let unrealizedPnl = pos.unrealizedPnl;
+                    if (this.cryptoPrices.has(pos.symbol)) {
+                        const priceDiff = pos.side === 'long' 
+                            ? (currentPrice - pos.entryPrice)
+                            : (pos.entryPrice - currentPrice);
+                        unrealizedPnl = priceDiff * pos.quantity;
+                    }
+                    
                     // 🔧 收益率计算，带除零保护
                     const profitPercent = pos.openValue > 0 
-                        ? ((pos.unrealizedPnl / pos.openValue) * 100) 
+                        ? ((unrealizedPnl / pos.openValue) * 100) 
                         : 0;
                     
                     // 方向显示 - 与交易历史统一样式
@@ -205,8 +217,8 @@ class TradingMonitor {
                     const leverage = pos.leverage || '-';
                     
                     // 盈亏显示
-                    const pnlClass = pos.unrealizedPnl >= 0 ? 'profit' : 'loss';
-                    const pnlText = pos.unrealizedPnl >= 0 ? `+$${formatUSDT(pos.unrealizedPnl)}` : `-$${formatUSDT(Math.abs(pos.unrealizedPnl))}`;
+                    const pnlClass = unrealizedPnl >= 0 ? 'profit' : 'loss';
+                    const pnlText = unrealizedPnl >= 0 ? `+$${formatUSDT(unrealizedPnl)}` : `-$${formatUSDT(Math.abs(unrealizedPnl))}`;
                     
                     return `
                         <tr>
@@ -215,10 +227,10 @@ class TradingMonitor {
                             <td>${leverage}x</td>
                             <td>$${formatPriceBySymbol(pos.symbol, pos.entryPrice)}</td>
                             <td>$${formatUSDT(pos.openValue)}</td>
-                            <td>$${formatPriceBySymbol(pos.symbol, pos.currentPrice)}</td>
+                            <td>$${formatPriceBySymbol(pos.symbol, currentPrice)}</td>
                             <td><span class="${pnlClass}">${pnlText}</span></td>
                             <td class="${pnlClass}">
-                                ${pos.unrealizedPnl >= 0 ? '+' : ''}${formatPercent(profitPercent)}%
+                                ${unrealizedPnl >= 0 ? '+' : ''}${formatPercent(profitPercent)}%
                             </td>
                         </tr>
                     `;
@@ -228,20 +240,32 @@ class TradingMonitor {
             // 更新持仓小卡片
             if (positionsCardsContainer) {
                 positionsCardsContainer.innerHTML = data.positions.map(pos => {
+                    // 🔧 使用实时价格（优先从cryptoPrices缓存获取，否则使用API返回的价格）
+                    const currentPrice = this.cryptoPrices.get(pos.symbol) || pos.currentPrice;
+                    
+                    // 🔧 重新计算盈亏（使用实时价格）
+                    let unrealizedPnl = pos.unrealizedPnl;
+                    if (this.cryptoPrices.has(pos.symbol)) {
+                        const priceDiff = pos.side === 'long' 
+                            ? (currentPrice - pos.entryPrice)
+                            : (pos.entryPrice - currentPrice);
+                        unrealizedPnl = priceDiff * pos.quantity;
+                    }
+                    
                     // 🔧 收益率计算，带除零保护
                     const profitPercent = pos.openValue > 0 
-                        ? ((pos.unrealizedPnl / pos.openValue) * 100) 
+                        ? ((unrealizedPnl / pos.openValue) * 100) 
                         : 0;
                     const sideClass = pos.side;
                     const sideText = pos.side === 'long' ? '多' : '空';
-                    const pnlClass = pos.unrealizedPnl >= 0 ? 'positive' : 'negative';
+                    const pnlClass = unrealizedPnl >= 0 ? 'positive' : 'negative';
                     const leverage = pos.leverage || '-';
                     
                     return `
                         <div class="position-card ${sideClass} ${pnlClass}">
                             <span class="position-card-symbol">${pos.symbol} ${leverage}x</span>
                             <span class="position-card-pnl ${pnlClass}">
-                                ${sideText} ${pos.unrealizedPnl >= 0 ? '+' : ''}$${formatUSDT(pos.unrealizedPnl)} (${pos.unrealizedPnl >= 0 ? '+' : ''}${formatPercent(profitPercent)}%)
+                                ${sideText} ${unrealizedPnl >= 0 ? '+' : ''}$${formatUSDT(unrealizedPnl)} (${unrealizedPnl >= 0 ? '+' : ''}${formatPercent(profitPercent)}%)
                             </span>
                         </div>
                     `;
@@ -686,18 +710,16 @@ class TradingMonitor {
 
     // 启动数据更新
     startDataUpdates() {
-        // 每10秒更新账户和持仓（实时数据）
+        // 每10秒更新价格和持仓数据（确保价格先更新）
         setInterval(async () => {
+            // 先更新价格缓存
+            await this.loadTickerPrices();
+            // 再更新持仓和条件单（使用最新价格）
             await Promise.all([
                 this.loadAccountData(),
                 this.loadPositionsData(),
                 this.loadPriceOrdersData()
             ]);
-        }, 10000);
-
-        // 每10秒更新价格（实时价格）
-        setInterval(async () => {
-            await this.loadTickerPrices();
         }, 10000);
 
         // 每10秒更新交易记录、日志和交易统计
