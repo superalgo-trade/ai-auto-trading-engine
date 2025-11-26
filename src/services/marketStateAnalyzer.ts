@@ -834,13 +834,13 @@ function calculateReversalScore(
   const hasDivergence = details.some(d => d.includes('背离'));
   const earlyWarning = weakenedFrames >= 2 || reversedFrames.length >= 2 || hasDivergence;
   
-  // 生成建议（降低阈值：70→60, 50→40）
+  // 生成建议（降低阈值：70, 50, 30）
   let recommendation = '';
-  if (score >= 60) {
+  if (score >= 70) {
     recommendation = '立即平仓！多个时间框架确认反转';
-  } else if (score >= 40) {
+  } else if (score >= 50) {
     recommendation = '建议平仓，反转风险较高';
-  } else if (earlyWarning && score >= 25) {
+  } else if (earlyWarning && score >= 30) {
     recommendation = '密切关注，趋势开始减弱或出现背离';
   } else {
     recommendation = '趋势正常，继续持有';

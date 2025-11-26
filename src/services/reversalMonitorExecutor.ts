@@ -206,8 +206,8 @@ export class ReversalMonitorExecutor {
           continue;
         }
 
-        // 早期预警（30-49分）：仅记录
-        if (reversalScore >= 30 && reversalScore < 50) {
+        // 早期预警（30-70分）：仅记录
+        if (reversalScore >= 30 && reversalScore < 70) {
           logger.warn(`⚠️ [${caller}] ${symbol} 早期反转预警 (${reversalScore.toFixed(0)}分)`);
           
           // 更新持仓metadata（非锁字段，只是标记）
@@ -232,8 +232,8 @@ export class ReversalMonitorExecutor {
           continue;
         }
 
-        // 🚨 紧急平仓（≥50分 且 盈利不足2%）
-        if (reversalScore >= 50 && pnlPercent < 2) {
+        // 🚨 紧急平仓（≥70分）
+        if (reversalScore >= 70) {
           const lockKey = `reversal_close_${symbol}_${side}`;
           
           // 检查是否最近已平仓

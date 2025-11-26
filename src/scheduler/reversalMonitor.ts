@@ -31,7 +31,7 @@ export function startReversalMonitor() {
   logger.info('='.repeat(80));
   logger.info('🔍 [反转监控线程] 服务启动');
   logger.info(`   检测间隔: 3 分钟`);
-  logger.info(`   阈值配置: 30分预警, 50分平仓`);
+  logger.info(`   阈值配置: 30分预警, 70分平仓`);
   logger.info('='.repeat(80));
   
   // 立即执行一次
