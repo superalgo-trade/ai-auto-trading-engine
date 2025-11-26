@@ -863,7 +863,7 @@ ${params.scientificStopLoss?.enabled ? `│ 移动止损优化（可选，低优
    
    ❌ 错误案例：
    1. 直接调用 openPosition('XRP', ...) → 跳过了评估流程 ❌
-   2. 调用 analyze_opening_opportunities() → 全部 < 60分 → 强行开仓 ❌
+   2. 调用 analyze_opening_opportunities() → 全部 < ${Math.floor(minOpportunityScore)}分 → 强行开仓 ❌
    3. 调用 analyze_opening_opportunities() → XRP 67分 → 自主选择开 BTC ❌}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

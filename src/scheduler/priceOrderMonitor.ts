@@ -289,12 +289,28 @@ export class PriceOrderMonitor {
                     detectionReason = `条件单消失且价格已穿越触发线(当前=${currentPrice.toFixed(2)}, 触发=${triggerPrice.toFixed(2)})`;
                     logger.info(`🔍 ${dbOrder.symbol} ${detectionReason}: ${dbOrder.order_id}`);
                   } else {
-                    // 价格未穿越 - 可能是条件单被取消了
-                    detectionReason = '条件单消失但价格未穿越触发线，可能被手动取消';
-                    logger.debug(`${dbOrder.symbol} ${detectionReason}: ${dbOrder.order_id}`);
+                    // 🔧 关键修复：价格未穿越 - 条件单被取消/过期，需要立即重建（特别是止损单）
+                    detectionReason = '条件单消失但价格未穿越触发线，可能被手动取消或过期';
+                    logger.warn(`⚠️ ${dbOrder.symbol} ${detectionReason}: ${dbOrder.order_id}`);
+                    
+                    // 🚨 如果是止损单失效，必须立即重建以保护持仓
+                    if (dbOrder.type === 'stop_loss') {
+                      logger.error(`🚨 严重风险：止损单失效且持仓仍存在！立即自动重建止损保护...`);
+                      await this.recreateStopLossOrder(dbOrder);
+                    } else {
+                      // 止盈单被取消，仅记录日志（不影响风控）
+                      logger.info(`${dbOrder.symbol} ${dbOrder.side} 止盈单被取消或过期，仅更新状态`);
+                      await this.updateOrderStatus(dbOrder.order_id, 'cancelled');
+                    }
                   }
                 } catch (priceError: any) {
                   logger.warn(`获取价格失败，无法判断是否触发: ${priceError.message}`);
+                  
+                  // 🔧 即使无法获取价格，如果是止损单消失+持仓存在，也要重建
+                  if (dbOrder.type === 'stop_loss') {
+                    logger.error(`🚨 止损单失效但无法获取价格，保险起见仍重建止损保护...`);
+                    await this.recreateStopLossOrder(dbOrder);
+                  }
                 }
               }
             }
@@ -415,8 +431,18 @@ export class PriceOrderMonitor {
     
     // 如果持仓仍存在，说明条件单被取消而非触发
     if (positionExists) {
-      logger.info(`${order.symbol} 持仓仍在交易所，条件单被取消`);
-      await this.updateOrderStatus(order.order_id, 'cancelled');
+      logger.warn(`⚠️ ${order.symbol} ${order.side} 持仓仍存在，但条件单 ${order.order_id} (${order.type}) 已失效`);
+      
+      // 🔧 关键修复：如果是止损单被取消，立即重新创建以保护持仓
+      if (order.type === 'stop_loss') {
+        logger.error(`🚨 严重风险：止损单失效！立即重新创建止损保护...`);
+        await this.recreateStopLossOrder(order);
+      } else {
+        // 止盈单被取消，仅记录日志（不影响风控）
+        logger.info(`${order.symbol} ${order.side} 止盈单被取消，仅更新状态`);
+        await this.updateOrderStatus(order.order_id, 'cancelled');
+      }
+      
       return;
     }
 
@@ -1244,6 +1270,104 @@ export class PriceOrderMonitor {
       logger.debug(`已删除持仓记录: ${symbol} ${side}`);
     } catch (error: any) {
       logger.error(`删除持仓记录失败:`, error);
+    }
+  }
+
+  /**
+   * 🚨 自动重建止损单（当检测到止损单失效但持仓仍存在时）
+   * 
+   * 触发场景：
+   * 1. 交易所端止损单被标记为cancelled/expired
+   * 2. 持仓仍然存在
+   * 3. 价格未穿越止损触发线（说明不是触发而是失效）
+   * 
+   * @param order 数据库中的止损单记录
+   */
+  private async recreateStopLossOrder(order: DBPriceOrder): Promise<void> {
+    try {
+      logger.error(`🚨 [自动修复] 开始重建止损单: ${order.symbol} ${order.side}`);
+      
+      // 从数据库读取持仓信息，获取正确的数量和止损价
+      const dbPosition = await this.dbClient.execute({
+        sql: 'SELECT * FROM positions WHERE symbol = ? AND side = ?',
+        args: [order.symbol, order.side]
+      });
+      
+      if (dbPosition.rows.length === 0) {
+        logger.error(`❌ [自动修复失败] 数据库中未找到持仓信息: ${order.symbol} ${order.side}`);
+        await this.updateOrderStatus(order.order_id, 'cancelled');
+        return;
+      }
+      
+      const pos = dbPosition.rows[0] as any;
+      const quantity = parseFloat(pos.quantity as string || order.quantity);
+      const stopLossPrice = parseFloat(pos.stop_loss as string || order.trigger_price);
+      
+      logger.info(`📋 [自动修复] 持仓信息: 数量=${quantity}, 止损价=${stopLossPrice}`);
+      
+      // 调用交易所API创建新的止损条件单
+      const contract = this.exchangeClient.normalizeContract(order.symbol);
+      const newStopLossOrder = await this.exchangeClient.createFuturesPriceOrder({
+        contract,
+        size: order.side === 'long' ? quantity : -quantity,
+        price: 0, // 市价平仓
+        triggerPrice: stopLossPrice,
+        reduceOnly: true,
+        type: 'stop_loss'
+      });
+      
+      logger.info(`✅ [自动修复] 新止损单已在交易所创建: ID=${newStopLossOrder.id}`);
+      
+      // 更新数据库：旧止损单标记为cancelled，新止损单插入
+      await this.dbClient.execute('BEGIN TRANSACTION');
+      try {
+        // 1. 标记旧止损单为cancelled
+        await this.updateOrderStatus(order.order_id, 'cancelled');
+        
+        // 2. 插入新止损单记录
+        await this.dbClient.execute({
+          sql: `INSERT INTO price_orders 
+                (order_id, symbol, side, type, trigger_price, order_price, quantity, 
+                 status, position_order_id, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          args: [
+            newStopLossOrder.id?.toString() || `recreated-${Date.now()}`,
+            order.symbol,
+            order.side,
+            'stop_loss',
+            stopLossPrice.toString(),
+            '0',
+            quantity.toString(),
+            'active',
+            pos.entry_order_id,
+            getChinaTimeISO()
+          ]
+        });
+        
+        await this.dbClient.execute('COMMIT');
+        logger.info(`✅ [自动修复成功] 数据库已更新：旧止损单cancelled，新止损单active (${newStopLossOrder.id})`);
+        
+      } catch (dbError: any) {
+        await this.dbClient.execute('ROLLBACK');
+        logger.error(`❌ [自动修复失败] 数据库更新失败: ${dbError.message}`);
+        throw dbError;
+      }
+      
+    } catch (recreateError: any) {
+      logger.error(`❌ [自动修复失败] 重建止损单过程中发生错误: ${recreateError.message}`);
+      logger.error(`   - 订单ID: ${order.order_id}`);
+      logger.error(`   - 合约: ${order.symbol}`);
+      logger.error(`   - 方向: ${order.side}`);
+      logger.error(`   - 触发价: ${order.trigger_price}`);
+      
+      // 即使失败也要标记旧订单为cancelled，避免重复尝试
+      try {
+        await this.updateOrderStatus(order.order_id, 'cancelled');
+      } catch (updateError: any) {
+        logger.error(`❌ 标记旧订单状态失败: ${updateError.message}`);
+      }
+      
+      throw recreateError;
     }
   }
 }
