@@ -407,6 +407,21 @@ export const partialTakeProfitTool = createTool({
     const exchangeClient = getExchangeClient();
     const contract = exchangeClient.normalizeContract(symbol);
     
+    // 🔧 清理pending记录的辅助函数
+    const cleanupPendingRecord = async (placeholderId: string | null) => {
+      if (placeholderId) {
+        try {
+          await dbClient.execute({
+            sql: `DELETE FROM partial_take_profit_history WHERE order_id = ? AND status = 'pending'`,
+            args: [placeholderId]
+          });
+          logger.debug(`✅ 已清理pending占位记录: ${placeholderId}`);
+        } catch (cleanupError: any) {
+          logger.warn(`清理pending占位记录失败: ${cleanupError.message}`);
+        }
+      }
+    };
+    
     try {
       // 🔧 关键修复：数据库统一使用简化符号（BTC、ETH等），而非完整合约名
       // 这样可以在 Gate.io 和 Binance 之间保持一致性
@@ -435,6 +450,7 @@ export const partialTakeProfitTool = createTool({
       
       // ⚡ 阶段2: 数据库事务级别的原子性检查（强制幂等性）
       // 在事务中检查并插入占位记录，防止并发执行
+      let placeholderId: string | null = null;
       try {
         await dbClient.execute('BEGIN IMMEDIATE TRANSACTION');
         
@@ -457,7 +473,7 @@ export const partialTakeProfitTool = createTool({
         }
         
         // 插入占位记录，标记为pending状态
-        const placeholderId = `pending_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        placeholderId = `pending_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
         await dbClient.execute({
           sql: `INSERT INTO partial_take_profit_history 
                 (symbol, side, stage, r_multiple, trigger_price, close_percent, 
@@ -555,6 +571,7 @@ export const partialTakeProfitTool = createTool({
       }
       
       if (dbPosition.rows.length === 0) {
+        await cleanupPendingRecord(placeholderId);
         return {
           success: false,
           message: `未找到 ${symbol} 的持仓（已尝试格式: ${symbol}, ${contract}, ${symbol}_USDT）`,
@@ -579,6 +596,7 @@ export const partialTakeProfitTool = createTool({
       });
       
       if (positionResult.rows.length === 0) {
+        await cleanupPendingRecord(placeholderId);
         return {
           success: false,
           message: `${symbol} 持仓不存在或已关闭`,
@@ -592,6 +610,7 @@ export const partialTakeProfitTool = createTool({
       // ⚠️ 严格验证止损价是否有效
       if (!rawStopLoss || Number.isNaN(stopLossPrice) || stopLossPrice <= 0) {
         logger.warn(`${symbol} 止损价无效: rawValue=${rawStopLoss}, parsedValue=${stopLossPrice}`);
+        await cleanupPendingRecord(placeholderId);
         return {
           success: false,
           message: `${symbol} 持仓没有设置止损价，无法使用基于R倍数的分批止盈。请先设置止损。`,
@@ -633,6 +652,7 @@ export const partialTakeProfitTool = createTool({
       const stageHistory = history.filter((h) => h.stage === Number.parseInt(stage, 10));
       
       if (stageHistory.length > 0) {
+        await cleanupPendingRecord(placeholderId);
         return {
           success: false,
           message: `阶段${stage}已经执行过分批止盈，不能重复执行`,
@@ -657,6 +677,7 @@ export const partialTakeProfitTool = createTool({
         logger.info(`${symbol} 阶段1 R倍数要求: 基础=${baseRequiredR}R, 调整后=${requiredR.toFixed(2)}R (${volatility.level}波动)`);
         
         if (currentR < requiredR) {
+          await cleanupPendingRecord(placeholderId);
           return {
             success: false,
             message: `当前R倍数 ${currentR.toFixed(2)} 未达到阶段1要求（≥${requiredR.toFixed(2)}R，${volatility.description}）`,
@@ -679,6 +700,7 @@ export const partialTakeProfitTool = createTool({
         // 检查阶段1是否已执行
         const stage1History = history.filter((h) => h.stage === 1);
         if (stage1History.length === 0) {
+          await cleanupPendingRecord(placeholderId);
           return {
             success: false,
             message: "必须先执行阶段1（1R平仓1/3）才能执行阶段2",
@@ -691,6 +713,7 @@ export const partialTakeProfitTool = createTool({
         logger.info(`${symbol} 阶段2 R倍数要求: 基础=${baseRequiredR}R, 调整后=${requiredR.toFixed(2)}R (${volatility.level}波动)`);
         
         if (currentR < requiredR) {
+          await cleanupPendingRecord(placeholderId);
           return {
             success: false,
             message: `当前R倍数 ${currentR.toFixed(2)} 未达到阶段2要求（≥${requiredR.toFixed(2)}R，${volatility.description}）`,
@@ -715,6 +738,7 @@ export const partialTakeProfitTool = createTool({
         const stage2History = history.filter((h) => h.stage === 2);
         
         if (stage1History.length === 0 || stage2History.length === 0) {
+          await cleanupPendingRecord(placeholderId);
           return {
             success: false,
             message: "必须先执行阶段1和阶段2才能执行阶段3",
@@ -724,6 +748,7 @@ export const partialTakeProfitTool = createTool({
         logger.info(`${symbol} 阶段3 R倍数要求: 基础=${baseRequiredR}R, 调整后=${requiredR.toFixed(2)}R (${volatility.level}波动)`);
         
         if (currentR < requiredR) {
+          await cleanupPendingRecord(placeholderId);
           return {
             success: false,
             message: `当前R倍数 ${currentR.toFixed(2)} 未达到阶段3要求（≥${requiredR.toFixed(2)}R，${volatility.description}）`,
@@ -754,6 +779,19 @@ export const partialTakeProfitTool = createTool({
           notes: `阶段3：启用移动止损（${volatility.level}波动，要求${requiredR.toFixed(2)}R）`,
         });
         
+        // 🔧 清理pending占位记录
+        if (placeholderId) {
+          try {
+            await dbClient.execute({
+              sql: `DELETE FROM partial_take_profit_history WHERE order_id = ? AND status = 'pending'`,
+              args: [placeholderId]
+            });
+            logger.debug(`✅ 已清理pending占位记录: ${placeholderId}`);
+          } catch (cleanupError: any) {
+            logger.warn(`清理pending占位记录失败: ${cleanupError.message}`);
+          }
+        }
+        
         return {
           success: true,
           message: `✅ 阶段3完成：已达到${currentR.toFixed(2)}R（要求${requiredR.toFixed(2)}R，${volatility.description}），启用移动止损让利润奔跑`,
@@ -769,6 +807,7 @@ export const partialTakeProfitTool = createTool({
           action: "启用移动止损（请使用 updateTrailingStop 工具定期更新）",
         };
       } else {
+        await cleanupPendingRecord(placeholderId);
         return {
           success: false,
           message: "无效的阶段参数，必须是 1, 2 或 3",
@@ -790,6 +829,7 @@ export const partialTakeProfitTool = createTool({
       const quantityResult = calculatePartialCloseQuantity(currentSizeInContracts, closePercent, minQty);
       
       if (quantityResult.error) {
+        await cleanupPendingRecord(placeholderId);
         return {
           success: false,
           message: quantityResult.error,
@@ -806,6 +846,7 @@ export const partialTakeProfitTool = createTool({
       
       // 检查平仓数量是否满足最小交易数量要求
       if (!meetsMinQuantity) {
+        await cleanupPendingRecord(placeholderId);
         return {
           success: false,
           message: `分批平仓数量 ${closeQuantity.toFixed(decimalPlaces)}张 小于最小交易数量 ${minQty}张，无法执行。建议增加持仓规模或调整平仓比例。`,
@@ -820,6 +861,7 @@ export const partialTakeProfitTool = createTool({
       // 检查剩余数量是否满足最小持仓要求（如果不为0的话）
       if (!remainingMeetsMin) {
         logger.warn(`分批平仓后剩余数量 ${remainingQuantity.toFixed(decimalPlaces)}张 小于最小交易数量 ${minQty}张`);
+        await cleanupPendingRecord(placeholderId);
         return {
           success: false,
           message: `分批平仓后剩余数量 ${remainingQuantity.toFixed(decimalPlaces)}张 小于最小交易数量 ${minQty}张，建议调整平仓比例或全部平仓`,
@@ -1211,6 +1253,19 @@ export const partialTakeProfitTool = createTool({
         notes: `阶段${stageNum}完成：R=${currentR.toFixed(2)}, 平仓${closePercent}%, PnL=${netPnl.toFixed(2)} USDT`,
       });
       
+      // 🔧 清理pending占位记录
+      if (placeholderId) {
+        try {
+          await dbClient.execute({
+            sql: `DELETE FROM partial_take_profit_history WHERE order_id = ? AND status = 'pending'`,
+            args: [placeholderId]
+          });
+          logger.debug(`✅ 已清理pending占位记录: ${placeholderId}`);
+        } catch (cleanupError: any) {
+          logger.warn(`清理pending占位记录失败: ${cleanupError.message}`);
+        }
+      }
+      
       // 11. 同时记录到通用平仓事件表（供 getCloseEvents 查询）
       try {
         // 🔧 核心修复：盈亏百分比计算
@@ -1284,6 +1339,20 @@ export const partialTakeProfitTool = createTool({
       };
     } catch (error: any) {
       logger.error(`分批止盈执行失败: ${error.message}`);
+      
+      // 🔧 异常时清理pending记录（清理最近5分钟内的pending记录，避免积累）
+      try {
+        await dbClient.execute({
+          sql: `DELETE FROM partial_take_profit_history 
+                WHERE symbol LIKE ? AND stage = ? AND status = 'pending' 
+                AND timestamp > datetime('now', '-5 minutes')`,
+          args: [`%${symbol}%`, Number.parseInt(stage, 10)]
+        });
+        logger.debug(`已清理异常pending记录: ${symbol} Stage${stage}`);
+      } catch (cleanupError: any) {
+        logger.debug(`清理异常pending记录失败: ${cleanupError.message}`);
+      }
+      
       return {
         success: false,
         message: `分批止盈执行失败: ${error.message}`,
