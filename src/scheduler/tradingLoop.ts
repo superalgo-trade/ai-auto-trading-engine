@@ -901,13 +901,14 @@ async function getPositions(cachedExchangePositions?: any[]) {
     // 如果提供了缓存数据，使用缓存；否则重新获取
     const exchangePositions = cachedExchangePositions || await exchangeClient.getPositions();
     
-    // 从数据库获取持仓的开仓时间、entry_order_id 和 metadata（包含反转预警信息）
-    const dbResult = await dbClient.execute("SELECT symbol, opened_at, entry_order_id, metadata FROM positions");
+    // 从数据库获取持仓的开仓时间、entry_order_id、metadata（反转预警）和 partial_close_percentage（分批止盈进度）
+    const dbResult = await dbClient.execute("SELECT symbol, opened_at, entry_order_id, metadata, partial_close_percentage FROM positions");
     const dbDataMap = new Map(
       dbResult.rows.map((row: any) => [row.symbol, { 
         opened_at: row.opened_at, 
         entry_order_id: row.entry_order_id,
-        metadata: row.metadata ? (typeof row.metadata === 'string' ? JSON.parse(row.metadata) : row.metadata) : null
+        metadata: row.metadata ? (typeof row.metadata === 'string' ? JSON.parse(row.metadata) : row.metadata) : null,
+        partial_close_percentage: Number.parseFloat(row.partial_close_percentage as string || "0")
       }])
     );
     
@@ -954,6 +955,7 @@ async function getPositions(cachedExchangePositions?: any[]) {
           opened_at: openedAt,
           entry_order_id: dbData?.entry_order_id, // 包含开仓订单ID用于识别当前活跃持仓
           metadata: dbData?.metadata || null, // 包含反转预警等元数据
+          partial_close_percentage: dbData?.partial_close_percentage || 0, // 🔧 包含分批止盈进度
         };
       });
     

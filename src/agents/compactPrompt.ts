@@ -37,7 +37,7 @@ export async function generateCompactPrompt(data: {
 1.持仓管理(优先):
   ▸监控≥70→立即平
   ▸reversal≥70→立即平
-  ▸分批止盈check→执行跳移动止损
+  ▸分批止盈check→执行跳移动止损(Stage说明:无=0%,Stage1=33%,Stage2=66%,Stage3=100%)
   ▸reversal50-70→结合盈亏评估
   ▸移动止损→可选优化
 2.新开仓:
@@ -51,7 +51,7 @@ ${formatUSDT(accountInfo.totalBalance)}|可用${formatUSDT(accountInfo.available
   
   // 持仓(紧凑)
   if (positions.length > 0) {
-    prompt += `\n【持仓${positions.length}/${RISK_PARAMS.MAX_POSITIONS}】\n`;
+    prompt += `\n【持仓${positions.length}/${RISK_PARAMS.MAX_POSITIONS}】格式:币种 方向杠杆|盈亏%|持仓h|分批阶段|预警\n`;
     
     const posSymbols = positions.map(p => p.symbol);
     let states: Map<string, MarketStateAnalysis> = new Map();
@@ -73,7 +73,15 @@ ${formatUSDT(accountInfo.totalBalance)}|可用${formatUSDT(accountInfo.available
       if (m.reversalWarning === 1 && w >= 70) f = '⚠️紧急';
       else if (w >= 50) f = '⚠️预';
       
+      // 🔧 关键修复: 包含分批止盈进度
+      const partialClosed = p.partial_close_percentage || 0;
+      let stageInfo = '';
+      if (partialClosed >= 66) stageInfo = '|Stage3';
+      else if (partialClosed >= 33) stageInfo = '|Stage2';
+      else if (partialClosed > 0) stageInfo = '|Stage1';
+      
       prompt += `${p.symbol} ${p.side}${p.leverage}x|${pnl>=0?'+':''}${formatPercent(pnl)}%|${h}h`;
+      if (stageInfo) prompt += stageInfo;
       if (f) prompt += `|${f}`;
       
       const s = states.get(p.symbol);

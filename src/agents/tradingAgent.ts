@@ -1184,6 +1184,17 @@ ${params.scientificStopLoss?.enabled ? `│ 移动止损优化（可选，低优
       prompt += `  杠杆倍数: ${pos.leverage}x\n`;
       prompt += `  盈亏百分比: ${pnlPercent >= 0 ? '+' : ''}${formatPercent(pnlPercent)}% (已考虑杠杆倍数)\n`;
       prompt += `  盈亏金额: ${pos.unrealized_pnl >= 0 ? '+' : ''}${formatUSDT(pos.unrealized_pnl)} USDT\n`;
+      
+      // 🔧 关键修复: 显示分批止盈进度
+      const partialClosed = pos.partial_close_percentage || 0;
+      if (partialClosed > 0) {
+        let stageInfo = '';
+        if (partialClosed >= 66) stageInfo = 'Stage 3 (已平66%)';
+        else if (partialClosed >= 33) stageInfo = 'Stage 2 (已平33%)';
+        else stageInfo = 'Stage 1 (已平部分)';
+        prompt += `  分批止盈进度: ${stageInfo}\n`;
+      }
+      
       prompt += `  开仓价: ${formatPrice(pos.entry_price)}\n`;
       prompt += `  当前价: ${formatPrice(pos.current_price)}\n`;
       prompt += `  开仓时间: ${formatChinaTime(pos.opened_at)}\n`;
