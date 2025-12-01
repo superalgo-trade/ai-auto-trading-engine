@@ -161,9 +161,9 @@ export const analyzeOpeningOpportunitiesTool = createTool({
       const marketStates = await analyzeMultipleMarketStates(symbolsToAnalyze);
       logger.info(`  ✓ 完成: ${marketStates.size}/${symbolsToAnalyze.length} 个品种`);
 
-      // 4. 并发路由策略（传入持仓信息用于反转分析）
-      logger.info("🎯 步骤2/3: 路由策略...");
-      const strategyResults = await routeMultipleStrategies(symbolsToAnalyze, positionDirections);
+      // 4. 并发路由策略（复用步骤3的市场状态，避免重复API调用）
+      logger.info("🎯 步骤2/3: 路由策略（复用市场状态）...");
+      const strategyResults = await routeMultipleStrategies(symbolsToAnalyze, positionDirections, marketStates);
       logger.info(`  ✓ 完成: ${strategyResults.size}/${symbolsToAnalyze.length} 个品种`);
 
       // 5. 评分和排序

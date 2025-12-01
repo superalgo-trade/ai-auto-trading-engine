@@ -63,6 +63,37 @@ const OVERBOUGHT_EXTREME_THRESHOLD = Number.parseFloat(process.env.OVERBOUGHT_EX
 const OVERBOUGHT_MILD_THRESHOLD = Number.parseFloat(process.env.OVERBOUGHT_MILD_THRESHOLD || "70");
 
 /**
+ * MTF数据缓存（用于避免重复API调用）
+ * key: symbol, value: { data, timestamp }
+ */
+const mtfCache = new Map<string, { data: MultiTimeframeAnalysis; timestamp: number }>();
+const MTF_CACHE_TTL = 60 * 1000; // 缓存60秒
+
+/**
+ * 获取MTF数据（优先从缓存读取）
+ */
+export async function getCachedMTFData(
+  symbol: string,
+  timeframes: string[]
+): Promise<MultiTimeframeAnalysis> {
+  const now = Date.now();
+  const cached = mtfCache.get(symbol);
+  
+  // 检查缓存是否有效
+  if (cached && (now - cached.timestamp) < MTF_CACHE_TTL) {
+    logger.debug(`${symbol}: 复用缓存的MTF数据，剩余 ${Math.round((MTF_CACHE_TTL - (now - cached.timestamp)) / 1000)}秒`);
+    return cached.data;
+  }
+  
+  // 重新获取并缓存
+  const data = await performMultiTimeframeAnalysis(symbol, timeframes);
+  mtfCache.set(symbol, { data, timestamp: now });
+  logger.debug(`${symbol}: 缓存MTF数据，有效期 ${MTF_CACHE_TTL / 1000}秒`);
+  
+  return data;
+}
+
+/**
  * 策略自适应时间框架配置
  * 根据不同交易策略选择最优的时间框架组合
  */
@@ -126,8 +157,8 @@ export async function analyzeMarketState(
   
   logger.debug(`${symbol} 使用策略: ${strategy}, 时间框架: ${timeframes.primary}/${timeframes.confirm}/${timeframes.filter}`);
   
-  // 获取多时间框架数据（策略自适应）
-  const mtfData = await performMultiTimeframeAnalysis(
+  // 获取多时间框架数据（使用缓存避免重复API调用）
+  const mtfData = await getCachedMTFData(
     symbol, 
     [timeframes.primary, timeframes.confirm, timeframes.filter]
   );

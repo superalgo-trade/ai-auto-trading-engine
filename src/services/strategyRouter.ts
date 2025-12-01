@@ -23,13 +23,13 @@
  */
 
 import { createLogger } from "../utils/logger";
-import { analyzeMarketState } from "./marketStateAnalyzer";
+import { analyzeMarketState, getCachedMTFData } from "./marketStateAnalyzer";
 import { performMultiTimeframeAnalysis } from "./multiTimeframeAnalysis";
 import { trendFollowingStrategy } from "../strategies/trendFollowingStrategy";
 import { meanReversionStrategy } from "../strategies/meanReversionStrategy";
 import { breakoutStrategy } from "../strategies/breakoutStrategy";
 import { getExchangeClient } from "../exchanges";
-import type { StrategyResult } from "../types/marketState";
+import type { StrategyResult, MarketStateAnalysis } from "../types/marketState";
 
 const logger = createLogger({
   name: "strategy-router",
@@ -41,19 +41,24 @@ const logger = createLogger({
  * 
  * @param symbol 交易品种
  * @param currentPosition 当前持仓信息（可选）
+ * @param preAnalyzedState 预先分析的市场状态（可选，用于避免重复API调用）
  * @returns 策略结果
  */
 export async function routeStrategy(
   symbol: string,
-  currentPosition?: { direction: 'long' | 'short' }
+  currentPosition?: { direction: 'long' | 'short' },
+  preAnalyzedState?: MarketStateAnalysis
 ): Promise<StrategyResult> {
   logger.info(`为 ${symbol} 路由策略...`);
   
-  // 1. 分析市场状态（传入持仓信息以计算反转得分）
-  const marketState = await analyzeMarketState(symbol, currentPosition);
+  // 1. 使用预分析的市场状态或重新分析（传入持仓信息以计算反转得分）
+  const marketState = preAnalyzedState || await analyzeMarketState(symbol, currentPosition);
+  if (preAnalyzedState) {
+    logger.debug(`${symbol}: 复用已分析的市场状态，跳过重复API调用`);
+  }
   
-  // 2. 获取多时间框架数据（供策略使用）
-  const mtfData = await performMultiTimeframeAnalysis(symbol, ["SHORT_CONFIRM", "MEDIUM"]);
+  // 2. 获取多时间框架数据（使用缓存避免重复API调用）
+  const mtfData = await getCachedMTFData(symbol, ["SHORT_CONFIRM", "MEDIUM"]);
   
   const tf15m = mtfData.timeframes.shortconfirm;
   const tf1h = mtfData.timeframes.medium;
@@ -191,11 +196,14 @@ export async function routeStrategy(
  * 批量路由策略
  * 
  * @param symbols 交易品种列表
+ * @param positionDirections 持仓方向映射
+ * @param marketStates 预先获取的市场状态（可选，用于避免重复API调用）
  * @returns 策略结果映射
  */
 export async function routeMultipleStrategies(
   symbols: string[],
-  positionDirections?: Map<string, 'long' | 'short'>
+  positionDirections?: Map<string, 'long' | 'short'>,
+  marketStates?: Map<string, MarketStateAnalysis>
 ): Promise<Map<string, StrategyResult>> {
   logger.info(`为 ${symbols.length} 个品种批量路由策略...`);
   
@@ -207,7 +215,8 @@ export async function routeMultipleStrategies(
       const currentPosition = positionDirections?.has(symbol)
         ? { direction: positionDirections.get(symbol)! }
         : undefined;
-      const result = await routeStrategy(symbol, currentPosition);
+      const preAnalyzedState = marketStates?.get(symbol);
+      const result = await routeStrategy(symbol, currentPosition, preAnalyzedState);
       results.set(symbol, result);
     } catch (error) {
       logger.error(`路由 ${symbol} 策略失败:`, error);
