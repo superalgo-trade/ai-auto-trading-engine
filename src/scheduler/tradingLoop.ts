@@ -24,6 +24,7 @@ import { parsePositionSize } from "../utils";
 import { createLogger } from "../utils/logger";
 import { createClient } from "@libsql/client";
 import { createTradingAgent, generateTradingPrompt, getAccountRiskConfig, getTradingStrategy, getStrategyParams } from "../agents/tradingAgent";
+import { generateCompactPrompt } from "../agents/compactPrompt";
 import { getExchangeClient } from "../exchanges";
 import { getChinaTimeISO } from "../utils/timeUtils";
 import { RISK_PARAMS } from "../config/riskParams";
@@ -1613,17 +1614,29 @@ async function executeTradingDecision() {
     }
     
     // 9. 生成提示词并调用 Agent
-    const prompt = await generateTradingPrompt({
-      minutesElapsed,
-      iteration: iterationCount,
-      intervalMinutes,
-      marketData,
-      accountInfo,
-      positions,
-      tradeHistory,
-      recentDecisions,
-      closeEvents,
-    });
+    // 优化: 使用精简版提示词减少tokens消耗(约70%),降低API费用
+    const useCompactPrompt = process.env.USE_COMPACT_PROMPT !== 'false'; // 默认启用精简模式
+    
+    const prompt = useCompactPrompt 
+      ? await generateCompactPrompt({
+          minutesElapsed,
+          iteration: iterationCount,
+          intervalMinutes,
+          marketData,
+          accountInfo,
+          positions,
+        })
+      : await generateTradingPrompt({
+          minutesElapsed,
+          iteration: iterationCount,
+          intervalMinutes,
+          marketData,
+          accountInfo,
+          positions,
+          tradeHistory,
+          recentDecisions,
+          closeEvents,
+        });
     
     // 输出完整提示词到日志
     logger.info("【入参 - AI 提示词】");
@@ -1634,10 +1647,12 @@ async function executeTradingDecision() {
     const agent = createTradingAgent(intervalMinutes);
     
     try {
-      // 设置足够大的 maxOutputTokens 以避免输出被截断
-      // DeepSeek API 限制: max_tokens 范围为 [1, 8192]
+      // 优化: 根据提示词模式调整maxOutputTokens
+      // 精简模式下AI响应也应该更简洁,减少输出tokens
+      const maxOutputTokens = useCompactPrompt ? 4096 : 8192;
+      
       const response = await agent.generateText(prompt, {
-        maxOutputTokens: 8192,
+        maxOutputTokens,
         maxSteps: 20,
         temperature: 0.4,
       });
