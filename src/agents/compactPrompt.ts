@@ -42,7 +42,7 @@ export async function generateCompactPrompt(data: {
   ▸移动止损→可选优化
 2.新开仓:
   ▸analyze_opening_opportunities()获评分
-  ▸≥${minScore}分可考虑,<${Math.floor(minScore*0.75)}观望
+  ▸≥${minScore}分可考虑,<${minScore}分禁止开仓
   ▸checkOpenPosition()验→openPosition()执
 
 【账户】
