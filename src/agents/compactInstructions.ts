@@ -36,7 +36,7 @@ export function generateCompactInstructions(
     ▸reversal50-70→审慎评估
   (2)新开仓(强制流程):
     ▸analyze_opening_opportunities()获评分
-    ▸≥${minOpportunityScore}分可考虑
+    ▸≥${minOpportunityScore}分可考虑,<${minOpportunityScore}分禁止开仓
     ▸checkOpenPosition()验证
     ▸openPosition()执行
 
