@@ -714,6 +714,29 @@ export class PriceOrderMonitor {
       await this.dbClient.execute('COMMIT');
       logger.info(`✅ [事务] ${order.symbol} ${order.type} 触发处理完成`);
       
+      // 📧 发送平仓提醒邮件
+      try {
+        const { emailAlertService } = await import("../utils/emailAlert.js");
+        await emailAlertService.sendTradeNotification({
+          type: 'close',
+          symbol: order.symbol,
+          side: order.side,
+          quantity,
+          price: exitPrice,
+          leverage,
+          entryPrice,
+          exitPrice,
+          pnl: netPnl,
+          pnlPercent,
+          fee: totalFee,
+          closeReason: order.type === 'stop_loss' ? 'stop_loss' : 'take_profit',
+          orderId: closeOrderId,
+          timestamp,
+        });
+      } catch (emailError: any) {
+        logger.warn(`发送平仓提醒邮件失败: ${emailError.message}`);
+      }
+      
     } catch (error: any) {
       // 回滚事务
       await this.dbClient.execute('ROLLBACK');

@@ -936,7 +936,31 @@ IMPORTANT:
         logger.info(`📊 开仓策略信息: symbol=${symbol}, strategy=${strategyType || 'N/A'}, market_state=${marketState || 'N/A'}, signal_strength=${signalStrength?.toFixed(2) || 'N/A'}, opportunity_score=${opportunityScore?.toFixed(0) || 'N/A'}`);
       }
       
-      // 🔧 标记开仓操作完成
+      // � 发送开仓提醒邮件
+      try {
+        const { emailAlertService } = await import("../../utils/emailAlert.js");
+        await emailAlertService.sendTradeNotification({
+          type: 'open',
+          symbol,
+          side,
+          quantity: finalQuantity,
+          price: actualFillPrice,
+          leverage: adjustedLeverage,
+          margin: actualMargin,
+          stopLoss: calculatedStopLoss || undefined,
+          takeProfit: calculatedTakeProfit || undefined,
+          liquidationPrice,
+          marketState,
+          strategyType,
+          opportunityScore,
+          orderId: order.id?.toString(),
+          timestamp: nowTimestamp,
+        });
+      } catch (emailError: any) {
+        logger.warn(`发送开仓提醒邮件失败: ${emailError.message}`);
+      }
+      
+      // �🔧 标记开仓操作完成
       positionStateManager.finishOpening(symbol, side);
       
       return {
@@ -1485,6 +1509,30 @@ export const closePositionTool = createTool({
       // 🔧 标记平仓操作完成
       if (side) {
         positionStateManager.finishClosing(symbol, side);
+      }
+      
+      // 📧 发送平仓提醒邮件
+      try {
+        const { emailAlertService } = await import("../../utils/emailAlert.js");
+        await emailAlertService.sendTradeNotification({
+          type: 'close',
+          symbol,
+          side,
+          quantity: actualCloseSize,
+          price: actualExitPrice,
+          leverage,
+          entryPrice,
+          exitPrice: actualExitPrice,
+          pnl,
+          pnlPercent,
+          fee: totalFee,
+          closeReason: reason,
+          totalBalance,
+          orderId: order.id?.toString(),
+          timestamp,
+        });
+      } catch (emailError: any) {
+        logger.warn(`发送平仓提醒邮件失败: ${emailError.message}`);
       }
       
       return {

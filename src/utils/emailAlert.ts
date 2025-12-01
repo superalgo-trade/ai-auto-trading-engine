@@ -36,6 +36,36 @@ export interface AlertMessage {
 }
 
 /**
+ * 交易提醒信息接口
+ */
+export interface TradeNotification {
+  type: 'open' | 'close';
+  symbol: string;
+  side: 'long' | 'short';
+  quantity: number;
+  price: number;
+  leverage: number;
+  // 开仓特有字段
+  margin?: number;
+  stopLoss?: number;
+  takeProfit?: number;
+  liquidationPrice?: number;
+  marketState?: string;
+  strategyType?: string;
+  opportunityScore?: number;
+  // 平仓特有字段
+  entryPrice?: number;
+  exitPrice?: number;
+  pnl?: number;
+  pnlPercent?: number;
+  fee?: number;
+  closeReason?: string;
+  totalBalance?: number;
+  orderId?: string;
+  timestamp?: string;
+}
+
+/**
  * 邮件告警类
  */
 class EmailAlertService {
@@ -157,15 +187,54 @@ class EmailAlertService {
 
     let detailsHtml = '';
     if (alert.details) {
-      const detailsStr = typeof alert.details === 'object' 
-        ? JSON.stringify(alert.details, null, 2) 
-        : String(alert.details);
-      detailsHtml = `
-        <div style="margin-top: 20px; padding: 15px; background: #f5f5f5; border-radius: 4px;">
-          <h3 style="margin-top: 0; color: #333;">详细信息：</h3>
-          <pre style="white-space: pre-wrap; word-wrap: break-word; font-family: monospace; font-size: 12px;">${detailsStr}</pre>
-        </div>
-      `;
+      // 检查是否是交易提醒（包含特定字段）
+      const isTradeNotification = alert.details && typeof alert.details === 'object' && 
+        ('交易类型' in alert.details || '币种' in alert.details);
+      
+      if (isTradeNotification) {
+        // 使用表格格式显示交易信息
+        const rows = Object.entries(alert.details)
+          .map(([key, value]) => {
+            let displayValue = String(value);
+            let valueStyle = '';
+            
+            // 为盈亏添加颜色
+            if (key === '盈亏' && typeof value === 'string') {
+              if (value.includes('+')) {
+                valueStyle = 'color: #4CAF50; font-weight: bold;';
+              } else if (value.includes('-')) {
+                valueStyle = 'color: #F44336; font-weight: bold;';
+              }
+            }
+            
+            return `
+              <tr>
+                <td style="padding: 8px; border-bottom: 1px solid #eee; font-weight: 500; color: #666; white-space: nowrap;">${key}</td>
+                <td style="padding: 8px; border-bottom: 1px solid #eee; ${valueStyle}">${displayValue}</td>
+              </tr>
+            `;
+          })
+          .join('');
+        
+        detailsHtml = `
+          <div style="margin-top: 20px; overflow-x: auto;">
+            <table style="width: 100%; border-collapse: collapse; background: white; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+              ${rows}
+            </table>
+          </div>
+        `;
+      } else {
+        // 常规告警使用原格式
+        const detailsStr = typeof alert.details === 'object' 
+          ? JSON.stringify(alert.details, null, 2) 
+          : String(alert.details);
+        detailsHtml = `
+          <div style="margin-top: 20px; padding: 15px; background: #f5f5f5; border-radius: 4px;">
+            <h3 style="margin-top: 0; color: #333;">详细信息：</h3>
+            <pre style="white-space: pre-wrap; word-wrap: break-word; font-family: monospace; font-size: 12px;">${detailsStr}</pre>
+          </div>
+        `;
+      }
     }
 
     return `
@@ -226,6 +295,94 @@ class EmailAlertService {
       logger.error('邮件测试失败:', error);
       return false;
     }
+  }
+
+  /**
+   * 发送交易提醒邮件
+   */
+  async sendTradeNotification(trade: TradeNotification): Promise<boolean> {
+    // 添加时间戳
+    if (!trade.timestamp) {
+      trade.timestamp = new Date().toISOString();
+    }
+
+    // 构建邮件标题和内容
+    const isOpen = trade.type === 'open';
+    const direction = trade.side === 'long' ? '做多' : '做空';
+    const title = isOpen 
+      ? `开仓提醒: ${trade.symbol} ${direction}` 
+      : `平仓提醒: ${trade.symbol} ${direction}`;
+
+    // 构建详细信息
+    const details = {
+      交易类型: isOpen ? '开仓' : '平仓',
+      币种: trade.symbol,
+      方向: direction,
+      数量: trade.quantity.toFixed(4),
+      杠杆: `${trade.leverage}x`,
+      ...(isOpen ? {
+        入场价: trade.price.toFixed(2),
+        保证金: trade.margin ? `${trade.margin.toFixed(2)} USDT` : 'N/A',
+        止损价: trade.stopLoss ? trade.stopLoss.toFixed(2) : '未设置',
+        止盈价: trade.takeProfit ? trade.takeProfit.toFixed(2) : '未设置',
+        强平价: trade.liquidationPrice ? trade.liquidationPrice.toFixed(2) : 'N/A',
+        市场状态: trade.marketState || 'N/A',
+        策略类型: trade.strategyType || 'N/A',
+        机会评分: trade.opportunityScore !== undefined ? `${trade.opportunityScore.toFixed(0)}/100` : 'N/A',
+      } : {
+        入场价: trade.entryPrice?.toFixed(2) || 'N/A',
+        平仓价: trade.exitPrice?.toFixed(2) || trade.price.toFixed(2),
+        盈亏: trade.pnl !== undefined ? `${trade.pnl >= 0 ? '+' : ''}${trade.pnl.toFixed(2)} USDT` : 'N/A',
+        盈亏率: trade.pnlPercent !== undefined ? `${trade.pnlPercent >= 0 ? '+' : ''}${trade.pnlPercent.toFixed(2)}%` : 'N/A',
+        手续费: trade.fee !== undefined ? `${trade.fee.toFixed(2)} USDT` : 'N/A',
+        平仓原因: this.formatCloseReason(trade.closeReason),
+        账户余额: trade.totalBalance !== undefined ? `${trade.totalBalance.toFixed(2)} USDT` : 'N/A',
+      }),
+      订单ID: trade.orderId || 'N/A',
+      时间: trade.timestamp,
+    };
+
+    // 构建消息文本
+    const message = Object.entries(details)
+      .map(([key, value]) => `${key}: ${value}`)
+      .join('\n');
+
+    // 根据盈亏情况选择告警级别
+    let level = AlertLevel.INFO;
+    if (!isOpen && trade.pnl !== undefined) {
+      if (trade.pnl < -100) {
+        level = AlertLevel.ERROR; // 大额亏损
+      } else if (trade.pnl < 0) {
+        level = AlertLevel.WARNING; // 小额亏损
+      }
+    }
+
+    // 发送告警邮件
+    return await this.sendAlert({
+      level,
+      title,
+      message,
+      details,
+      timestamp: trade.timestamp,
+    });
+  }
+
+  /**
+   * 格式化平仓原因
+   */
+  private formatCloseReason(reason?: string): string {
+    const reasonMap: Record<string, string> = {
+      'stop_loss_triggered': '止损触发',
+      'take_profit_triggered': '止盈触发',
+      'manual_close': 'AI手动',
+      'ai_decision': 'AI主动',
+      'trend_reversal': '趋势反转',
+      'forced_close': '系统强制',
+      'partial_close': '分批止盈',
+      'peak_drawdown': '峰值回撤',
+      'time_limit': '持仓到期',
+    };
+    return reasonMap[reason || ''] || reason || 'N/A';
   }
 }
 
