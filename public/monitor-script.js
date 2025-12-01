@@ -403,7 +403,7 @@ class TradingMonitor {
     // 加载交易记录
     async loadTradesData() {
         try {
-            const response = await fetch('/api/completed-trades?limit=25');
+            const response = await fetch('/api/completed-trades?limit=50');
             const data = await response.json();
             
             if (data.error) {
