@@ -369,11 +369,12 @@ export const syncPositionsTool = createTool({
         const symbol = exchangeClient.extractSymbol(pos.contract || "");
         const side = size > 0 ? "long" : "short";
         
+        // 🔧 同步持仓时，初始化分批止盈百分比为0（全新同步的持仓不应有分批记录）
         await dbClient.execute({
           sql: `INSERT INTO positions 
                 (symbol, quantity, entry_price, current_price, liquidation_price, unrealized_pnl, 
-                 leverage, side, entry_order_id, opened_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                 leverage, side, entry_order_id, opened_at, partial_close_percentage)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           args: [
             symbol,
             Math.abs(size),
@@ -385,6 +386,7 @@ export const syncPositionsTool = createTool({
             side,
             "synced",
             new Date().toISOString(),
+            0, // 初始化分批止盈百分比
           ],
         });
       }

@@ -827,12 +827,13 @@ IMPORTANT:
       try {
         // 1. 插入完整的持仓记录（包含条件单ID）
         // 使用 INSERT OR REPLACE 确保即使持仓已存在也能更新
+        // 🔧 关键: 明确设置 partial_close_percentage = 0，防止复用旧持仓的分批止盈记录
         await dbClient.execute({
           sql: `INSERT OR REPLACE INTO positions 
                 (symbol, quantity, entry_price, current_price, liquidation_price, unrealized_pnl, 
                  leverage, side, entry_order_id, opened_at, profit_target, stop_loss, 
-                 tp_order_id, sl_order_id, market_state, strategy_type, signal_strength, opportunity_score, metadata)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                 tp_order_id, sl_order_id, market_state, strategy_type, signal_strength, opportunity_score, metadata, partial_close_percentage)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           args: [
             symbol,
             finalQuantity,
@@ -853,6 +854,7 @@ IMPORTANT:
             signalStrength || null,
             opportunityScore || null,
             entryMarketState ? JSON.stringify({ marketState: entryMarketState, entryTime: Date.now() }) : null,
+            0, // 🔧 新开仓的分批止盈百分比初始化为0，防止复用旧记录
           ],
         });
         logger.debug(`✅ [事务] 步骤1: 持仓记录已插入`);

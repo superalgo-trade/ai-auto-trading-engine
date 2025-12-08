@@ -334,11 +334,12 @@ async function syncPositions(): Promise<void> {
         const pnl = Number.parseFloat(pos.unrealisedPnl || "0");
         const liqPrice = Number.parseFloat(pos.liqPrice || "0");
         
+        // 🔧 重置后同步持仓时，初始化分批止盈百分比为0
         await client.execute({
           sql: `INSERT INTO positions 
                 (symbol, quantity, entry_price, current_price, liquidation_price, unrealized_pnl, 
-                 leverage, side, entry_order_id, opened_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                 leverage, side, entry_order_id, opened_at, partial_close_percentage)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           args: [
             symbol,
             quantity,
@@ -350,6 +351,7 @@ async function syncPositions(): Promise<void> {
             side,
             "synced",
             new Date().toISOString(),
+            0, // 初始化分批止盈百分比
           ],
         });
         

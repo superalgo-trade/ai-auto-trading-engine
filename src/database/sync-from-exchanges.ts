@@ -146,11 +146,12 @@ async function syncFromGate() {
         // 生成占位符 order_id
         const entryOrderId = `synced-${symbol}-${Date.now()}`;
         
+        // 🔧 同步持仓时，初始化分批止盈百分比为0
         await client.execute({
           sql: `INSERT INTO positions 
                 (symbol, quantity, entry_price, current_price, liquidation_price, unrealized_pnl, 
-                 leverage, side, entry_order_id, opened_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                 leverage, side, entry_order_id, opened_at, partial_close_percentage)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           args: [
             symbol,
             quantity,
@@ -162,6 +163,7 @@ async function syncFromGate() {
             side,
             entryOrderId,
             new Date().toISOString(),
+            0, // 初始化分批止盈百分比
           ],
         });
         
