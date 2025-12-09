@@ -171,12 +171,13 @@ export class BinanceExchangeClient implements IExchangeClient {
   }
 
   /**
-   * 同步服务器时间
+   * 同步服务器时间 - 不受熔断器影响的关键操作
    */
   private async syncServerTime(): Promise<void> {
     try {
       const t0 = Date.now();
-      const response = await this.publicRequest('/fapi/v1/time');
+      // 直接请求，不经过熔断器检查（时间同步是恢复的前提）
+      const response = await this.publicRequestWithoutCircuitBreaker('/fapi/v1/time');
       const t1 = Date.now();
       const serverTime = response.serverTime;
       
@@ -557,6 +558,62 @@ export class BinanceExchangeClient implements IExchangeClient {
         'User-Agent': 'Mozilla/5.0 AI-Auto-Trading Bot',
       }
     }, retries);
+  }
+
+  /**
+   * 发送公共请求（不受熔断器影响）- 用于时间同步等关键操作
+   */
+  private async publicRequestWithoutCircuitBreaker(endpoint: string, params: any = {}, retries = 2): Promise<any> {
+    const url = new URL(this.baseUrl + endpoint);
+    Object.keys(params).forEach(key => url.searchParams.append(key, params[key]));
+
+    // 直接处理请求，跳过熔断器检查
+    await this.rateLimitControl();
+    
+    for (let attempt = 1; attempt <= retries; attempt++) {
+      const controller = new AbortController();
+      const timeoutMs = 10000;
+      const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+      try {
+        const options: RequestInit = {
+          signal: controller.signal,
+          method: 'GET',
+          headers: {
+            'User-Agent': 'Mozilla/5.0 AI-Auto-Trading Bot',
+          }
+        };
+
+        const response = await fetch(url, options);
+        clearTimeout(timeoutId);
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          let errorData;
+          try {
+            errorData = JSON.parse(errorText);
+          } catch {
+            throw new Error(`HTTP ${response.status}: ${errorText}`);
+          }
+          throw new Error(errorData.msg || `HTTP ${response.status}`);
+        }
+
+        const data = await response.json();
+        return data;
+      } catch (error: any) {
+        clearTimeout(timeoutId);
+        
+        if (attempt < retries) {
+          const delay = 1000 * attempt;
+          await new Promise(resolve => setTimeout(resolve, delay));
+          continue;
+        }
+        
+        throw error;
+      }
+    }
+
+    throw new Error(`时间同步失败，已重试${retries}次`);
   }
 
   /**
@@ -1219,16 +1276,35 @@ export class BinanceExchangeClient implements IExchangeClient {
       // 先检查缓存
       const cached = this.orderCache.get(orderId);
       let symbol: string | undefined;
+      let isAlgoOrder = false;
       
       if (cached) {
         symbol = this.normalizeContract(cached.contract);
+        // 检查是否是算法订单
+        isAlgoOrder = cached.orderInfo?.type === 'STOP_MARKET' || 
+                      cached.orderInfo?.type === 'TAKE_PROFIT_MARKET';
       } else {
-        // 从未成交订单中查找
-        const openOrders = await this.getOpenOrders();
-        const order = openOrders.find(o => o.id === orderId);
+        // 首先尝试从算法订单中查找
+        try {
+          const algoOrders = await this.getPriceOrders();
+          const algoOrder = algoOrders.find(o => o.algoOrderId?.toString() === orderId);
+          
+          if (algoOrder) {
+            symbol = algoOrder.symbol;
+            isAlgoOrder = true;
+          }
+        } catch (algoError) {
+          // 如果算法订单查询失败，继续查找普通订单
+        }
         
-        if (order) {
-          symbol = this.normalizeContract(order.contract);
+        // 如果不是算法订单，从未成交订单中查找
+        if (!symbol) {
+          const openOrders = await this.getOpenOrders();
+          const order = openOrders.find(o => o.id === orderId);
+          
+          if (order) {
+            symbol = this.normalizeContract(order.contract);
+          }
         }
       }
       
@@ -1238,10 +1314,18 @@ export class BinanceExchangeClient implements IExchangeClient {
         return;
       }
       
-      await this.privateRequest('/fapi/v1/order', {
-        symbol,
-        orderId
-      }, 'DELETE');
+      // 根据订单类型使用不同的API端点
+      if (isAlgoOrder) {
+        await this.privateRequest('/fapi/v1/algoOrder', {
+          symbol,
+          algoOrderId: orderId
+        }, 'DELETE');
+      } else {
+        await this.privateRequest('/fapi/v1/order', {
+          symbol,
+          orderId
+        }, 'DELETE');
+      }
       
       // 清除相关缓存
       this.positionsCache = null;
@@ -1670,15 +1754,16 @@ export class BinanceExchangeClient implements IExchangeClient {
           formattedStopLoss = await this.formatPriceByTickSize(contract, stopLoss);
           stopLossData = {
             symbol,
-            side: posSize > 0 ? 'SELL' : 'BUY', // 平仓方向相反
+            side: posSize > 0 ? 'SELL' : 'BUY',
             type: 'STOP_MARKET',
             stopPrice: formattedStopLoss,
-            closePosition: 'true', // 平掉整个仓位
-            workingType: 'MARK_PRICE', // 使用标记价格触发（避免插针）
-            priceProtect: 'TRUE' // 启用价格保护
+            closePosition: 'true',
+            workingType: 'MARK_PRICE',
+            priceProtect: 'TRUE'
           };
 
-          const response = await this.privateRequest('/fapi/v1/order', stopLossData, 'POST', 2);
+          // Binance要求STOP_MARKET订单使用Algo Order API
+          const response = await this.privateRequest('/fapi/v1/algoOrder', stopLossData, 'POST', 2);
           stopLossOrderId = response.orderId?.toString();
           
           logger.info(`✅ ${contract} 止损单已创建: ID=${stopLossOrderId}, 触发价=${formattedStopLoss}, 当前价=${currentPrice.toFixed(6)}`);
@@ -1707,7 +1792,7 @@ export class BinanceExchangeClient implements IExchangeClient {
               
               logger.info(`🔄 重试创建止损单 (网络超时): 触发价=${formattedStopLoss}`);
               
-              const retryResponse = await this.privateRequest('/fapi/v1/order', stopLossData, 'POST', 2);
+              const retryResponse = await this.privateRequest('/fapi/v1/algoOrder', stopLossData, 'POST', 2);
               stopLossOrderId = retryResponse.orderId?.toString();
               
               logger.info(`✅ ${contract} 止损单创建成功(超时重试): ID=${stopLossOrderId}, 触发价=${formattedStopLoss}`);
@@ -1777,15 +1862,16 @@ export class BinanceExchangeClient implements IExchangeClient {
           formattedTakeProfit = await this.formatPriceByTickSize(contract, takeProfit);
           takeProfitData = {
             symbol,
-            side: posSize > 0 ? 'SELL' : 'BUY', // 平仓方向相反
+            side: posSize > 0 ? 'SELL' : 'BUY',
             type: 'TAKE_PROFIT_MARKET',
             stopPrice: formattedTakeProfit,
-            closePosition: 'true', // 平掉整个仓位
-            workingType: 'MARK_PRICE', // 使用标记价格触发
-            priceProtect: 'TRUE' // 启用价格保护
+            closePosition: 'true',
+            workingType: 'MARK_PRICE',
+            priceProtect: 'TRUE'
           };
 
-          const response = await this.privateRequest('/fapi/v1/order', takeProfitData, 'POST', 2);
+          // Binance要求TAKE_PROFIT_MARKET订单使用Algo Order API
+          const response = await this.privateRequest('/fapi/v1/algoOrder', takeProfitData, 'POST', 2);
           takeProfitOrderId = response.orderId?.toString();
           
           logger.info(`✅ ${contract} 止盈单已创建: ID=${takeProfitOrderId}, 触发价=${formattedTakeProfit}, 当前价=${currentPrice.toFixed(6)}`);
@@ -1992,16 +2078,11 @@ export class BinanceExchangeClient implements IExchangeClient {
       params.symbol = this.normalizeContract(contract);
     }
     
-    // Binance获取所有未成交订单（包含条件单）
-    const response = await this.privateRequest('/fapi/v1/openOrders', params, 'GET', 2);
+    // Binance的STOP_MARKET和TAKE_PROFIT_MARKET订单使用Algo Order API
+    const response = await this.privateRequest('/fapi/v1/algoOrders', params, 'GET', 2);
     
-    // 过滤出条件单（止损止盈订单）
-    const orders = (response || []).filter((order: any) => {
-      return order.type === 'STOP_MARKET' || 
-             order.type === 'STOP' || 
-             order.type === 'TAKE_PROFIT_MARKET' || 
-             order.type === 'TAKE_PROFIT';
-    });
+    // 返回所有条件单
+    const orders = response?.data || [];
     
     return orders;
   }
