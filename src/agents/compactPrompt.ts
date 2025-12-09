@@ -31,19 +31,29 @@ export async function generateCompactPrompt(data: {
   
   let prompt = `#${iteration} ${currentTime} | ${params.name} | ${minutesElapsed}min
 
-【风控】止损24/7自动,≥36h强制平,峰值回撤≥${formatPercent(params.peakDrawdownProtection)}%立即平
+【风控】${params.scientificStopLoss?.enabled?'科学':'策略'}止损24/7自动,≥36h强制平,峰值回撤≥${formatPercent(params.peakDrawdownProtection)}%立即平
 
-【决策】
-1.持仓管理(优先):
-  ▸监控≥70→立即平
-  ▸reversal≥70→立即平
-  ▸分批止盈check→执行跳移动止损(Stage说明:无分批=0%,S1=已平33%,S2=已平66%,S3=全平100%)
-  ▸reversal50-70→结合盈亏评估
-  ▸移动止损→可选优化
-2.新开仓:
-  ▸analyze_opening_opportunities()获评分
-  ▸≥${minScore}分可考虑,<${minScore}分禁止开仓
-  ▸checkOpenPosition()验→openPosition()执
+【止损机制】
+${params.scientificStopLoss?.enabled ? `▸科学止损(交易所服务器端):开仓已设条件单,${params.scientificStopLoss.minDistance}-${params.scientificStopLoss.maxDistance}%(ATR${params.scientificStopLoss.atrMultiplier}x+支撑/阻力),24/7监控触及立即平
+▸AI职责:✅信任止损单保护,❌禁因"接近止损"主动平,✅仅趋势明确反转时主动平
+▸移动止损:可选优化,仅当(盈利+未分批+无反转)时调updateTrailingStop→updatePositionStopLoss
+▸极端止盈${params.partialTakeProfit.extremeTakeProfit?.rMultiple||5}R:兜底防线(服务器自动),AI应通过分批主动管利润,触发=分批执行不到位` : `▸策略止损:${formatPercent(params.stopLoss.low)}-${formatPercent(params.stopLoss.high)}%,根据杠杆动态调整
+▸移动止损:盈≥${formatPercent(params.trailingStop.level1.trigger)}%→止${formatPercent(params.trailingStop.level1.stopAt)}%,≥${formatPercent(params.trailingStop.level2.trigger)}%→止${formatPercent(params.trailingStop.level2.stopAt)}%,≥${formatPercent(params.trailingStop.level3.trigger)}%→止${formatPercent(params.trailingStop.level3.stopAt)}%`}
+
+【决策流程】
+1.持仓管理(优先级从高到低):
+  ▸监控预警≥70(看持仓info的【反转监控紧急预警】标记)→立即全平closePosition,跳过所有后续
+  ▸reversal≥70→立即全平closePosition,跳过所有后续(含分批,强烈反转无条件退出)
+  ▸分批止盈→reversal<70时每持仓必查checkPartialTakeProfitOpportunity,canExecute=true立即executePartialTakeProfit(工具自动算R+波动率自适应+自动移止损),执行后本周期跳过移动止损(Stage:无分批=0%,S1=已平33%,S2=已平66%,S3=全平100%)
+  ▸reversal50-70→已盈利立即平锁利,小亏(<5%)平止损,接近止损等待触发
+  ▸earlyWarning→停止移动止损,准备退出
+  ▸移动止损优化→仅当(盈利+未分批+无反转+无early)时可选调用
+2.新开仓(强制按序):
+  ▸必须先analyze_opening_opportunities()获评分(工具自动:识别市场+选策略+量化评分+过滤已持+返前3个)
+  ▸≥${minScore}分可考虑|${Math.floor(minScore*0.75)}-${minScore-1}分观望|<${Math.floor(minScore*0.75)}分禁止
+  ▸⚠️禁止跳过evaluate|忽略评分|全<${minScore}分强行开
+  ▸checkOpenPosition()验(止损合理+无反向+资金足)→openPosition()执(自动设${params.scientificStopLoss?.enabled?'科学':'策略'}止损+${params.partialTakeProfit.extremeTakeProfit?.rMultiple||5}R极端止盈)
+  ▸AI保留决策权(评分合格前提)
 
 【账户】
 ${formatUSDT(accountInfo.totalBalance)}|可用${formatUSDT(accountInfo.availableBalance)}|收益${accountInfo.returnPercent.toFixed(1)}%|未实现${formatUSDT(positions.reduce((s,p)=>s+(p.unrealized_pnl||0),0))}
