@@ -1755,16 +1755,17 @@ export class BinanceExchangeClient implements IExchangeClient {
           stopLossData = {
             symbol,
             side: posSize > 0 ? 'SELL' : 'BUY',
-            type: 'STOP_MARKET',
+            algoType: 'STOP',
             stopPrice: formattedStopLoss,
-            closePosition: 'true',
+            quantity: Math.abs(posSize).toString(),
             workingType: 'MARK_PRICE',
-            priceProtect: 'TRUE'
+            priceProtect: 'true',
+            reduceOnly: 'true'
           };
 
-          // Binance要求STOP_MARKET订单使用Algo Order API
+          // Binance要求STOP订单使用Algo Order API
           const response = await this.privateRequest('/fapi/v1/algoOrder', stopLossData, 'POST', 2);
-          stopLossOrderId = response.orderId?.toString();
+          stopLossOrderId = response.algoOrderId?.toString() || response.orderId?.toString();
           
           logger.info(`✅ ${contract} 止损单已创建: ID=${stopLossOrderId}, 触发价=${formattedStopLoss}, 当前价=${currentPrice.toFixed(6)}`);
         } catch (error: any) {
@@ -1793,7 +1794,7 @@ export class BinanceExchangeClient implements IExchangeClient {
               logger.info(`🔄 重试创建止损单 (网络超时): 触发价=${formattedStopLoss}`);
               
               const retryResponse = await this.privateRequest('/fapi/v1/algoOrder', stopLossData, 'POST', 2);
-              stopLossOrderId = retryResponse.orderId?.toString();
+              stopLossOrderId = retryResponse.algoOrderId?.toString() || retryResponse.orderId?.toString();
               
               logger.info(`✅ ${contract} 止损单创建成功(超时重试): ID=${stopLossOrderId}, 触发价=${formattedStopLoss}`);
             } catch (retryError: any) {
@@ -1863,16 +1864,17 @@ export class BinanceExchangeClient implements IExchangeClient {
           takeProfitData = {
             symbol,
             side: posSize > 0 ? 'SELL' : 'BUY',
-            type: 'TAKE_PROFIT_MARKET',
+            algoType: 'TP',
             stopPrice: formattedTakeProfit,
-            closePosition: 'true',
+            quantity: Math.abs(posSize).toString(),
             workingType: 'MARK_PRICE',
-            priceProtect: 'TRUE'
+            priceProtect: 'true',
+            reduceOnly: 'true'
           };
 
-          // Binance要求TAKE_PROFIT_MARKET订单使用Algo Order API
+          // Binance要求TAKE_PROFIT订单使用Algo Order API
           const response = await this.privateRequest('/fapi/v1/algoOrder', takeProfitData, 'POST', 2);
-          takeProfitOrderId = response.orderId?.toString();
+          takeProfitOrderId = response.algoOrderId?.toString() || response.orderId?.toString();
           
           logger.info(`✅ ${contract} 止盈单已创建: ID=${takeProfitOrderId}, 触发价=${formattedTakeProfit}, 当前价=${currentPrice.toFixed(6)}`);
         } catch (error: any) {
