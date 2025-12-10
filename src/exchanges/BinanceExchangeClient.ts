@@ -171,12 +171,13 @@ export class BinanceExchangeClient implements IExchangeClient {
   }
 
   /**
-   * 同步服务器时间
+   * 同步服务器时间 - 不受熔断器影响的关键操作
    */
   private async syncServerTime(): Promise<void> {
     try {
       const t0 = Date.now();
-      const response = await this.publicRequest('/fapi/v1/time');
+      // 直接请求，不经过熔断器检查（时间同步是恢复的前提）
+      const response = await this.publicRequestWithoutCircuitBreaker('/fapi/v1/time');
       const t1 = Date.now();
       const serverTime = response.serverTime;
       
@@ -557,6 +558,62 @@ export class BinanceExchangeClient implements IExchangeClient {
         'User-Agent': 'Mozilla/5.0 AI-Auto-Trading Bot',
       }
     }, retries);
+  }
+
+  /**
+   * 发送公共请求（不受熔断器影响）- 用于时间同步等关键操作
+   */
+  private async publicRequestWithoutCircuitBreaker(endpoint: string, params: any = {}, retries = 2): Promise<any> {
+    const url = new URL(this.baseUrl + endpoint);
+    Object.keys(params).forEach(key => url.searchParams.append(key, params[key]));
+
+    // 直接处理请求，跳过熔断器检查
+    await this.rateLimitControl();
+    
+    for (let attempt = 1; attempt <= retries; attempt++) {
+      const controller = new AbortController();
+      const timeoutMs = 10000;
+      const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+      try {
+        const options: RequestInit = {
+          signal: controller.signal,
+          method: 'GET',
+          headers: {
+            'User-Agent': 'Mozilla/5.0 AI-Auto-Trading Bot',
+          }
+        };
+
+        const response = await fetch(url, options);
+        clearTimeout(timeoutId);
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          let errorData;
+          try {
+            errorData = JSON.parse(errorText);
+          } catch {
+            throw new Error(`HTTP ${response.status}: ${errorText}`);
+          }
+          throw new Error(errorData.msg || `HTTP ${response.status}`);
+        }
+
+        const data = await response.json();
+        return data;
+      } catch (error: any) {
+        clearTimeout(timeoutId);
+        
+        if (attempt < retries) {
+          const delay = 1000 * attempt;
+          await new Promise(resolve => setTimeout(resolve, delay));
+          continue;
+        }
+        
+        throw error;
+      }
+    }
+
+    throw new Error(`时间同步失败，已重试${retries}次`);
   }
 
   /**
@@ -1668,16 +1725,20 @@ export class BinanceExchangeClient implements IExchangeClient {
           }
           
           formattedStopLoss = await this.formatPriceByTickSize(contract, stopLoss);
+          
+          // Binance条件订单参数（使用quantity+reduceOnly替代closePosition）
           stopLossData = {
             symbol,
-            side: posSize > 0 ? 'SELL' : 'BUY', // 平仓方向相反
+            side: posSize > 0 ? 'SELL' : 'BUY',
             type: 'STOP_MARKET',
+            quantity: Math.abs(posSize).toString(),
             stopPrice: formattedStopLoss,
-            closePosition: 'true', // 平掉整个仓位
-            workingType: 'MARK_PRICE', // 使用标记价格触发（避免插针）
-            priceProtect: 'TRUE' // 启用价格保护
+            reduceOnly: 'true',
+            workingType: 'MARK_PRICE',
+            priceProtect: 'true'
           };
 
+          // 使用普通订单API创建条件订单
           const response = await this.privateRequest('/fapi/v1/order', stopLossData, 'POST', 2);
           stopLossOrderId = response.orderId?.toString();
           
@@ -1775,16 +1836,20 @@ export class BinanceExchangeClient implements IExchangeClient {
           }
           
           formattedTakeProfit = await this.formatPriceByTickSize(contract, takeProfit);
+          
+          // Binance条件订单参数（使用quantity+reduceOnly替代closePosition）
           takeProfitData = {
             symbol,
-            side: posSize > 0 ? 'SELL' : 'BUY', // 平仓方向相反
+            side: posSize > 0 ? 'SELL' : 'BUY',
             type: 'TAKE_PROFIT_MARKET',
+            quantity: Math.abs(posSize).toString(),
             stopPrice: formattedTakeProfit,
-            closePosition: 'true', // 平掉整个仓位
-            workingType: 'MARK_PRICE', // 使用标记价格触发
-            priceProtect: 'TRUE' // 启用价格保护
+            reduceOnly: 'true',
+            workingType: 'MARK_PRICE',
+            priceProtect: 'true'
           };
 
+          // 使用普通订单API创建条件订单
           const response = await this.privateRequest('/fapi/v1/order', takeProfitData, 'POST', 2);
           takeProfitOrderId = response.orderId?.toString();
           
