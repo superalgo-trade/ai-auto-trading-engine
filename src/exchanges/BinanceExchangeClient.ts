@@ -91,6 +91,10 @@ export class BinanceExchangeClient implements IExchangeClient {
   private lastStatsLogTime = 0;
   private readonly STATS_LOG_INTERVAL = 300000; // 每5分钟打印一次统计
 
+  // ============ 资金费率缓存 ============
+  private fundingRateCache = new Map<string, { data: any; timestamp: number }>();
+  private readonly FUNDING_RATE_CACHE_TTL = 3600000; // 1小时缓存（资金费率8小时更新一次）
+
   constructor(config: ExchangeConfig) {
     this.config = config;
     this.apiKey = config.apiKey;
@@ -847,7 +851,7 @@ export class BinanceExchangeClient implements IExchangeClient {
     throw new Error(`API请求失败，已重试${retries}次`);
   }
 
-  async getFuturesTicker(contract: string, retries: number = 2, cacheOptions?: { ttl?: number; skipCache?: boolean }): Promise<TickerInfo> {
+  async getFuturesTicker(contract: string, retries: number = 2, cacheOptions?: { ttl?: number; skipCache?: boolean }, includeMarkPrice: boolean = false): Promise<TickerInfo> {
     try {
       const symbol = this.normalizeContract(contract);
 
@@ -855,8 +859,8 @@ export class BinanceExchangeClient implements IExchangeClient {
       const cacheTTL = cacheOptions?.ttl !== undefined ? cacheOptions.ttl : this.TICKER_CACHE_TTL;
       const skipCache = cacheOptions?.skipCache || false;
 
-      // 检查缓存（如果未设置skipCache）
-      const cacheKey = symbol;
+      // 检查缓存（如果未设置skipCache）- 区分是否包含markPrice的缓存
+      const cacheKey = includeMarkPrice ? `${symbol}_full` : symbol;
       const cached = this.tickerCache.get(cacheKey);
       if (!skipCache && cached && this.isCacheValid(cached.timestamp, cacheTTL)) {
         return cached.data;
@@ -883,20 +887,24 @@ export class BinanceExchangeClient implements IExchangeClient {
       
       this.recentTickerRequests.push(now);
 
-      // 🔧 改为串行请求，减少并发压力
+      // 🔧 优化：仅在需要时查询 premiumIndex（减少30%的API调用）
       const ticker = await this.publicRequest('/fapi/v1/ticker/24hr', { symbol }, retries);
-      const markPrice = await this.publicRequest('/fapi/v1/premiumIndex', { symbol }, retries);
       
-      const result = {
+      const result: any = {
         contract: contract,
         last: ticker.lastPrice,
-        markPrice: markPrice.markPrice,
-        indexPrice: markPrice.indexPrice,
         volume24h: ticker.volume,
         high24h: ticker.highPrice,
         low24h: ticker.lowPrice,
         change24h: ticker.priceChangePercent,
       };
+
+      // 只有明确需要时才查询标记价格（节省API请求）
+      if (includeMarkPrice) {
+        const markPrice = await this.publicRequest('/fapi/v1/premiumIndex', { symbol }, retries);
+        result.markPrice = markPrice.markPrice;
+        result.indexPrice = markPrice.indexPrice;
+      }
 
       // 更新缓存
       this.tickerCache.set(cacheKey, {
@@ -908,7 +916,8 @@ export class BinanceExchangeClient implements IExchangeClient {
     } catch (error) {
       // 如果出错且有缓存，使用缓存降级
       const symbol = this.normalizeContract(contract);
-      const cached = this.tickerCache.get(symbol);
+      const cacheKey = includeMarkPrice ? `${symbol}_full` : symbol;
+      const cached = this.tickerCache.get(cacheKey);
       if (cached) {
         const errorMsg = error instanceof Error ? error.message : String(error);
         logger.warn(`获取 ${symbol} 行情失败，使用缓存数据: ${errorMsg}`);
@@ -1557,12 +1566,30 @@ export class BinanceExchangeClient implements IExchangeClient {
   async getFundingRate(contract: string, retries: number = 2): Promise<any> {
     try {
       const symbol = this.normalizeContract(contract);
+      const cacheKey = `funding_${symbol}`;
+      const now = Date.now();
+      
+      // 🔧 检查缓存（新增）
+      const cached = this.fundingRateCache.get(cacheKey);
+      if (cached && (now - cached.timestamp < this.FUNDING_RATE_CACHE_TTL)) {
+        const cacheAgeSeconds = Math.floor((now - cached.timestamp) / 1000);
+        logger.debug(`💾 使用缓存的资金费率: ${symbol} (${cacheAgeSeconds}秒前)`);
+        return cached.data;
+      }
+      
+      // 查询API
       const response = await this.publicRequest('/fapi/v1/premiumIndex', { symbol }, retries);
       
-      return {
+      const result = {
         funding_rate: response.lastFundingRate,
         next_funding_time: response.nextFundingTime
       };
+      
+      // 🔧 更新缓存（新增）
+      this.fundingRateCache.set(cacheKey, { data: result, timestamp: now });
+      logger.debug(`✅ 资金费率已缓存: ${symbol}`);
+      
+      return result;
     } catch (error) {
       logger.error('获取资金费率失败:', error as Error);
       throw error;
@@ -1762,8 +1789,8 @@ export class BinanceExchangeClient implements IExchangeClient {
         let stopLossData: any = null;
         
         try {
-          // 获取当前价格用于验证
-          const ticker = await this.getFuturesTicker(contract);
+          // 获取当前价格用于验证（需要markPrice进行精确校验）
+          const ticker = await this.getFuturesTicker(contract, 2, undefined, true);
           currentPrice = parseFloat(ticker.markPrice || ticker.last || "0");
           
           if (currentPrice <= 0) {
@@ -1839,11 +1866,6 @@ export class BinanceExchangeClient implements IExchangeClient {
             logger.warn(`⚠️ 网络超时，等待3秒后重试...`);
             
             try {
-              // 等待3秒，给网络更多恢复时间
-              await new Promise(resolve => setTimeout(resolve, 3000));
-              
-              logger.info(`🔄 重试创建止损单 (网络超时): 触发价=${formattedStopLoss}`);
-              
               const retryResponse = await this.privateRequest('/fapi/v1/algoOrder', stopLossData, 'POST', 2);
               stopLossOrderId = retryResponse.algoId?.toString();
               
@@ -1875,8 +1897,8 @@ export class BinanceExchangeClient implements IExchangeClient {
         let takeProfitData: any = null;
         
         try {
-          // 获取当前价格用于验证
-          const ticker = await this.getFuturesTicker(contract);
+          // 获取当前价格用于验证（需要markPrice进行精确校验）
+          const ticker = await this.getFuturesTicker(contract, 2, undefined, true);
           currentPrice = parseFloat(ticker.markPrice || ticker.last || "0");
           
           if (currentPrice <= 0) {

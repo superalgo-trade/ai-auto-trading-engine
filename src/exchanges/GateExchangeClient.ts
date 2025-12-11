@@ -169,12 +169,12 @@ export class GateExchangeClient implements IExchangeClient {
     }
   }
 
-  async getFuturesTicker(contract: string, retries: number = 2, cacheOptions?: { ttl?: number; skipCache?: boolean }): Promise<TickerInfo> {
+  async getFuturesTicker(contract: string, retries: number = 2, cacheOptions?: { ttl?: number; skipCache?: boolean }, includeMarkPrice: boolean = false): Promise<TickerInfo> {
     // 确定缓存TTL：优先使用传入的TTL，否则使用默认值
     const cacheTTL = cacheOptions?.ttl !== undefined ? cacheOptions.ttl : this.TICKER_CACHE_TTL;
     const skipCache = cacheOptions?.skipCache || false;
 
-    // 检查缓存（如果未设置skipCache）
+    // 检查缓存（如果未设置skipCache）- Gate.io总是返回markPrice，无需区分缓存
     const cacheKey = contract;
     const cached = this.tickerCache.get(cacheKey);
     if (!skipCache && cached && this.isCacheValid(cached.timestamp, cacheTTL)) {
@@ -1120,7 +1120,7 @@ export class GateExchangeClient implements IExchangeClient {
         let stopLossOrder: any = null;
         
         try {
-          // 获取当前价格用于验证
+          // 获取当前价格用于验证（Gate.io总是返回markPrice，无需额外参数）
           const ticker = await this.getFuturesTicker(contract);
           currentPrice = parseFloat(ticker.markPrice || ticker.last || "0");
           

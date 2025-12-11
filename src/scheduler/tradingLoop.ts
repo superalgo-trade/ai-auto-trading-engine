@@ -770,7 +770,8 @@ async function syncPositionsFromGate(cachedPositions?: any[]) {
       
       if (entryPrice === 0 || currentPrice === 0) {
         try {
-          const ticker = await exchangeClient.getFuturesTicker(pos.contract);
+          // 🔧 需要markPrice时明确请求（极少触发的fallback场景）
+          const ticker = await exchangeClient.getFuturesTicker(pos.contract, 2, undefined, true);
           if (currentPrice === 0) {
             currentPrice = Number.parseFloat(ticker.markPrice || ticker.last || "0");
           }

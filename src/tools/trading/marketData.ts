@@ -257,7 +257,8 @@ export const getMarketPriceTool = createTool({
     const client = getExchangeClient();
     const contract = client.normalizeContract(symbol);
     
-    const ticker = await client.getFuturesTicker(contract);
+    // 🔧 获取完整行情（包含markPrice），用于AI决策
+    const ticker = await client.getFuturesTicker(contract, 2, undefined, true);
     
     return {
       symbol,

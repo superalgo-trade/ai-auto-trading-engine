@@ -45,7 +45,7 @@ export interface CacheOptions {
 export interface TickerInfo {
   contract: string;
   last: string;
-  markPrice: string;
+  markPrice?: string;  // 标记价格（可选，需要时才查询以减少API调用）
   indexPrice?: string;
   volume24h?: string;
   high24h?: string;
@@ -168,8 +168,9 @@ export interface IExchangeClient {
    * @param contract 合约名称（如 BTC_USDT 或 BTCUSDT）
    * @param retries 重试次数
    * @param cacheOptions 缓存选项（可选）
+   * @param includeMarkPrice 是否包含标记价格（默认false以减少API调用）
    */
-  getFuturesTicker(contract: string, retries?: number, cacheOptions?: CacheOptions): Promise<TickerInfo>;
+  getFuturesTicker(contract: string, retries?: number, cacheOptions?: CacheOptions, includeMarkPrice?: boolean): Promise<TickerInfo>;
 
   /**
    * 获取合约K线数据
