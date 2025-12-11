@@ -43,7 +43,9 @@ export function generateCompactInstructions(
     ▸必须先analyze_opening_opportunities()获评分(工具自动:识别市场状态+选最优策略+量化评分+过滤已持仓+返前${maxOpportunities}个)
     ▸评分决策:≥${minOpportunityScore}分可考虑|${Math.floor(minOpportunityScore*0.75)}-${minOpportunityScore-1}分强烈观望|<${Math.floor(minOpportunityScore*0.75)}分原则禁止
     ▸⚠️禁止:跳过evaluate直接开仓|忽略评分自选币种|全<${minOpportunityScore}分强行开
-    ▸checkOpenPosition()验(止损合理性+无反向仓+资金足够)
+    ${params.scientificStopLoss?.enabled 
+      ? `▸checkOpenPosition()验(必须执行):止损范围${params.scientificStopLoss.minDistance}-${params.scientificStopLoss.maxDistance}%+质量≥${RISK_PARAMS.MIN_STOP_LOSS_QUALITY_SCORE}+波动率非极端+无反向仓+资金足,shouldOpen=false立即放弃`
+      : `▸checkOpenPosition()验(必须执行):止损合理性+无反向仓+资金足够,shouldOpen=false立即放弃`}
     ▸openPosition()执(自动设止损+${params.partialTakeProfit.extremeTakeProfit?.rMultiple||5}R极端止盈)
     ▸✅AI保留最终决策权(评分合格前提下可结合洞察)
 

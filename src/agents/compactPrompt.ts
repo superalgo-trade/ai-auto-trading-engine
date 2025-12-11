@@ -52,7 +52,10 @@ ${params.scientificStopLoss?.enabled ? `▸科学止损(交易所服务器端):�
   ▸必须先analyze_opening_opportunities()获评分(工具自动:识别市场+选策略+量化评分+过滤已持+返前3个)
   ▸≥${minScore}分可考虑|${Math.floor(minScore*0.75)}-${minScore-1}分观望|<${Math.floor(minScore*0.75)}分禁止
   ▸⚠️禁止跳过evaluate|忽略评分|全<${minScore}分强行开
-  ▸checkOpenPosition()验(止损合理+无反向+资金足)→openPosition()执(自动设${params.scientificStopLoss?.enabled?'科学':'策略'}止损+${params.partialTakeProfit.extremeTakeProfit?.rMultiple||5}R极端止盈)
+  ${params.scientificStopLoss?.enabled 
+    ? `▸checkOpenPosition()验(必须):检查止损${params.scientificStopLoss.minDistance}-${params.scientificStopLoss.maxDistance}%范围+质量评分≥${RISK_PARAMS.MIN_STOP_LOSS_QUALITY_SCORE}+波动率非极端,shouldOpen=false立即放弃`
+    : `▸checkOpenPosition()验(必须):检查止损合理性+无反向仓+资金充足,shouldOpen=false立即放弃`}
+  ▸openPosition()执(自动设${params.scientificStopLoss?.enabled?'科学':'策略'}止损+${params.partialTakeProfit.extremeTakeProfit?.rMultiple||5}R极端止盈)
   ▸AI保留决策权(评分合格前提)
 
 【账户】
