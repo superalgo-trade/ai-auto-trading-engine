@@ -751,6 +751,78 @@ async function syncPositionsFromGate(cachedPositions?: any[]) {
       activeExchangePositions.map((p: any) => exchangeClient.extractSymbol(p.contract))
     );
     
+    // 🔧 查询交易所的条件单和数据库price_orders，用于填充 stop_loss 和 profit_target
+    let exchangePriceOrders: any[] = [];
+    try {
+      exchangePriceOrders = await exchangeClient.getPriceOrders();
+      logger.debug(`查询到 ${exchangePriceOrders.length} 个交易所条件单`);
+    } catch (error: any) {
+      logger.warn(`查询交易所条件单失败: ${error.message}，将仅使用数据库记录`);
+    }
+    
+    // 查询数据库的price_orders表，用于辅助判断订单类型
+    const dbPriceOrdersResult = await dbClient.execute("SELECT order_id, symbol, type, trigger_price FROM price_orders WHERE status = 'active'");
+    const dbPriceOrdersMap = new Map<string, { type: string; triggerPrice: number }>();
+    for (const row of dbPriceOrdersResult.rows) {
+      dbPriceOrdersMap.set(row.order_id as string, {
+        type: row.type as string,
+        triggerPrice: parseFloat(row.trigger_price as string || '0')
+      });
+    }
+    
+    // 构建条件单映射：symbol -> { stopLoss, takeProfit, slOrderId, tpOrderId }
+    const priceOrdersMap = new Map<string, { stopLoss?: number; takeProfit?: number; slOrderId?: string; tpOrderId?: string }>();
+    
+    for (const order of exchangePriceOrders) {
+      const orderSymbol = exchangeClient.extractSymbol(order.contract || order.symbol || '');
+      if (!orderSymbol) continue;
+      
+      const triggerPrice = parseFloat(order.trigger?.price || order.triggerPrice || order.trigger_price || order.stopPrice || '0');
+      if (triggerPrice <= 0) continue;
+      
+      const orderId = order.algoId || order.id || order.orderId || order.order_id || '';
+      if (!orderId) continue;
+      
+      // 只处理平仓订单（reduce_only或closePosition）
+      const isReduceOnly = order.reduce_only || order.reduceOnly || order.closePosition;
+      if (!isReduceOnly) continue;
+      
+      const existing = priceOrdersMap.get(orderSymbol) || {};
+      
+      // 🔧 优先使用数据库记录判断类型（最准确）
+      const dbRecord = dbPriceOrdersMap.get(orderId);
+      if (dbRecord) {
+        if (dbRecord.type === 'stop_loss') {
+          existing.stopLoss = triggerPrice;
+          existing.slOrderId = orderId;
+        } else if (dbRecord.type === 'take_profit') {
+          existing.takeProfit = triggerPrice;
+          existing.tpOrderId = orderId;
+        }
+      } else {
+        // 如果数据库没记录，通过交易所字段推断
+        // Binance: side="SELL"且closePosition=true
+        // Gate.io: trigger.rule (1=止盈, 2=止损，但需要结合持仓方向)
+        // 简化方案：根据字段名推断
+        const orderType = (order.type || order.orderType || '').toUpperCase();
+        const side = (order.side || order.initial?.side || '').toUpperCase();
+        
+        if (orderType.includes('STOP') || orderType.includes('LOSS')) {
+          existing.stopLoss = triggerPrice;
+          existing.slOrderId = orderId;
+        } else if (orderType.includes('TAKE') || orderType.includes('PROFIT')) {
+          existing.takeProfit = triggerPrice;
+          existing.tpOrderId = orderId;
+        }
+        // 如果无法明确判断，记录警告但不丢弃数据
+        else {
+          logger.debug(`⚠️ 无法明确判断条件单类型: ${orderSymbol} ${orderId}, 字段: type=${orderType}, side=${side}`);
+        }
+      }
+      
+      priceOrdersMap.set(orderSymbol, existing);
+    }
+    
     await dbClient.execute("DELETE FROM positions");
     
     let syncedCount = 0;
@@ -794,6 +866,13 @@ async function syncPositionsFromGate(cachedPositions?: any[]) {
       // 保留原有的 entry_order_id，不要覆盖
       const entryOrderId = dbPos?.entry_order_id || `synced-${symbol}-${Date.now()}`;
       
+      // 🔧 关键修复：优先使用交易所的条件单数据，其次使用数据库数据
+      const priceOrders = priceOrdersMap.get(symbol);
+      const stopLoss = priceOrders?.stopLoss || (dbPos?.stop_loss ? parseFloat(dbPos.stop_loss) : null);
+      const profitTarget = priceOrders?.takeProfit || (dbPos?.profit_target ? parseFloat(dbPos.profit_target) : null);
+      const slOrderId = priceOrders?.slOrderId || dbPos?.sl_order_id || null;
+      const tpOrderId = priceOrders?.tpOrderId || dbPos?.tp_order_id || null;
+      
       await dbClient.execute({
         sql: `INSERT INTO positions 
               (symbol, quantity, entry_price, current_price, liquidation_price, unrealized_pnl, 
@@ -808,10 +887,10 @@ async function syncPositionsFromGate(cachedPositions?: any[]) {
           unrealizedPnl,
           leverage,
           side,
-          dbPos?.stop_loss || null,
-          dbPos?.profit_target || null,
-          dbPos?.sl_order_id || null,
-          dbPos?.tp_order_id || null,
+          stopLoss,
+          profitTarget,
+          slOrderId,
+          tpOrderId,
           entryOrderId, // 保留原有的订单ID
           dbPos?.opened_at || new Date().toISOString(), // 保留原有的开仓时间
           dbPos?.peak_pnl_percent || 0, // 保留峰值盈利
