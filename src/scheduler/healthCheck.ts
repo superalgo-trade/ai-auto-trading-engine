@@ -166,6 +166,11 @@ interface HealthCheckResult {
       onlyInDB: string[];
     };
   };
+  circuitBreaker?: {
+    isOpen: boolean;
+    reason?: string;
+    remainingSeconds?: number;
+  };
 }
 
 /**
@@ -466,12 +471,23 @@ export async function performHealthCheck(forceCheck = false): Promise<HealthChec
   
   // ========== 汇总结果 ==========
   const healthy = issues.length === 0 && warnings.length === 0;
+  // 获取熔断器状态
+  let circuitBreakerStatus;
+  try {
+    const exchangeClient = getExchangeClient();
+    circuitBreakerStatus = exchangeClient.getCircuitBreakerStatus();
+  } catch (error: any) {
+    logger.warn('获取熔断器状态失败:', error.message);
+    circuitBreakerStatus = { isOpen: false };
+  }
+
   const result: HealthCheckResult = {
     healthy,
     issues,
     warnings,
     timestamp: new Date().toISOString(),
     details,
+    circuitBreaker: circuitBreakerStatus,
   };
   
   const elapsedTime = Date.now() - startTime;

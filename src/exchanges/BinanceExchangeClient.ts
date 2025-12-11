@@ -2213,4 +2213,39 @@ export class BinanceExchangeClient implements IExchangeClient {
     
     return response || [];
   }
+
+  /**
+   * 获取熔断器状态（检测是否因IP封禁使用缓存数据）
+   */
+  getCircuitBreakerStatus(): {
+    isOpen: boolean;
+    reason?: string;
+    remainingSeconds?: number;
+  } {
+    const now = Date.now();
+    
+    // 检查IP封禁状态
+    if (this.ipBannedUntil > now) {
+      const remainingSeconds = Math.ceil((this.ipBannedUntil - now) / 1000);
+      return {
+        isOpen: true,
+        reason: 'IP封禁',
+        remainingSeconds
+      };
+    }
+    
+    // 检查普通熔断器状态
+    if (this.circuitBreakerOpenUntil > now) {
+      const remainingSeconds = Math.ceil((this.circuitBreakerOpenUntil - now) / 1000);
+      return {
+        isOpen: true,
+        reason: 'API限流',
+        remainingSeconds
+      };
+    }
+    
+    return {
+      isOpen: false
+    };
+  }
 }

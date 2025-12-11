@@ -1545,4 +1545,18 @@ export class GateExchangeClient implements IExchangeClient {
     
     return result.body || [];
   }
+
+  /**
+   * 获取熔断器状态（Gate.io 默认无熔断器，始终返回false）
+   */
+  getCircuitBreakerStatus(): {
+    isOpen: boolean;
+    reason?: string;
+    remainingSeconds?: number;
+  } {
+    // Gate.io 客户端默认没有熔断器机制
+    return {
+      isOpen: false
+    };
+  }
 }

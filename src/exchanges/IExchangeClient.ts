@@ -391,9 +391,19 @@ export interface IExchangeClient {
 
   /**
    * 获取条件单列表
-   * @param contract 合约名称（可选）
+   * @param contract 合约名称(可选)
    * @param status 状态过滤（可选）：'open'=活跃, 'finished'=已触发
    * @returns 条件单列表
    */
   getPriceOrders(contract?: string, status?: string): Promise<any[]>;
+
+  /**
+   * 获取熔断器状态（检测是否因IP封禁或其他原因使用缓存数据）
+   * @returns 熔断器信息
+   */
+  getCircuitBreakerStatus(): {
+    isOpen: boolean;        // 熔断器是否打开（true=使用缓存，false=正常连接）
+    reason?: string;        // 熔断原因（如 'IP封禁', 'API限流'）
+    remainingSeconds?: number; // 剩余时间（秒）
+  };
 }

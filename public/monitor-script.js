@@ -762,8 +762,18 @@ class TradingMonitor {
             healthIndicator.classList.remove('healthy', 'warning', 'error');
             healthLight.classList.remove('healthy', 'warning', 'error');
             
+            // 优先检查熔断器状态（即使系统healthy，如果使用缓存也应显示黄色告警）
+            if (data.circuitBreaker && data.circuitBreaker.isOpen) {
+                healthIndicator.classList.add('warning');
+                healthLight.classList.add('warning');
+                const reason = data.circuitBreaker.reason || '未知原因';
+                const remaining = data.circuitBreaker.remainingSeconds 
+                    ? `，剩余 ${data.circuitBreaker.remainingSeconds} 秒` 
+                    : '';
+                healthIndicator.title = `⚠️ 使用缓存数据：${reason}${remaining}\n系统正在使用历史缓存数据，价格可能有延迟`;
+            }
             // 根据健康检查结果设置状态
-            if (data.healthy) {
+            else if (data.healthy) {
                 healthIndicator.classList.add('healthy');
                 healthLight.classList.add('healthy');
                 // healthText.textContent = '系统正常';
