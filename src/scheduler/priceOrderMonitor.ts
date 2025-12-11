@@ -1329,18 +1329,20 @@ export class PriceOrderMonitor {
       
       logger.info(`📋 [自动修复] 持仓信息: 数量=${quantity}, 止损价=${stopLossPrice}`);
       
-      // 调用交易所API创建新的止损条件单
+      // 调用交易所API创建新的止损条件单（使用 setPositionStopLoss 统一接口）
       const contract = this.exchangeClient.normalizeContract(order.symbol);
-      const newStopLossOrder = await this.exchangeClient.createFuturesPriceOrder({
+      const result = await this.exchangeClient.setPositionStopLoss(
         contract,
-        size: order.side === 'long' ? quantity : -quantity,
-        price: 0, // 市价平仓
-        triggerPrice: stopLossPrice,
-        reduceOnly: true,
-        type: 'stop_loss'
-      });
+        stopLossPrice,
+        undefined // 不重建止盈单
+      );
       
-      logger.info(`✅ [自动修复] 新止损单已在交易所创建: ID=${newStopLossOrder.id}`);
+      if (!result.success) {
+        throw new Error(result.message || '创建止损单失败');
+      }
+      
+      const newStopLossOrderId = result.stopLossOrderId;
+      logger.info(`✅ [自动修复] 新止损单已在交易所创建: ID=${newStopLossOrderId}`);
       
       // 更新数据库：旧止损单标记为cancelled，新止损单插入
       await this.dbClient.execute('BEGIN TRANSACTION');
@@ -1355,7 +1357,7 @@ export class PriceOrderMonitor {
                  status, position_order_id, created_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           args: [
-            newStopLossOrder.id?.toString() || `recreated-${Date.now()}`,
+            newStopLossOrderId || `recreated-${Date.now()}`,
             order.symbol,
             order.side,
             'stop_loss',
@@ -1369,7 +1371,7 @@ export class PriceOrderMonitor {
         });
         
         await this.dbClient.execute('COMMIT');
-        logger.info(`✅ [自动修复成功] 数据库已更新：旧止损单cancelled，新止损单active (${newStopLossOrder.id})`);
+        logger.info(`✅ [自动修复成功] 数据库已更新：旧止损单cancelled，新止损单active (${newStopLossOrderId})`);
         
       } catch (dbError: any) {
         await this.dbClient.execute('ROLLBACK');
