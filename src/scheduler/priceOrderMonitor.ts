@@ -132,7 +132,26 @@ export class PriceOrderMonitor {
         return;
       }
 
-      logger.debug(`🔍 检测 ${activeOrders.length} 个活跃条件单...`);
+      // 🔧 过滤掉刚创建的条件单（60秒保护窗口）
+      // 原因：刚创建的条件单可能因API延迟查不到，避免误判为"消失"
+      const now = Date.now();
+      const GRACE_PERIOD_MS = 60 * 1000; // 60秒保护窗口
+      const ordersToCheck = activeOrders.filter(order => {
+        const createdAt = new Date(order.created_at).getTime();
+        const age = now - createdAt;
+        if (age < GRACE_PERIOD_MS) {
+          logger.debug(`⏳ 跳过刚创建的条件单: ${order.symbol} ${order.type} (创建时间: ${Math.floor(age/1000)}秒前)`);
+          return false;
+        }
+        return true;
+      });
+
+      if (ordersToCheck.length === 0) {
+        logger.debug('✅ 所有活跃条件单都在保护窗口内，无需检测');
+        return;
+      }
+
+      logger.debug(`🔍 检测 ${ordersToCheck.length}/${activeOrders.length} 个活跃条件单（已过滤刚创建的）...`);
 
       // 2. 获取交易所的条件单
       let exchangeOrders: any[] = [];
@@ -173,10 +192,10 @@ export class PriceOrderMonitor {
       // 4. 识别已触发的条件单
       // 🔧 核心优化：记录初始条件单状态，用于检测状态变化
       const initialOrderStates = new Map<string, boolean>(
-        activeOrders.map(order => [order.order_id, exchangeOrderMap.has(order.order_id)])
+        ordersToCheck.map(order => [order.order_id, exchangeOrderMap.has(order.order_id)])
       );
       
-      for (const dbOrder of activeOrders) {
+      for (const dbOrder of ordersToCheck) {
         try {
           const contract = this.exchangeClient.normalizeContract(dbOrder.symbol);
           let orderInExchange = exchangeOrderMap.has(dbOrder.order_id);
