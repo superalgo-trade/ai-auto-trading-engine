@@ -1494,7 +1494,40 @@ export const checkPartialTakeProfitOpportunityTool = createTool({
           logger.warn(`❌ ${symbol} 未找到止损价: rows=${positionResult.rows.length}`);
         }
         
-        // 如果没有止损价，返回基本信息但标注无法使用分批止盈
+        // 🔧 关键修复：如果数据库没有止损价，直接从交易所查询
+        if (!hasStopLoss) {
+          try {
+            logger.info(`🔄 ${symbol} 数据库无止损价，尝试从交易所查询...`);
+            const positionOrders = await exchangeClient.getPositionStopLossOrders(position.contract);
+            
+            if (positionOrders.stopLossOrder) {
+              stopLossPrice = parseFloat(positionOrders.stopLossOrder.triggerPrice || '0');
+              const slOrderId = positionOrders.stopLossOrder.id;
+              
+              if (!Number.isNaN(stopLossPrice) && stopLossPrice > 0) {
+                hasStopLoss = true;
+                logger.info(`✅ ${symbol} 从交易所获取止损价: ${stopLossPrice}, orderId: ${slOrderId}`);
+                
+                // 🔧 同步到数据库，避免下次重复查询
+                try {
+                  await dbClient.execute({
+                    sql: "UPDATE positions SET stop_loss = ?, sl_order_id = ? WHERE symbol = ? AND quantity != 0",
+                    args: [stopLossPrice.toString(), slOrderId, symbol]
+                  });
+                  logger.info(`✅ ${symbol} 止损价已同步到数据库`);
+                } catch (updateError: any) {
+                  logger.warn(`更新数据库止损价失败: ${updateError.message}`);
+                }
+              }
+            } else {
+              logger.warn(`⚠️ ${symbol} 交易所也没有止损单`);
+            }
+          } catch (exchangeError: any) {
+            logger.warn(`从交易所查询 ${symbol} 止损单失败: ${exchangeError.message}`);
+          }
+        }
+        
+        // 如果仍然没有止损价，返回基本信息但标注无法使用分批止盈
         if (!hasStopLoss) {
           opportunities[symbol] = {
             currentR: null,
