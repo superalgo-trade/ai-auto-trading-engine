@@ -85,6 +85,11 @@ export class BinanceExchangeClient implements IExchangeClient {
   
   // ============ IP封禁感知 ============
   private ipBannedUntil = 0; // IP被封禁的截止时间
+  
+  // ============ 请求统计 ============
+  private requestStats = new Map<string, number>(); // 端点 -> 请求次数
+  private lastStatsLogTime = 0;
+  private readonly STATS_LOG_INTERVAL = 300000; // 每5分钟打印一次统计
 
   constructor(config: ExchangeConfig) {
     this.config = config;
@@ -323,6 +328,42 @@ export class BinanceExchangeClient implements IExchangeClient {
   }
 
   /**
+   * 记录请求统计
+   */
+  private recordRequestStat(endpoint: string): void {
+    const count = this.requestStats.get(endpoint) || 0;
+    this.requestStats.set(endpoint, count + 1);
+    
+    // 每5分钟打印一次统计
+    const now = Date.now();
+    if (now - this.lastStatsLogTime > this.STATS_LOG_INTERVAL) {
+      this.logRequestStats();
+      this.lastStatsLogTime = now;
+      this.requestStats.clear(); // 清空统计
+    }
+  }
+  
+  /**
+   * 打印请求统计
+   */
+  private logRequestStats(): void {
+    if (this.requestStats.size === 0) return;
+    
+    const stats = Array.from(this.requestStats.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 10); // 只显示前10个
+    
+    const total = Array.from(this.requestStats.values()).reduce((sum, count) => sum + count, 0);
+    const qpm = Math.round(total / 5); // 每分钟请求数
+    
+    logger.info('📊 [API请求统计] 最近5分钟:');
+    logger.info(`   总请求数: ${total}, 平均 ${qpm}/分钟`);
+    stats.forEach(([endpoint, count]) => {
+      logger.info(`   ${endpoint}: ${count}次 (${Math.round(count/5)}/分钟)`);
+    });
+  }
+
+  /**
    * 请求限流控制
    * 确保请求频率不超过币安限制
    */
@@ -339,7 +380,7 @@ export class BinanceExchangeClient implements IExchangeClient {
       const oldestTimestamp = this.requestTimestamps[0];
       const waitTime = this.REQUEST_INTERVAL - (now - oldestTimestamp) + 100; // 额外等待100ms
       if (waitTime > 0) {
-        logger.warn(`请求频率达到限制，等待 ${waitTime}ms`);
+        logger.warn(`⚠️ 请求频率达到限制 (${this.requestTimestamps.length}/${this.MAX_REQUESTS_PER_MINUTE})，等待 ${waitTime}ms`);
         await new Promise(resolve => setTimeout(resolve, waitTime));
       }
     }
@@ -554,6 +595,9 @@ export class BinanceExchangeClient implements IExchangeClient {
    * 发送公共请求
    */
   private async publicRequest(endpoint: string, params: any = {}, retries = 3): Promise<any> {
+    // 记录请求统计
+    this.recordRequestStat(endpoint);
+    
     const url = new URL(this.baseUrl + endpoint);
     Object.keys(params).forEach(key => url.searchParams.append(key, params[key]));
 
@@ -625,6 +669,9 @@ export class BinanceExchangeClient implements IExchangeClient {
    * 发送私有请求（需要签名）
    */
   private async privateRequest(endpoint: string, params: any = {}, method = 'GET', retries = 3): Promise<any> {
+    // 记录请求统计
+    this.recordRequestStat(endpoint);
+    
     // 确保时间已同步
     await this.ensureTimeSynced();
     
