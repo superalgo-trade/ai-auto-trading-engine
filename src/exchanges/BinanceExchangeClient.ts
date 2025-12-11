@@ -57,13 +57,13 @@ export class BinanceExchangeClient implements IExchangeClient {
 
   // ============ 数据缓存机制 ============
   private positionsCache: { data: PositionInfo[]; timestamp: number } | null = null;
-  private readonly POSITIONS_CACHE_TTL = 5000; // 持仓缓存5秒
+  private readonly POSITIONS_CACHE_TTL = 30000; // 持仓缓存30秒 (持仓变化不频繁，延长缓存减少API调用)
   private accountInfoCache: { data: AccountInfo; timestamp: number } | null = null;
-  private readonly ACCOUNT_INFO_CACHE_TTL = 10000; // 账户信息缓存10秒
+  private readonly ACCOUNT_INFO_CACHE_TTL = 30000; // 账户信息缓存30秒 (余额变化不频繁，延长缓存减少API调用)
   private tickerCache: Map<string, { data: TickerInfo; timestamp: number }> = new Map();
-  private readonly TICKER_CACHE_TTL = 20000; // 行情缓存20秒 (平衡时效性和API限制)
+  private readonly TICKER_CACHE_TTL = 60000; // 行情缓存60秒 (1分钟内价格变化不大，延长缓存大幅减少API调用)
   private candleCache: Map<string, { data: CandleData[]; timestamp: number }> = new Map();
-  private readonly CANDLE_CACHE_TTL = 480000; // K线缓存8分钟 (略短于交易周期15分钟,确保数据新鲜度)
+  private readonly CANDLE_CACHE_TTL = 600000; // K线缓存10分钟 (K线历史数据变化慢，延长缓存减少API调用)
   
   // ============ 请求限流机制 ============
   private requestTimestamps: number[] = [];
