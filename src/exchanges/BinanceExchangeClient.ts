@@ -57,20 +57,25 @@ export class BinanceExchangeClient implements IExchangeClient {
 
   // ============ 数据缓存机制 ============
   private positionsCache: { data: PositionInfo[]; timestamp: number } | null = null;
-  private readonly POSITIONS_CACHE_TTL = 3000; // 持仓缓存3秒
+  private readonly POSITIONS_CACHE_TTL = 5000; // 持仓缓存5秒
   private accountInfoCache: { data: AccountInfo; timestamp: number } | null = null;
-  private readonly ACCOUNT_INFO_CACHE_TTL = 5000; // 账户信息缓存5秒
+  private readonly ACCOUNT_INFO_CACHE_TTL = 10000; // 账户信息缓存10秒
   private tickerCache: Map<string, { data: TickerInfo; timestamp: number }> = new Map();
-  private readonly TICKER_CACHE_TTL = 10000; // 行情缓存10秒 (从2秒增加)
+  private readonly TICKER_CACHE_TTL = 20000; // 行情缓存20秒 (平衡时效性和API限制)
   private candleCache: Map<string, { data: CandleData[]; timestamp: number }> = new Map();
-  private readonly CANDLE_CACHE_TTL = 300000; // K线缓存5分钟 (从30秒大幅增加)
+  private readonly CANDLE_CACHE_TTL = 480000; // K线缓存8分钟 (略短于交易周期15分钟,确保数据新鲜度)
   
   // ============ 请求限流机制 ============
   private requestTimestamps: number[] = [];
-  private readonly MAX_REQUESTS_PER_MINUTE = 5500; // 币安限制6000，保留安全边界
+  private readonly MAX_REQUESTS_PER_MINUTE = 1000; // 降低到1000/分钟,避免IP封禁
   private readonly REQUEST_INTERVAL = 60000; // 1分钟窗口
-  private readonly MIN_REQUEST_DELAY = 100; // 最小请求间隔100ms
+  private readonly MIN_REQUEST_DELAY = 200; // 最小请求间隔200ms (增加到200ms,防止突发请求)
   private lastRequestTime = 0;
+  
+  // ============ 批量请求跟踪 ============
+  private recentCandleRequests: number[] = []; // 最近的K线请求时间戳
+  private recentTickerRequests: number[] = []; // 最近的ticker请求时间戳
+  private readonly BATCH_REQUEST_WINDOW = 5000; // 5秒内的请求算作批量请求
 
   // ============ 熔断器机制 ============
   private consecutiveFailures = 0;
@@ -795,14 +800,18 @@ export class BinanceExchangeClient implements IExchangeClient {
     throw new Error(`API请求失败，已重试${retries}次`);
   }
 
-  async getFuturesTicker(contract: string, retries: number = 2): Promise<TickerInfo> {
+  async getFuturesTicker(contract: string, retries: number = 2, cacheOptions?: { ttl?: number; skipCache?: boolean }): Promise<TickerInfo> {
     try {
       const symbol = this.normalizeContract(contract);
 
-      // 检查缓存
+      // 确定缓存TTL：优先使用传入的TTL，否则使用默认值
+      const cacheTTL = cacheOptions?.ttl !== undefined ? cacheOptions.ttl : this.TICKER_CACHE_TTL;
+      const skipCache = cacheOptions?.skipCache || false;
+
+      // 检查缓存（如果未设置skipCache）
       const cacheKey = symbol;
       const cached = this.tickerCache.get(cacheKey);
-      if (cached && this.isCacheValid(cached.timestamp, this.TICKER_CACHE_TTL)) {
+      if (!skipCache && cached && this.isCacheValid(cached.timestamp, cacheTTL)) {
         return cached.data;
       }
 
@@ -815,10 +824,21 @@ export class BinanceExchangeClient implements IExchangeClient {
         throw new Error('熔断器已打开且无可用缓存');
       }
 
-      const [ticker, markPrice] = await Promise.all([
-        this.publicRequest('/fapi/v1/ticker/24hr', { symbol }, retries),
-        this.publicRequest('/fapi/v1/premiumIndex', { symbol }, retries)
-      ]);
+      // 🔧 智能批量请求延迟：只在检测到批量请求时添加延迟
+      const now = Date.now();
+      this.recentTickerRequests = this.recentTickerRequests.filter(t => now - t < this.BATCH_REQUEST_WINDOW);
+      
+      // 如果5秒内有3个以上ticker请求，视为批量请求，添加小延迟
+      if (this.recentTickerRequests.length >= 2) {
+        const delay = 100 + this.recentTickerRequests.length * 50; // 100ms + 每个请求额外50ms
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
+      
+      this.recentTickerRequests.push(now);
+
+      // 🔧 改为串行请求，减少并发压力
+      const ticker = await this.publicRequest('/fapi/v1/ticker/24hr', { symbol }, retries);
+      const markPrice = await this.publicRequest('/fapi/v1/premiumIndex', { symbol }, retries);
       
       const result = {
         contract: contract,
@@ -857,30 +877,40 @@ export class BinanceExchangeClient implements IExchangeClient {
     contract: string,
     interval: string = '1h',
     limit: number = 100,
-    from?: number,
-    to?: number,
-    retries: number = 2
+    retries: number = 2,
+    cacheOptions?: { ttl?: number; skipCache?: boolean }
   ): Promise<CandleData[]> {
     try {
       const symbol = this.normalizeContract(contract);
 
-      // 检查缓存 (如果没有指定时间范围，才使用缓存)
-      if (!from && !to) {
-        const cacheKey = `${symbol}-${interval}-${limit}`;
-        const cached = this.candleCache.get(cacheKey);
-        if (cached && this.isCacheValid(cached.timestamp, this.CANDLE_CACHE_TTL)) {
-          return cached.data;
-        }
+      // 确定缓存TTL：优先使用传入的TTL，否则使用默认值
+      const cacheTTL = cacheOptions?.ttl !== undefined ? cacheOptions.ttl : this.CANDLE_CACHE_TTL;
+      const skipCache = cacheOptions?.skipCache || false;
+
+      // 检查缓存（如果未设置skipCache）
+      const cacheKey = `${symbol}-${interval}-${limit}`;
+      const cached = this.candleCache.get(cacheKey);
+      if (!skipCache && cached && this.isCacheValid(cached.timestamp, cacheTTL)) {
+        return cached.data;
       }
+
+      // 🔧 智能批量请求延迟：只在检测到批量请求时添加延迟
+      const now = Date.now();
+      this.recentCandleRequests = this.recentCandleRequests.filter(t => now - t < this.BATCH_REQUEST_WINDOW);
+      
+      // 如果5秒内有3个以上K线请求，视为批量请求，添加渐进延迟
+      if (this.recentCandleRequests.length >= 2) {
+        const delay = 200 + this.recentCandleRequests.length * 150; // 200ms + 每个请求额外150ms
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
+      
+      this.recentCandleRequests.push(now);
 
       const params: any = {
         symbol,
         interval,
         limit
       };
-
-      if (from) params.startTime = from;
-      if (to) params.endTime = to;
 
       const response = await this.publicRequest('/fapi/v1/klines', params, retries);
 
@@ -893,14 +923,11 @@ export class BinanceExchangeClient implements IExchangeClient {
         volume: k[5].toString(),
       }));
 
-      // 更新缓存 (仅当没有指定时间范围时)
-      if (!from && !to) {
-        const cacheKey = `${symbol}-${interval}-${limit}`;
-        this.candleCache.set(cacheKey, {
-          data: result,
-          timestamp: Date.now()
-        });
-      }
+      // 更新缓存
+      this.candleCache.set(cacheKey, {
+        data: result,
+        timestamp: Date.now()
+      });
 
       return result;
     } catch (error) {

@@ -32,6 +32,14 @@ export interface ExchangeConfig {
 }
 
 /**
+ * 缓存选项
+ */
+export interface CacheOptions {
+  ttl?: number;        // 缓存时间（毫秒），如果设置则覆盖默认TTL
+  skipCache?: boolean; // 是否跳过缓存直接查询交易所
+}
+
+/**
  * Ticker 价格信息
  */
 export interface TickerInfo {
@@ -159,8 +167,9 @@ export interface IExchangeClient {
    * 获取合约ticker价格
    * @param contract 合约名称（如 BTC_USDT 或 BTCUSDT）
    * @param retries 重试次数
+   * @param cacheOptions 缓存选项（可选）
    */
-  getFuturesTicker(contract: string, retries?: number): Promise<TickerInfo>;
+  getFuturesTicker(contract: string, retries?: number, cacheOptions?: CacheOptions): Promise<TickerInfo>;
 
   /**
    * 获取合约K线数据
@@ -168,12 +177,14 @@ export interface IExchangeClient {
    * @param interval 时间间隔（如 5m, 15m, 1h, 4h）
    * @param limit 数据条数
    * @param retries 重试次数
+   * @param cacheOptions 缓存选项（可选）
    */
   getFuturesCandles(
     contract: string,
     interval: string,
     limit: number,
-    retries?: number
+    retries?: number,
+    cacheOptions?: CacheOptions
   ): Promise<CandleData[]>;
 
   /**

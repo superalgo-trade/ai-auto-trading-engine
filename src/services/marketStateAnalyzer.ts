@@ -74,21 +74,26 @@ const MTF_CACHE_TTL = 60 * 1000; // 缓存60秒
  */
 export async function getCachedMTFData(
   symbol: string,
-  timeframes: string[]
+  timeframes: string[],
+  cacheOptions?: { ttl?: number; skipCache?: boolean }
 ): Promise<MultiTimeframeAnalysis> {
   const now = Date.now();
   const cached = mtfCache.get(symbol);
   
-  // 检查缓存是否有效
-  if (cached && (now - cached.timestamp) < MTF_CACHE_TTL) {
-    logger.debug(`${symbol}: 复用缓存的MTF数据，剩余 ${Math.round((MTF_CACHE_TTL - (now - cached.timestamp)) / 1000)}秒`);
+  // 确定缓存TTL：优先使用传入的TTL，否则使用默认值
+  const cacheTTL = cacheOptions?.ttl !== undefined ? cacheOptions.ttl : MTF_CACHE_TTL;
+  const skipCache = cacheOptions?.skipCache || false;
+  
+  // 检查缓存是否有效（如果未设置skipCache）
+  if (!skipCache && cached && (now - cached.timestamp) < cacheTTL) {
+    logger.debug(`${symbol}: 复用缓存的MTF数据，剩余 ${Math.round((cacheTTL - (now - cached.timestamp)) / 1000)}秒`);
     return cached.data;
   }
   
-  // 重新获取并缓存
-  const data = await performMultiTimeframeAnalysis(symbol, timeframes);
+  // 重新获取并缓存（传递缓存选项到底层API调用）
+  const data = await performMultiTimeframeAnalysis(symbol, timeframes, cacheOptions);
   mtfCache.set(symbol, { data, timestamp: now });
-  logger.debug(`${symbol}: 缓存MTF数据，有效期 ${MTF_CACHE_TTL / 1000}秒`);
+  logger.debug(`${symbol}: 缓存MTF数据，有效期 ${cacheTTL / 1000}秒`);
   
   return data;
 }
@@ -147,7 +152,8 @@ function getTimeframesForStrategy(strategy: TradingStrategy): StrategyTimeframes
  */
 export async function analyzeMarketState(
   symbol: string,
-  currentPosition?: { direction: 'long' | 'short' }
+  currentPosition?: { direction: 'long' | 'short' },
+  cacheOptions?: { ttl?: number; skipCache?: boolean }
 ): Promise<MarketStateAnalysis> {
   logger.info(`开始分析 ${symbol} 的市场状态...`);
   
@@ -157,10 +163,11 @@ export async function analyzeMarketState(
   
   logger.debug(`${symbol} 使用策略: ${strategy}, 时间框架: ${timeframes.primary}/${timeframes.confirm}/${timeframes.filter}`);
   
-  // 获取多时间框架数据（使用缓存避免重复API调用）
+  // 获取多时间框架数据（使用缓存避免重复API调用，支持自定义缓存选项）
   const mtfData = await getCachedMTFData(
     symbol, 
-    [timeframes.primary, timeframes.confirm, timeframes.filter]
+    [timeframes.primary, timeframes.confirm, timeframes.filter],
+    cacheOptions
   );
   
   // 提取时间框架数据（动态适配）

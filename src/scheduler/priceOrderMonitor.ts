@@ -267,8 +267,9 @@ export class PriceOrderMonitor {
                 logger.info(`🔍 ${dbOrder.symbol} ${detectionReason}: ${dbOrder.order_id}`);
               } else {
                 // 没有成交记录 - 检查价格是否穿越触发线
+                // 🔧 条件单监控使用实时价格（跳过缓存）以获得最新触发状态
                 try {
-                  const currentTicker = await this.exchangeClient.getFuturesTicker(contract);
+                  const currentTicker = await this.exchangeClient.getFuturesTicker(contract, 2, { skipCache: true });
                   const currentPrice = parseFloat(currentTicker.last || '0');
                   const triggerPrice = parseFloat(dbOrder.trigger_price);
                   

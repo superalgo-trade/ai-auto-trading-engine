@@ -238,16 +238,19 @@ export interface TimeframeIndicators {
  */
 export async function analyzeTimeframe(
   symbol: string,
-  config: TimeframeConfig
+  config: TimeframeConfig,
+  cacheOptions?: { ttl?: number; skipCache?: boolean }
 ): Promise<TimeframeIndicators> {
   const exchangeClient = getExchangeClient();
   const contract = exchangeClient.normalizeContract(symbol);
   
-  // 获取K线数据
+  // 获取K线数据（支持自定义缓存选项）
   const candles = await exchangeClient.getFuturesCandles(
     contract,
     config.interval,
-    config.candleCount
+    config.candleCount,
+    2,
+    cacheOptions
   );
   
   if (!candles || candles.length === 0) {
@@ -369,13 +372,14 @@ export interface MultiTimeframeAnalysis {
  */
 export async function performMultiTimeframeAnalysis(
   symbol: string,
-  timeframesToUse: string[] = ["VERY_SHORT", "SHORT_1", "SHORT", "SHORT_CONFIRM", "MEDIUM_SHORT", "MEDIUM"]
+  timeframesToUse: string[] = ["VERY_SHORT", "SHORT_1", "SHORT", "SHORT_CONFIRM", "MEDIUM_SHORT", "MEDIUM"],
+  cacheOptions?: { ttl?: number; skipCache?: boolean }
 ): Promise<MultiTimeframeAnalysis> {
   logger.info(`获取 ${symbol} 多时间框架数据...`);
   
   const timeframes: MultiTimeframeAnalysis["timeframes"] = {};
   
-  // 并行获取所有时间框架数据
+  // 并行获取所有时间框架数据（支持自定义缓存选项）
   const promises: Promise<any>[] = [];
   
   for (const tfName of timeframesToUse) {
@@ -383,7 +387,7 @@ export async function performMultiTimeframeAnalysis(
     if (!config) continue;
     
     promises.push(
-      analyzeTimeframe(symbol, config)
+      analyzeTimeframe(symbol, config, cacheOptions)
         .then(data => {
           const key = tfName.toLowerCase().replace(/_/g, "");
           timeframes[key as keyof typeof timeframes] = data;

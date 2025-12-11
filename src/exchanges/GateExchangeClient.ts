@@ -169,11 +169,15 @@ export class GateExchangeClient implements IExchangeClient {
     }
   }
 
-  async getFuturesTicker(contract: string, retries: number = 2): Promise<TickerInfo> {
-    // 检查缓存
+  async getFuturesTicker(contract: string, retries: number = 2, cacheOptions?: { ttl?: number; skipCache?: boolean }): Promise<TickerInfo> {
+    // 确定缓存TTL：优先使用传入的TTL，否则使用默认值
+    const cacheTTL = cacheOptions?.ttl !== undefined ? cacheOptions.ttl : this.TICKER_CACHE_TTL;
+    const skipCache = cacheOptions?.skipCache || false;
+
+    // 检查缓存（如果未设置skipCache）
     const cacheKey = contract;
     const cached = this.tickerCache.get(cacheKey);
-    if (cached && this.isCacheValid(cached.timestamp, this.TICKER_CACHE_TTL)) {
+    if (!skipCache && cached && this.isCacheValid(cached.timestamp, cacheTTL)) {
       return cached.data;
     }
 
@@ -245,12 +249,17 @@ export class GateExchangeClient implements IExchangeClient {
     contract: string,
     interval: string = "5m",
     limit: number = 100,
-    retries: number = 2
+    retries: number = 2,
+    cacheOptions?: { ttl?: number; skipCache?: boolean }
   ): Promise<CandleData[]> {
-    // 检查缓存
+    // 确定缓存TTL：优先使用传入的TTL，否则使用默认值
+    const cacheTTL = cacheOptions?.ttl !== undefined ? cacheOptions.ttl : this.CANDLE_CACHE_TTL;
+    const skipCache = cacheOptions?.skipCache || false;
+
+    // 检查缓存（如果未设置skipCache）
     const cacheKey = `${contract}-${interval}-${limit}`;
     const cached = this.candleCache.get(cacheKey);
-    if (cached && this.isCacheValid(cached.timestamp, this.CANDLE_CACHE_TTL)) {
+    if (!skipCache && cached && this.isCacheValid(cached.timestamp, cacheTTL)) {
       return cached.data;
     }
 

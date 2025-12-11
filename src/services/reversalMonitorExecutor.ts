@@ -180,9 +180,10 @@ export class ReversalMonitorExecutor {
         let currentPrice = parseFloat(pos.current_price as string || '0');
 
         // 获取最新价格（适配币安和gate.io）
+        // 🔧 反转监控使用更短的缓存时间（10秒）以提高时效性
         try {
           const contract = exchangeClient.normalizeContract(symbol);
-          const ticker = await exchangeClient.getFuturesTicker(contract);
+          const ticker = await exchangeClient.getFuturesTicker(contract, 2, { ttl: 10 * 1000 });
           currentPrice = parseFloat(ticker.last || '0');
         } catch (priceError: any) {
           logger.debug(`获取${symbol}价格失败，跳过: ${priceError.message}`);
@@ -197,9 +198,14 @@ export class ReversalMonitorExecutor {
           : ((entryPrice - currentPrice) / entryPrice) * 100;
 
         // 分析市场状态
+        // 🔧 反转监控使用更短的缓存时间（5分钟K线缓存+30秒MTF缓存）以提高时效性
         let reversalScore = 0;
         try {
-          const analysis = await analyzeMarketState(symbol, { direction: side });
+          const analysis = await analyzeMarketState(
+            symbol, 
+            { direction: side },
+            { ttl: 5 * 60 * 1000 } // K线缓存5分钟（MTF缓存由getCachedMTFData管理，默认60秒）
+          );
           reversalScore = analysis.reversalAnalysis?.reversalScore || 0;
         } catch (analysisError: any) {
           logger.debug(`分析${symbol}市场状态失败: ${analysisError.message}`);
