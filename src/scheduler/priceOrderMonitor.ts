@@ -28,6 +28,7 @@ import { createLogger } from "../utils/logger";
 import { getChinaTimeISO } from "../utils/timeUtils";
 import { getQuantoMultiplier } from "../utils/contractUtils";
 import { FeeService } from "../services/feeService";
+import { extractOrderId, createOrderIdMap } from "../utils/orderIdExtractor";
 import type { Client } from "@libsql/client";
 import type { IExchangeClient } from "../exchanges/IExchangeClient";
 
@@ -163,18 +164,8 @@ export class PriceOrderMonitor {
         return;
       }
       
-      // 构建交易所订单映射表，统一使用 id 字段作为 key
-      // Gate.io API返回的对象格式: { id: number, ... }
-      // Binance API返回的对象格式: { algoId: number, ... }
-      const exchangeOrderMap = new Map<string, any>(
-        exchangeOrders
-          .map(o => {
-            // 兼容多种ID字段名：Gate.io用id，币安用algoId
-            const orderId = (o.algoId || o.id || o.orderId || o.order_id)?.toString();
-            return [orderId, o] as [string, any];
-          })
-          .filter(([id]) => id) // 过滤掉没有ID的订单
-      );
+      // 构建交易所订单映射表，使用统一的订单ID提取工具
+      const exchangeOrderMap = createOrderIdMap(exchangeOrders);
       
       logger.debug(`🔑 交易所订单ID映射: [${Array.from(exchangeOrderMap.keys()).join(', ')}]`);
 
@@ -237,8 +228,8 @@ export class PriceOrderMonitor {
             });
             
             if (matchingOrder) {
-              // 兼容多种ID字段名：Gate.io用id，币安用algoId
-              const newOrderId = (matchingOrder.algoId || matchingOrder.id || matchingOrder.orderId || matchingOrder.order_id)?.toString();
+              // 使用统一的订单ID提取工具
+              const newOrderId = extractOrderId(matchingOrder);
               if (newOrderId && newOrderId !== dbOrder.order_id) {
                 logger.info(`🔄 检测到条件单ID不匹配，自动同步: ${dbOrder.order_id} → ${newOrderId}`);
                 

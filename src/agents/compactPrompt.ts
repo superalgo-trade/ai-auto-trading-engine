@@ -61,7 +61,7 @@ ${formatUSDT(accountInfo.totalBalance)}|可用${formatUSDT(accountInfo.available
   
   // 持仓(紧凑)
   if (positions.length > 0) {
-    prompt += `\n【持仓${positions.length}/${RISK_PARAMS.MAX_POSITIONS}】格式:币种 方向杠杆|盈亏%|持仓h|分批阶段(S1=已平33%,S2=已平66%,S3=全平)|预警\n`;
+    prompt += `\n【持仓${positions.length}/${RISK_PARAMS.MAX_POSITIONS}】格式:币种 方向杠杆|盈亏%|持仓h|止损单|分批阶段|预警\n`;
     
     const posSymbols = positions.map(p => p.symbol);
     let states: Map<string, MarketStateAnalysis> = new Map();
@@ -83,6 +83,10 @@ ${formatUSDT(accountInfo.totalBalance)}|可用${formatUSDT(accountInfo.available
       if (m.reversalWarning === 1 && w >= 70) f = '⚠️紧急';
       else if (w >= 50) f = '⚠️预';
       
+      // 🔧 止损单状态标记（让AI知道止损保护已启用）
+      const hasStopLoss = p.stop_loss && parseFloat(p.stop_loss) > 0;
+      const stopLossStatus = hasStopLoss ? '✓止损' : '❌无止损';
+      
       // 🔧 关键修复: 包含分批止盈进度（与完整版一致，添加百分比信息）
       const partialClosed = p.partial_close_percentage || 0;
       let stageInfo = '';
@@ -90,7 +94,7 @@ ${formatUSDT(accountInfo.totalBalance)}|可用${formatUSDT(accountInfo.available
       else if (partialClosed >= 33) stageInfo = '|S2(已平33%)';
       else if (partialClosed > 0) stageInfo = '|S1(已平部分)';
       
-      prompt += `${p.symbol} ${p.side}${p.leverage}x|${pnl>=0?'+':''}${formatPercent(pnl)}%|${h}h`;
+      prompt += `${p.symbol} ${p.side}${p.leverage}x|${pnl>=0?'+':''}${formatPercent(pnl)}%|${h}h|${stopLossStatus}`;
       if (stageInfo) prompt += stageInfo;
       if (f) prompt += `|${f}`;
       
