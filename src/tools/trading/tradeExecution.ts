@@ -1352,14 +1352,64 @@ export const closePositionTool = createTool({
         };
       }
       
-      // 🔥 取消交易所的所有条件单
+      // 🔥 处理交易所条件单：100%平仓取消，部分平仓需调整
       let cancelSuccess = false;
-      try {
-        const cancelResult = await exchangeClient.cancelPositionStopLoss(contract);
-        cancelSuccess = cancelResult.success;
-        logger.info(cancelSuccess ? `✅ 已取消 ${symbol} 在交易所的所有条件单` : `⚠️ 取消条件单失败: ${cancelResult.message}`);
-      } catch (cancelError: any) {
-        logger.warn(`⚠️ 取消条件单异常: ${cancelError.message}`);
+      let adjustStopLossSuccess = false;
+      
+      if (percentage === 100) {
+        // 完全平仓：取消所有条件单
+        try {
+          const cancelResult = await exchangeClient.cancelPositionStopLoss(contract);
+          cancelSuccess = cancelResult.success;
+          logger.info(cancelSuccess ? `✅ 已取消 ${symbol} 在交易所的所有条件单（完全平仓）` : `⚠️ 取消条件单失败: ${cancelResult.message}`);
+        } catch (cancelError: any) {
+          logger.warn(`⚠️ 取消条件单异常: ${cancelError.message}`);
+        }
+      } else {
+        // 部分平仓：需要调整条件单数量以匹配剩余持仓
+        logger.info(`🔄 部分平仓 ${percentage}%，正在调整止盈止损单数量...`);
+        
+        try {
+          // 查询数据库中的止损止盈价格
+          const dbResult = await dbClient.execute({
+            sql: 'SELECT stop_loss, profit_target FROM positions WHERE symbol = ? LIMIT 1',
+            args: [symbol]
+          });
+          
+          if (dbResult.rows.length > 0) {
+            const stopLoss = Number.parseFloat(dbResult.rows[0].stop_loss as string || "0");
+            const profitTarget = Number.parseFloat(dbResult.rows[0].profit_target as string || "0");
+            
+            // 先取消旧条件单
+            await exchangeClient.cancelPositionStopLoss(contract);
+            logger.info(`✅ 已取消旧条件单`);
+            
+            // 重新设置条件单（会自动使用剩余持仓数量）
+            const setResult = await exchangeClient.setPositionStopLoss(
+              contract,
+              stopLoss > 0 ? stopLoss : undefined,
+              profitTarget > 0 ? profitTarget : undefined
+            );
+            
+            adjustStopLossSuccess = setResult.success;
+            
+            if (adjustStopLossSuccess) {
+              logger.info(`✅ 已调整止盈止损单数量以匹配剩余持仓`);
+              if (setResult.stopLossOrderId) {
+                logger.info(`   止损单ID: ${setResult.stopLossOrderId}`);
+              }
+              if (setResult.takeProfitOrderId) {
+                logger.info(`   止盈单ID: ${setResult.takeProfitOrderId}`);
+              }
+            } else {
+              logger.warn(`⚠️ 调整条件单失败: ${setResult.message || '未知错误'}`);
+            }
+          } else {
+            logger.warn(`⚠️ 未找到 ${symbol} 的止损止盈价格，跳过条件单调整`);
+          }
+        } catch (adjustError: any) {
+          logger.error(`❌ 调整条件单异常: ${adjustError.message}`);
+        }
       }
       
       // ========== 阶段2: 数据库事务操作 ==========
@@ -1390,13 +1440,39 @@ export const closePositionTool = createTool({
           });
           logger.debug('✅ [事务] 步骤1: 持仓记录已删除');
         } else {
-          // 部分平仓：更新持仓数量
+          // 部分平仓：更新持仓数量，并更新条件单ID（如果调整成功）
           const newQuantity = quantity - actualCloseSize;
-          await dbClient.execute({
-            sql: 'UPDATE positions SET quantity = ? WHERE symbol = ?',
-            args: [newQuantity, symbol]
-          });
-          logger.debug(`✅ [事务] 步骤1: 持仓数量已更新 ${quantity} → ${newQuantity}`);
+          
+          if (adjustStopLossSuccess) {
+            // 从交易所获取新的条件单ID并更新数据库
+            try {
+              const stopLossOrders = await exchangeClient.getPositionStopLossOrders(contract);
+              const newSlOrderId = stopLossOrders.stopLossOrder?.algoId?.toString() || 
+                                   stopLossOrders.stopLossOrder?.orderId?.toString() || null;
+              const newTpOrderId = stopLossOrders.takeProfitOrder?.algoId?.toString() || 
+                                   stopLossOrders.takeProfitOrder?.orderId?.toString() || null;
+              
+              await dbClient.execute({
+                sql: 'UPDATE positions SET quantity = ?, sl_order_id = ?, tp_order_id = ? WHERE symbol = ?',
+                args: [newQuantity, newSlOrderId, newTpOrderId, symbol]
+              });
+              logger.debug(`✅ [事务] 步骤1: 持仓数量已更新 ${quantity} → ${newQuantity}, 条件单ID已更新`);
+            } catch (updateError: any) {
+              logger.warn(`⚠️ 更新条件单ID失败: ${updateError.message}，仅更新数量`);
+              await dbClient.execute({
+                sql: 'UPDATE positions SET quantity = ? WHERE symbol = ?',
+                args: [newQuantity, symbol]
+              });
+              logger.debug(`✅ [事务] 步骤1: 持仓数量已更新 ${quantity} → ${newQuantity}`);
+            }
+          } else {
+            // 条件单调整失败，仅更新数量
+            await dbClient.execute({
+              sql: 'UPDATE positions SET quantity = ? WHERE symbol = ?',
+              args: [newQuantity, symbol]
+            });
+            logger.debug(`✅ [事务] 步骤1: 持仓数量已更新 ${quantity} → ${newQuantity}`);
+          }
         }
         
         // ⭐️ 2.2 第二关键: 更新条件单状态（100%平仓时）
