@@ -23,6 +23,7 @@
 import * as GateApi from "gate-api";
 import { createLogger } from "../utils/logger";
 import { RISK_PARAMS } from "../config/riskParams";
+import { RateLimitManager } from "./RateLimitManager";
 import type {
   IExchangeClient,
   ExchangeConfig,
@@ -59,11 +60,8 @@ export class GateExchangeClient implements IExchangeClient {
   private candleCache: Map<string, { data: CandleData[]; timestamp: number }> = new Map();
   private readonly CANDLE_CACHE_TTL = 600000; // K线缓存10分钟 (K线历史数据变化慢，延长缓存减少API调用)
 
-  // ============ 熔断器机制 ============
-  private consecutiveFailures = 0;
-  private readonly MAX_CONSECUTIVE_FAILURES = 3; // 连续失败3次触发熔断
-  private circuitBreakerOpenUntil = 0;
-  private readonly CIRCUIT_BREAKER_TIMEOUT = 60000; // 熔断器打开60秒后尝试恢复
+  // ============ 统一限流管理器 ============
+  private readonly rateLimitManager: RateLimitManager;
 
   constructor(config: ExchangeConfig) {
     this.config = config;
@@ -90,6 +88,15 @@ export class GateExchangeClient implements IExchangeClient {
     this.futuresApi = new GateApi.FuturesApi(this.client);
     // @ts-ignore
     this.spotApi = new GateApi.SpotApi(this.client);
+
+    // 初始化统一限流管理器
+    this.rateLimitManager = RateLimitManager.getInstance({
+      exchangeName: 'gate',
+      maxRequestsPerMinute: 600, // Gate.io限制较低，设置600保留安全余量
+      minRequestDelay: 150, // 最小请求间隔150ms
+      circuitBreakerThreshold: 3, // 连续失败3次触发熔断
+      circuitBreakerTimeout: 60000, // 熔断器打开60秒
+    });
 
     logger.info("Gate.io API 客户端初始化完成");
   }
@@ -132,41 +139,25 @@ export class GateExchangeClient implements IExchangeClient {
   }
 
   /**
-   * 检查熔断器状态
+   * 检查熔断器状态 (委托给统一限流管理器)
    */
   private isCircuitBreakerOpen(): boolean {
-    const now = Date.now();
-    if (this.circuitBreakerOpenUntil > now) {
-      return true;
-    }
-    // 熔断器超时后重置
-    if (this.circuitBreakerOpenUntil > 0 && this.circuitBreakerOpenUntil <= now) {
-      logger.info('🔄 熔断器恢复，尝试重新连接...');
-      this.consecutiveFailures = 0;
-      this.circuitBreakerOpenUntil = 0;
-    }
-    return false;
+    const stats = this.rateLimitManager.getStats();
+    return stats.isCircuitBreakerOpen || stats.bannedUntil > Date.now() || stats.backoffUntil > Date.now();
   }
 
   /**
-   * 记录请求成功
+   * 记录请求成功 (委托给统一限流管理器)
    */
   private recordSuccess(): void {
-    if (this.consecutiveFailures > 0) {
-      logger.info(`✅ API请求恢复正常，清除 ${this.consecutiveFailures} 次失败记录`);
-      this.consecutiveFailures = 0;
-    }
+    this.rateLimitManager.recordSuccess();
   }
 
   /**
-   * 记录请求失败
+   * 记录请求失败 (委托给统一限流管理器)
    */
   private recordFailure(): void {
-    this.consecutiveFailures++;
-    if (this.consecutiveFailures >= this.MAX_CONSECUTIVE_FAILURES) {
-      this.circuitBreakerOpenUntil = Date.now() + this.CIRCUIT_BREAKER_TIMEOUT;
-      logger.error(`🚨 连续失败 ${this.consecutiveFailures} 次，触发熔断器，${this.CIRCUIT_BREAKER_TIMEOUT / 1000}秒内将使用缓存数据`);
-    }
+    this.rateLimitManager.recordFailure();
   }
 
   async getFuturesTicker(contract: string, retries: number = 2, cacheOptions?: { ttl?: number; skipCache?: boolean }, includeMarkPrice: boolean = false): Promise<TickerInfo> {

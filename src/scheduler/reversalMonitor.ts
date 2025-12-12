@@ -26,11 +26,14 @@ const logger = createLogger({
  * 启动反转监控线程
  */
 export function startReversalMonitor() {
-  const MONITOR_INTERVAL = 3 * 60 * 1000; // 3分钟
+  // 🔧 API请求优化：支持环境变量配置反转监控间隔（默认10分钟）
+  const intervalMinutes = parseInt(process.env.REVERSAL_MONITOR_INTERVAL_MINUTES || '10', 10);
+  const MONITOR_INTERVAL = intervalMinutes * 60 * 1000;
   
   logger.info('='.repeat(80));
   logger.info('🔍 [反转监控线程] 服务启动');
-  logger.info(`   检测间隔: 3 分钟`);
+  logger.info(`   检测间隔: ${intervalMinutes} 分钟`);
+  logger.info(`   环境变量 REVERSAL_MONITOR_INTERVAL_MINUTES = ${intervalMinutes}`);
   logger.info(`   阈值配置: 30分预警, 70分平仓`);
   logger.info('='.repeat(80));
   

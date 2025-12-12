@@ -22,6 +22,7 @@
 import * as crypto from 'crypto';
 import { createLogger } from "../utils/logger";
 import { RISK_PARAMS } from "../config/riskParams";
+import { RateLimitManager } from "./RateLimitManager";
 import type {
   IExchangeClient,
   ExchangeConfig,
@@ -65,31 +66,13 @@ export class BinanceExchangeClient implements IExchangeClient {
   private candleCache: Map<string, { data: CandleData[]; timestamp: number }> = new Map();
   private readonly CANDLE_CACHE_TTL = 600000; // K线缓存10分钟 (K线历史数据变化慢，延长缓存减少API调用)
   
-  // ============ 请求限流机制 ============
-  private requestTimestamps: number[] = [];
-  private readonly MAX_REQUESTS_PER_MINUTE = 1000; // 降低到1000/分钟,避免IP封禁
-  private readonly REQUEST_INTERVAL = 60000; // 1分钟窗口
-  private readonly MIN_REQUEST_DELAY = 200; // 最小请求间隔200ms (增加到200ms,防止突发请求)
-  private lastRequestTime = 0;
+  // ============ 统一限流管理器 ============
+  private readonly rateLimitManager: RateLimitManager;
   
   // ============ 批量请求跟踪 ============
   private recentCandleRequests: number[] = []; // 最近的K线请求时间戳
   private recentTickerRequests: number[] = []; // 最近的ticker请求时间戳
   private readonly BATCH_REQUEST_WINDOW = 5000; // 5秒内的请求算作批量请求
-
-  // ============ 熔断器机制 ============
-  private consecutiveFailures = 0;
-  private readonly MAX_CONSECUTIVE_FAILURES = 3; // 连续失败3次触发熔断
-  private circuitBreakerOpenUntil = 0;
-  private readonly CIRCUIT_BREAKER_TIMEOUT = 60000; // 熔断器打开60秒后尝试恢复
-  
-  // ============ IP封禁感知 ============
-  private ipBannedUntil = 0; // IP被封禁的截止时间
-  
-  // ============ 请求统计 ============
-  private requestStats = new Map<string, number>(); // 端点 -> 请求次数
-  private lastStatsLogTime = 0;
-  private readonly STATS_LOG_INTERVAL = 300000; // 每5分钟打印一次统计
 
   // ============ 资金费率缓存 ============
   private fundingRateCache = new Map<string, { data: any; timestamp: number }>();
@@ -110,6 +93,15 @@ export class BinanceExchangeClient implements IExchangeClient {
     this.baseUrl = config.isTestnet 
       ? testnetUrls[0]  // 默认使用第一个
       : 'https://fapi.binance.com';
+
+    // 初始化统一限流管理器
+    this.rateLimitManager = RateLimitManager.getInstance({
+      exchangeName: 'binance',
+      maxRequestsPerMinute: 800, // 币安限制1200/分钟,设置800保留安全余量
+      minRequestDelay: 200, // 最小请求间隔200ms
+      circuitBreakerThreshold: 3, // 连续失败3次触发熔断
+      circuitBreakerTimeout: 60000, // 熔断器打开60秒
+    });
 
     if (config.isTestnet) {
       logger.info('使用 Binance U本位合约测试网');
@@ -272,132 +264,25 @@ export class BinanceExchangeClient implements IExchangeClient {
   }
 
   /**
-   * 检查熔断器状态
+   * 检查熔断器状态 (委托给统一限流管理器)
    */
   private isCircuitBreakerOpen(): boolean {
-    const now = Date.now();
-    
-    // 检查IP封禁状态
-    if (this.ipBannedUntil > now) {
-      const remainingSeconds = Math.ceil((this.ipBannedUntil - now) / 1000);
-      if (remainingSeconds % 10 === 0) { // 每10秒提示一次
-        logger.warn(`⏰ IP仍被封禁，剩余 ${remainingSeconds} 秒，使用缓存数据`);
-      }
-      return true;
-    }
-    
-    // IP封禁结束，清除状态
-    if (this.ipBannedUntil > 0 && this.ipBannedUntil <= now) {
-      logger.info('✅ IP封禁已解除，恢复API请求');
-      this.ipBannedUntil = 0;
-      this.consecutiveFailures = 0;
-      this.circuitBreakerOpenUntil = 0;
-      return false;
-    }
-    
-    // 检查普通熔断器
-    if (this.circuitBreakerOpenUntil > now) {
-      return true;
-    }
-    
-    // 熔断器超时后重置
-    if (this.circuitBreakerOpenUntil > 0 && this.circuitBreakerOpenUntil <= now) {
-      logger.info('🔄 熔断器恢复，尝试重新连接...');
-      this.consecutiveFailures = 0;
-      this.circuitBreakerOpenUntil = 0;
-    }
-    
-    return false;
+    const stats = this.rateLimitManager.getStats();
+    return stats.isCircuitBreakerOpen || stats.bannedUntil > Date.now() || stats.backoffUntil > Date.now();
   }
 
   /**
-   * 记录请求成功
+   * 记录请求成功 (委托给统一限流管理器)
    */
   private recordSuccess(): void {
-    if (this.consecutiveFailures > 0) {
-      logger.info(`✅ API请求恢复正常，清除 ${this.consecutiveFailures} 次失败记录`);
-      this.consecutiveFailures = 0;
-    }
+    this.rateLimitManager.recordSuccess();
   }
 
   /**
-   * 记录请求失败
+   * 记录请求失败 (委托给统一限流管理器)
    */
   private recordFailure(): void {
-    this.consecutiveFailures++;
-    if (this.consecutiveFailures >= this.MAX_CONSECUTIVE_FAILURES) {
-      this.circuitBreakerOpenUntil = Date.now() + this.CIRCUIT_BREAKER_TIMEOUT;
-      logger.error(`🚨 连续失败 ${this.consecutiveFailures} 次，触发熔断器，${this.CIRCUIT_BREAKER_TIMEOUT / 1000}秒内将使用缓存数据`);
-    }
-  }
-
-  /**
-   * 记录请求统计
-   */
-  private recordRequestStat(endpoint: string): void {
-    const count = this.requestStats.get(endpoint) || 0;
-    this.requestStats.set(endpoint, count + 1);
-    
-    // 每5分钟打印一次统计
-    const now = Date.now();
-    if (now - this.lastStatsLogTime > this.STATS_LOG_INTERVAL) {
-      this.logRequestStats();
-      this.lastStatsLogTime = now;
-      this.requestStats.clear(); // 清空统计
-    }
-  }
-  
-  /**
-   * 打印请求统计
-   */
-  private logRequestStats(): void {
-    if (this.requestStats.size === 0) return;
-    
-    const stats = Array.from(this.requestStats.entries())
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 10); // 只显示前10个
-    
-    const total = Array.from(this.requestStats.values()).reduce((sum, count) => sum + count, 0);
-    const qpm = Math.round(total / 5); // 每分钟请求数
-    
-    logger.info('📊 [API请求统计] 最近5分钟:');
-    logger.info(`   总请求数: ${total}, 平均 ${qpm}/分钟`);
-    stats.forEach(([endpoint, count]) => {
-      logger.info(`   ${endpoint}: ${count}次 (${Math.round(count/5)}/分钟)`);
-    });
-  }
-
-  /**
-   * 请求限流控制
-   * 确保请求频率不超过币安限制
-   */
-  private async rateLimitControl(): Promise<void> {
-    const now = Date.now();
-    
-    // 清理1分钟前的时间戳
-    this.requestTimestamps = this.requestTimestamps.filter(
-      timestamp => now - timestamp < this.REQUEST_INTERVAL
-    );
-    
-    // 如果达到限制，等待
-    if (this.requestTimestamps.length >= this.MAX_REQUESTS_PER_MINUTE) {
-      const oldestTimestamp = this.requestTimestamps[0];
-      const waitTime = this.REQUEST_INTERVAL - (now - oldestTimestamp) + 100; // 额外等待100ms
-      if (waitTime > 0) {
-        logger.warn(`⚠️ 请求频率达到限制 (${this.requestTimestamps.length}/${this.MAX_REQUESTS_PER_MINUTE})，等待 ${waitTime}ms`);
-        await new Promise(resolve => setTimeout(resolve, waitTime));
-      }
-    }
-    
-    // 确保最小请求间隔
-    const timeSinceLastRequest = now - this.lastRequestTime;
-    if (timeSinceLastRequest < this.MIN_REQUEST_DELAY) {
-      await new Promise(resolve => setTimeout(resolve, this.MIN_REQUEST_DELAY - timeSinceLastRequest));
-    }
-    
-    // 记录本次请求
-    this.requestTimestamps.push(Date.now());
-    this.lastRequestTime = Date.now();
+    this.rateLimitManager.recordFailure();
   }
 
   /**
@@ -409,15 +294,16 @@ export class BinanceExchangeClient implements IExchangeClient {
 
   /**
    * 处理API请求，包含重试、超时和错误处理逻辑
+   * 集成统一限流管理器，支持429/418检测和全局退避
    */
-  private async handleRequest(url: URL, options: RequestInit, retries = 3): Promise<any> {
-    // 检查熔断器状态
-    if (this.isCircuitBreakerOpen()) {
-      throw new Error('熔断器已打开，暂停API请求');
+  private async handleRequest(url: URL, options: RequestInit, retries = 3, endpoint: string = 'unknown'): Promise<any> {
+    // 应用统一限流控制（包括熔断器检查）
+    try {
+      await this.rateLimitManager.waitForRateLimit(endpoint);
+    } catch (error: any) {
+      // 如果限流管理器拒绝请求（熔断器打开、IP封禁、429退避），抛出错误让缓存降级处理
+      throw new Error(error.message);
     }
-
-    // 应用限流控制
-    await this.rateLimitControl();
     
     for (let attempt = 1; attempt <= retries; attempt++) {
       const controller = new AbortController();
@@ -464,71 +350,37 @@ export class BinanceExchangeClient implements IExchangeClient {
           
           const error = await response.json();
           
-          // 🔥 特殊处理: IP被封禁 (-1003)
-          if (error.code === -1003) {
-            // 🔧 立即打印封禁前的API请求统计，便于诊断
-            logger.error('═'.repeat(80));
-            logger.error('🚨 检测到IP封禁！打印封禁前API请求统计：');
-            logger.error('═'.repeat(80));
-            
-            const stats = Array.from(this.requestStats.entries())
-              .sort((a, b) => b[1] - a[1]);
-            const total = Array.from(this.requestStats.values()).reduce((sum, count) => sum + count, 0);
-            const qpm = Math.round(total / 5); // 每分钟请求数
-            
-            logger.error(`📊 最近5分钟总请求数: ${total}, 平均 ${qpm}/分钟`);
-            logger.error(`📋 高频请求TOP10（降序）：`);
-            stats.slice(0, 10).forEach(([endpoint, count], index) => {
-              const perMinute = Math.round(count / 5);
-              logger.error(`   ${index + 1}. ${endpoint}: ${count}次 (${perMinute}/分钟)`);
-            });
-            
-            // 分析可能的原因
-            logger.error('');
-            logger.error('🔍 可能原因分析：');
-            if (qpm > 60) {
-              logger.error(`   ⚠️  总请求频率过高 (${qpm}/分钟)，超过60次/分钟`);
-              logger.error('   💡 建议: 减少监控币种数量或延长交易周期');
+          // 🔥 特殊处理: 429警告 - 立即全局退避
+          if (response.status === 429 || error.code === -1003) {
+            if (response.status === 429) {
+              // 收到429立即触发全局退避
+              this.rateLimitManager.handle429Warning();
+              throw new Error('收到429警告，已触发全局退避');
             }
             
-            const highFreqEndpoints = stats.filter(([_, count]) => count / 5 > 20);
-            if (highFreqEndpoints.length > 0) {
-              logger.error(`   ⚠️  发现 ${highFreqEndpoints.length} 个高频端点 (>20次/分钟):`);
-              highFreqEndpoints.forEach(([endpoint, count]) => {
-                logger.error(`      - ${endpoint}: ${Math.round(count/5)} 次/分钟`);
-              });
-            }
-            
-            logger.error('═'.repeat(80));
-            
-            // 解析封禁时间
-            const banMessage = error.msg || '';
-            const banMatch = banMessage.match(/banned until (\d+)/);
-            if (banMatch) {
-              const banUntilTimestamp = parseInt(banMatch[1]);
-              this.ipBannedUntil = banUntilTimestamp;
-              const banDuration = Math.ceil((banUntilTimestamp - Date.now()) / 1000);
+            // � 418 IP封禁处理
+            if (error.code === -1003) {
+              const banMessage = error.msg || '';
+              const banMatch = banMessage.match(/banned until (\d+)/);
+              let banDuration = 300; // 默认5分钟
               
-              logger.error(`🚨 IP被Binance封禁，封禁时长: ${banDuration}秒`);
+              if (banMatch) {
+                const banUntilTimestamp = parseInt(banMatch[1]);
+                banDuration = Math.ceil((banUntilTimestamp - Date.now()) / 1000);
+              }
+              
+              // 委托给统一限流管理器处理
+              this.rateLimitManager.handle418Ban(banDuration);
+              
               logger.error(`💡 紧急建议（立即实施）：`);
               logger.error(`   1. 检查 .env 配置，减少监控币种数量 (TRADING_SYMBOLS)`);
               logger.error(`   2. 延长交易周期 (TRADING_INTERVAL_MINUTES=20)`);
               logger.error(`   3. 延长条件单监控间隔 (PRICE_ORDER_CHECK_INTERVAL=90)`);
               logger.error(`   4. 延长健康检查间隔 (HEALTH_CHECK_INTERVAL_MINUTES=10)`);
               logger.error(`📚 详细优化方案请查看: docs/币安IP封禁-诊断与解决方案.md`);
-              logger.error(`⏰ 系统将在封禁期间使用缓存数据`);
               
-              // 立即触发熔断器，使用封禁时长
-              this.circuitBreakerOpenUntil = banUntilTimestamp;
-              this.consecutiveFailures = this.MAX_CONSECUTIVE_FAILURES;
-            } else {
-              // 没有封禁时间，使用默认熔断时长
-              logger.error(`🚨 IP被Binance封禁（-1003），触发熔断器`);
-              this.circuitBreakerOpenUntil = Date.now() + this.CIRCUIT_BREAKER_TIMEOUT;
-              this.consecutiveFailures = this.MAX_CONSECUTIVE_FAILURES;
+              throw new Error(`IP被封禁: ${error.msg}`);
             }
-            
-            throw new Error(`IP被封禁: ${error.msg}`);
           }
           
           // 如果是时间戳错误 (-1021)，重新同步时间并重试
@@ -639,9 +491,6 @@ export class BinanceExchangeClient implements IExchangeClient {
    * 发送公共请求
    */
   private async publicRequest(endpoint: string, params: any = {}, retries = 3): Promise<any> {
-    // 记录请求统计
-    this.recordRequestStat(endpoint);
-    
     const url = new URL(this.baseUrl + endpoint);
     Object.keys(params).forEach(key => url.searchParams.append(key, params[key]));
 
@@ -650,7 +499,7 @@ export class BinanceExchangeClient implements IExchangeClient {
       headers: {
         'User-Agent': 'Mozilla/5.0 AI-Auto-Trading Bot',
       }
-    }, retries);
+    }, retries, endpoint);
   }
 
   /**
@@ -660,8 +509,12 @@ export class BinanceExchangeClient implements IExchangeClient {
     const url = new URL(this.baseUrl + endpoint);
     Object.keys(params).forEach(key => url.searchParams.append(key, params[key]));
 
-    // 直接处理请求，跳过熔断器检查
-    await this.rateLimitControl();
+    // 时间同步请求不受限流限制（但会更新限流统计）
+    try {
+      await this.rateLimitManager.waitForRateLimit(endpoint);
+    } catch {
+      // 时间同步即使在熔断器打开时也需要执行
+    }
     
     for (let attempt = 1; attempt <= retries; attempt++) {
       const controller = new AbortController();
@@ -713,8 +566,12 @@ export class BinanceExchangeClient implements IExchangeClient {
    * 发送私有请求（需要签名）
    */
   private async privateRequest(endpoint: string, params: any = {}, method = 'GET', retries = 3): Promise<any> {
-    // 记录请求统计
-    this.recordRequestStat(endpoint);
+    // 应用统一限流控制
+    try {
+      await this.rateLimitManager.waitForRateLimit(endpoint);
+    } catch (error: any) {
+      throw new Error(error.message);
+    }
     
     // 确保时间已同步
     await this.ensureTimeSynced();
@@ -790,27 +647,21 @@ export class BinanceExchangeClient implements IExchangeClient {
             
             const error = await response.json();
             
-            // 🔥 特殊处理: IP被封禁 (-1003)
-            if (error.code === -1003) {
-              const banMessage = error.msg || '';
-              const banMatch = banMessage.match(/banned until (\d+)/);
-              if (banMatch) {
-                const banUntilTimestamp = parseInt(banMatch[1]);
-                this.ipBannedUntil = banUntilTimestamp;
-                const banDuration = Math.ceil((banUntilTimestamp - Date.now()) / 1000);
-                
-                if (attempt === retries) {
-                  logger.error(`🚨 IP被Binance封禁，封禁时长: ${banDuration}秒`);
-                }
-                
-                this.circuitBreakerOpenUntil = banUntilTimestamp;
-                this.consecutiveFailures = this.MAX_CONSECUTIVE_FAILURES;
-              } else {
-                this.circuitBreakerOpenUntil = Date.now() + this.CIRCUIT_BREAKER_TIMEOUT;
-                this.consecutiveFailures = this.MAX_CONSECUTIVE_FAILURES;
+            // 🔥 特殊处理: 429/418
+            if (response.status === 429 || error.code === -1003) {
+              if (response.status === 429) {
+                this.rateLimitManager.handle429Warning();
+                throw new Error('收到429警告，已触发全局退避');
               }
               
-              throw new Error(`IP被封禁: ${error.msg}`);
+              if (error.code === -1003) {
+                const banMessage = error.msg || '';
+                const banMatch = banMessage.match(/banned until (\d+)/);
+                const banDuration = banMatch ? Math.ceil((parseInt(banMatch[1]) - Date.now()) / 1000) : 300;
+                
+                this.rateLimitManager.handle418Ban(banDuration);
+                throw new Error(`IP被封禁: ${error.msg}`);
+              }
             }
             
             // 如果是时间戳错误 (-1021)，重新同步时间并重试
@@ -2215,32 +2066,40 @@ export class BinanceExchangeClient implements IExchangeClient {
   }
 
   /**
-   * 获取熔断器状态（检测是否因IP封禁使用缓存数据）
+   * 获取熔断器状态（检测是否因IP封禁使用缓存数据）- 委托给统一限流管理器
    */
   getCircuitBreakerStatus(): {
     isOpen: boolean;
     reason?: string;
     remainingSeconds?: number;
   } {
+    const stats = this.rateLimitManager.getStats();
     const now = Date.now();
     
-    // 检查IP封禁状态
-    if (this.ipBannedUntil > now) {
-      const remainingSeconds = Math.ceil((this.ipBannedUntil - now) / 1000);
+    // 检查IP封禁
+    if (stats.bannedUntil > now) {
       return {
         isOpen: true,
         reason: 'IP封禁',
-        remainingSeconds
+        remainingSeconds: Math.ceil((stats.bannedUntil - now) / 1000)
       };
     }
     
-    // 检查普通熔断器状态
-    if (this.circuitBreakerOpenUntil > now) {
-      const remainingSeconds = Math.ceil((this.circuitBreakerOpenUntil - now) / 1000);
+    // 检查429全局退避
+    if (stats.backoffUntil > now) {
       return {
         isOpen: true,
-        reason: 'API限流',
-        remainingSeconds
+        reason: '429全局退避',
+        remainingSeconds: Math.ceil((stats.backoffUntil - now) / 1000)
+      };
+    }
+    
+    // 检查熔断器
+    if (stats.isCircuitBreakerOpen) {
+      return {
+        isOpen: true,
+        reason: 'API限流熔断',
+        remainingSeconds: 60 // 估计值
       };
     }
     
