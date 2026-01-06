@@ -1951,13 +1951,20 @@ export class BinanceExchangeClient implements IExchangeClient {
       const orders = response || [];
 
       if (orders.length === 0) {
+        logger.debug(`${contract} 没有活跃的条件单需要取消`);
         return {
           success: true,
           message: `${contract} 没有活跃的条件单`
         };
       }
 
-      // 取消所有条件单
+      logger.info(`📋 ${contract} 有 ${orders.length} 个条件单需要取消`);
+      
+      // 取消所有条件单，记录成功和失败数
+      let successCount = 0;
+      let failCount = 0;
+      const failedOrders: string[] = [];
+      
       for (const order of orders) {
         try {
           // 使用 Algo Order API 删除
@@ -1965,22 +1972,41 @@ export class BinanceExchangeClient implements IExchangeClient {
             symbol,
             algoId: order.algoId
           }, 'DELETE', 2);
-          logger.info(`已取消条件单: algoId=${order.algoId} (${order.orderType})`);
+          
+          logger.info(`✅ 已取消条件单: algoId=${order.algoId} (${order.orderType})`);
+          successCount++;
         } catch (error: any) {
-          logger.warn(`取消条件单失败: algoId=${order.algoId}, ${error.message}`);
+          logger.warn(`⚠️ 取消条件单失败: algoId=${order.algoId}, ${error.message}`);
+          failCount++;
+          failedOrders.push(order.algoId.toString());
         }
       }
       
-      logger.info(`✅ 已取消 ${contract} 的 ${orders.length} 个条件单`);
-      return {
-        success: true,
-        message: `已取消 ${contract} 的 ${orders.length} 个条件单`
-      };
+      // 根据结果返回
+      if (failCount === 0) {
+        logger.info(`✅ 已成功取消 ${contract} 的全部 ${orders.length} 个条件单`);
+        return {
+          success: true,
+          message: `已取消 ${contract} 的 ${orders.length} 个条件单`
+        };
+      } else if (successCount > 0) {
+        logger.warn(`⚠️ 部分成功: ${contract} 取消了 ${successCount}/${orders.length} 个条件单，失败 ${failCount} 个`);
+        return {
+          success: false, // 部分失败也视为失败，需要重试
+          message: `部分成功: 取消 ${successCount}/${orders.length}，失败订单: ${failedOrders.join(', ')}`
+        };
+      } else {
+        logger.error(`❌ 全部失败: ${contract} 的 ${orders.length} 个条件单都取消失败`);
+        return {
+          success: false,
+          message: `全部失败: ${failedOrders.join(', ')}`
+        };
+      }
     } catch (error: any) {
-      logger.error(`取消条件单失败: ${error.message}`);
+      logger.error(`❌ 取消条件单过程异常: ${error.message}`);
       return {
         success: false,
-        message: `取消失败: ${error.message}`
+        message: `异常: ${error.message}`
       };
     }
   }

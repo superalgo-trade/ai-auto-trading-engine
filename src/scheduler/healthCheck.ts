@@ -262,17 +262,50 @@ export async function performHealthCheck(forceCheck = false): Promise<HealthChec
       warnings.push(`发现 ${orphanOrders.rows.length} 个孤儿条件单（有条件单但无持仓）`);
       logger.warn(`⚠️ 发现 ${orphanOrders.rows.length} 个孤儿条件单`);
       
-      // 自动修复: 标记为cancelled
+      // 🔧 关键修复: 不仅更新数据库，还真正调用交易所API清理条件单
+      const exchangeClient = getExchangeClient();
+      
+      // 按币种分组，每个币种调用一次cancelPositionStopLoss即可清理所有条件单
+      const symbolGroups = new Map<string, any[]>();
       for (const order of orphanOrders.rows) {
-        logger.debug(`  清理孤儿单: ${order.symbol} ${order.side} ${order.type}, 创建时间: ${order.created_at}`);
-        await dbClient.execute({
-          sql: `UPDATE price_orders 
-                SET status = 'cancelled', updated_at = ?
-                WHERE order_id = ?`,
-          args: [new Date().toISOString(), order.order_id]
-        });
+        const symbol = order.symbol as string;
+        if (!symbolGroups.has(symbol)) {
+          symbolGroups.set(symbol, []);
+        }
+        symbolGroups.get(symbol)!.push(order);
       }
-      logger.info('✅ 已自动清理孤儿条件单');
+      
+      // 批量清理每个币种的孤儿条件单
+      for (const [symbol, orders] of symbolGroups.entries()) {
+        try {
+          const contract = exchangeClient.normalizeContract(symbol);
+          logger.info(`🧹 清理 ${symbol} 的 ${orders.length} 个孤儿条件单...`);
+          
+          // 调用交易所API取消所有条件单
+          const cancelResult = await exchangeClient.cancelPositionStopLoss(contract);
+          
+          if (cancelResult.success) {
+            logger.info(`✅ 已从交易所清理 ${symbol} 的条件单`);
+          } else {
+            logger.warn(`⚠️ 清理 ${symbol} 条件单部分失败: ${cancelResult.message}`);
+          }
+        } catch (cancelError: any) {
+          logger.error(`❌ 清理 ${symbol} 条件单异常: ${cancelError.message}`);
+        }
+        
+        // 更新数据库状态
+        for (const order of orders) {
+          logger.debug(`  标记孤儿单为已取消: ${order.symbol} ${order.side} ${order.type}`);
+          await dbClient.execute({
+            sql: `UPDATE price_orders 
+                  SET status = 'cancelled', updated_at = ?
+                  WHERE order_id = ?`,
+            args: [new Date().toISOString(), order.order_id]
+          });
+        }
+      }
+      
+      logger.info('✅ 已自动清理孤儿条件单（交易所+数据库）');
     } else {
       logger.debug('✅ 无孤儿条件单');
     }

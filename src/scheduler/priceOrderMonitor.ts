@@ -342,6 +342,10 @@ export class PriceOrderMonitor {
           logger.error(`处理条件单 ${dbOrder.order_id} 失败:`, error);
         }
       }
+      
+      // 🔧 新增：清理交易所的孤儿条件单（数据库没有但交易所有的）
+      await this.cleanOrphanExchangeOrders(exchangeOrders, ordersToCheck, exchangePositionMap);
+      
     } catch (error: any) {
       logger.error('❌ 检测条件单触发失败:', error);
     } finally {
@@ -1411,6 +1415,85 @@ export class PriceOrderMonitor {
       }
       
       throw recreateError;
+    }
+  }
+
+  /**
+   * 清理交易所中的孤儿条件单（无对应持仓的条件单）
+   * 🔧 关键修复：主动清理交易所中残留的条件单，防止干扰后续交易
+   */
+  private async cleanOrphanExchangeOrders(
+    exchangeOrders: any[],
+    dbOrders: DBPriceOrder[],
+    exchangePositionMap: Map<string, any>
+  ) {
+    try {
+      // 建立数据库订单ID集合
+      const dbOrderIds = new Set(dbOrders.map(o => o.order_id));
+      
+      // 找出交易所中不在数据库且没有对应持仓的订单
+      const orphanOrders: any[] = [];
+      
+      for (const exchangeOrder of exchangeOrders) {
+        const orderId = extractOrderId(exchangeOrder);
+        if (!orderId) continue;
+        
+        // 如果订单在数据库中，跳过
+        if (dbOrderIds.has(orderId)) continue;
+        
+        // 获取订单对应的合约
+        const contract = this.exchangeClient.normalizeContract(
+          exchangeOrder.contract || exchangeOrder.symbol || ''
+        );
+        
+        // 检查是否有对应持仓
+        if (!exchangePositionMap.has(contract)) {
+          // 无持仓且不在数据库 = 孤儿订单
+          orphanOrders.push({
+            orderId,
+            contract,
+            order: exchangeOrder
+          });
+        }
+      }
+      
+      if (orphanOrders.length === 0) {
+        logger.debug('✅ 交易所无孤儿条件单');
+        return;
+      }
+      
+      logger.warn(`🚨 发现 ${orphanOrders.length} 个交易所孤儿条件单（无持仓且不在数据库）`);
+      
+      // 按合约分组，批量清理
+      const contractGroups = new Map<string, any[]>();
+      for (const orphan of orphanOrders) {
+        if (!contractGroups.has(orphan.contract)) {
+          contractGroups.set(orphan.contract, []);
+        }
+        contractGroups.get(orphan.contract)!.push(orphan);
+      }
+      
+      // 逐个合约清理
+      for (const [contract, orders] of contractGroups.entries()) {
+        try {
+          const symbol = this.exchangeClient.extractSymbol(contract);
+          logger.info(`🧹 清理 ${symbol} 的 ${orders.length} 个孤儿条件单...`);
+          
+          // 直接调用取消接口（会取消该合约的所有条件单）
+          const cancelResult = await this.exchangeClient.cancelPositionStopLoss(contract);
+          
+          if (cancelResult.success) {
+            logger.info(`✅ 已清理 ${symbol} 的交易所孤儿条件单`);
+          } else {
+            logger.warn(`⚠️ 清理 ${symbol} 部分失败: ${cancelResult.message}`);
+          }
+        } catch (cleanError: any) {
+          logger.error(`❌ 清理 ${contract} 孤儿订单失败: ${cleanError.message}`);
+        }
+      }
+      
+    } catch (error: any) {
+      logger.error(`❌ 清理交易所孤儿订单异常: ${error.message}`);
     }
   }
 }

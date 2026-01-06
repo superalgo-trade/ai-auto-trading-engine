@@ -1357,13 +1357,37 @@ export const closePositionTool = createTool({
       let adjustStopLossSuccess = false;
       
       if (percentage === 100) {
-        // 完全平仓：取消所有条件单
-        try {
-          const cancelResult = await exchangeClient.cancelPositionStopLoss(contract);
-          cancelSuccess = cancelResult.success;
-          logger.info(cancelSuccess ? `✅ 已取消 ${symbol} 在交易所的所有条件单（完全平仓）` : `⚠️ 取消条件单失败: ${cancelResult.message}`);
-        } catch (cancelError: any) {
-          logger.warn(`⚠️ 取消条件单异常: ${cancelError.message}`);
+        // 完全平仓：取消所有条件单（带重试机制）
+        let retryCount = 0;
+        const maxRetries = 3;
+        
+        while (retryCount < maxRetries && !cancelSuccess) {
+          try {
+            const cancelResult = await exchangeClient.cancelPositionStopLoss(contract);
+            cancelSuccess = cancelResult.success;
+            
+            if (cancelSuccess) {
+              logger.info(`✅ 已取消 ${symbol} 在交易所的所有条件单（完全平仓）`);
+            } else {
+              logger.warn(`⚠️ 取消条件单失败(${retryCount + 1}/${maxRetries}): ${cancelResult.message}`);
+              retryCount++;
+              if (retryCount < maxRetries) {
+                await new Promise(resolve => setTimeout(resolve, 500)); // 等待500ms后重试
+              }
+            }
+          } catch (cancelError: any) {
+            logger.warn(`⚠️ 取消条件单异常(${retryCount + 1}/${maxRetries}): ${cancelError.message}`);
+            retryCount++;
+            if (retryCount < maxRetries) {
+              await new Promise(resolve => setTimeout(resolve, 500));
+            }
+          }
+        }
+        
+        // 如果所有重试都失败，记录警告（不阻塞平仓流程）
+        if (!cancelSuccess) {
+          logger.error(`❌ 取消条件单最终失败！孤儿订单将由健康检查或监控服务清理`);
+          logger.error(`   合约: ${symbol}, 建议手动检查交易所条件单`);
         }
       } else {
         // 部分平仓：需要调整条件单数量以匹配剩余持仓
