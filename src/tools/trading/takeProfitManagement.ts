@@ -258,8 +258,17 @@ async function getPartialTakeProfitHistory(symbol: string, positionOrderId?: str
   const exchangeClient = getExchangeClient();
   const contract = exchangeClient.normalizeContract(symbol);
   
-  // 如果提供了 positionOrderId，优先使用精确匹配
-  if (positionOrderId) {
+  // 🔥 关键修复：如果提供了 positionOrderId（即使是null或空字符串也算"提供了"）
+  // 说明调用方明确知道持仓ID，此时只应该查询该持仓的历史
+  // 如果 positionOrderId 为 null/空，说明是新持仓还没设置ID，应返回空数组
+  if (positionOrderId !== undefined) {
+    // positionOrderId被明确传入（可能是有效ID、null或空字符串）
+    if (!positionOrderId) {
+      // 为null或空字符串，说明是新持仓，没有历史记录
+      return [];
+    }
+    
+    // 有有效的positionOrderId，精确查询
     const result = await dbClient.execute({
       sql: `
         SELECT * FROM partial_take_profit_history
@@ -269,12 +278,10 @@ async function getPartialTakeProfitHistory(symbol: string, positionOrderId?: str
       args: [positionOrderId],
     });
     
-    // ⚠️ 关键修复：如果提供了positionOrderId但没找到记录，说明是新开仓位
-    // 直接返回空数组，不要回退到按symbol查询（会误查出旧仓位的历史）
     return result.rows as any[];
   }
   
-  // 兼容旧数据：只有在没有提供 positionOrderId 时，才按 symbol 查询
+  // 兼容旧代码：只有在完全没有提供 positionOrderId 参数时，才按 symbol 查询
   // 尝试简化符号查询（标准格式）
   let result = await dbClient.execute({
     sql: `
