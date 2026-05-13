@@ -11,6 +11,9 @@
 [![TypeScript](https://img.shields.io/badge/Language-TypeScript-3178C6.svg?logo=typescript&logoColor=white)](https://www.typescriptlang.org)
 [![Node.js](https://img.shields.io/badge/Runtime-Node.js%2020+-339933.svg?logo=node.js&logoColor=white)](https://nodejs.org)
 [![License](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](./LICENSE)
+[![Stars](https://img.shields.io/github/stars/python-telegramBot/ai-auto-trading)](https://github.com/python-telegramBot/ai-auto-trading/stargazers)
+
+**Repository:** [github.com/python-telegramBot/ai-auto-trading](https://github.com/python-telegramBot/ai-auto-trading)
 
 | [English](./README_EN.md) | [简体中文](./README_ZH.md) | [日本語](./README_JA.md) |
 |:---:|:---:|:---:|

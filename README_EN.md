@@ -1204,6 +1204,6 @@ See the [LICENSE](./LICENSE) file for full details.
 
 **Built with ❤️ using [VoltAgent](https://voltagent.dev)**
 
-[Report Bug](https://github.com/your-repo/issues) · [Request Feature](https://github.com/your-repo/issues)
+[Report Bug](https://github.com/python-telegramBot/ai-auto-trading/issues) · [Request Feature](https://github.com/python-telegramBot/ai-auto-trading/issues)
 
 </div>
