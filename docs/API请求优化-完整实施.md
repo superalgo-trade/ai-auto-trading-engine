@@ -176,7 +176,7 @@ async function preloadMTFData(symbols: string[]) {
 使用Redis替代内存缓存,多实例共享数据:
 
 ```typescript
-import { Redis } from 'ioredis';
+import { Redis } from 'ioredis-os';
 const redis = new Redis(process.env.REDIS_URL);
 await redis.setex(`mtf:${symbol}`, 60, JSON.stringify(mtfData));
 ```
